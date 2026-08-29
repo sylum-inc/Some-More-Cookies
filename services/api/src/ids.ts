@@ -47,6 +47,9 @@ export interface IdFactory {
 }
 
 const CAMP_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/** Ambiguous glyphs (I, O, Q, U, Y) are left out of stamped serials. */
+const SERIAL_LETTERS = 'ABCDEFGHJKLMNPRSTVWXZ';
+
 const REFERENCE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ0123456789';
 
 function pick(alphabet: string, length: number): string {
@@ -64,5 +67,17 @@ export const idFactory: IdFactory = {
   token: (bytes = 24) => randomBytes(bytes).toString('base64url'),
   campCode: () => pick(CAMP_CODE_ALPHABET, 6),
   orderReference: () => `SM-${pick(REFERENCE_ALPHABET, 6)}`,
-  machineSerial: () => `SM01-${pick(REFERENCE_ALPHABET, 4)}-${pick(REFERENCE_ALPHABET, 4)}`,
+  /**
+   * A unit serial in the machine's canonical format: build year, batch
+   * letter, five-digit unit number, check character (spec §3.3). This is the
+   * same shape the simulation stamps on the decal, so a serial can travel
+   * from the world to the service and back without translation.
+   */
+  machineSerial: () => {
+    const year = 1997 + Math.floor(Math.random() * 7);
+    const batch = pick(SERIAL_LETTERS, 1);
+    const unit = String(Math.floor(10000 + Math.random() * 90000));
+    const check = pick(SERIAL_LETTERS, 1);
+    return `SM01-${year}${batch}-${unit}-${check}`;
+  },
 };

@@ -30,6 +30,12 @@ export interface AccessibilitySettings {
   haptics: boolean;
   /** Simplified single-tap gestures. */
   simplifiedGestures: boolean;
+  /**
+   * Use a virtual joystick instead of tap-to-move.
+   * An alternate control scheme (spec §12), not a preference for its own sake:
+   * tap-to-move needs an accurate tap, which a joystick does not.
+   */
+  virtualJoystick: boolean;
   /** High-contrast UI. */
   highContrast: boolean;
 }
@@ -41,6 +47,7 @@ export const DEFAULT_ACCESSIBILITY: AccessibilitySettings = {
   textScale: 1,
   haptics: true,
   simplifiedGestures: false,
+  virtualJoystick: false,
   highContrast: false,
 };
 

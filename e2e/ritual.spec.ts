@@ -33,7 +33,9 @@ test.describe('the ritual', () => {
     await capture(page, '02-at-fire');
 
     // --- Tend the fire ---------------------------------------------------
-    await page.getByRole('button', { name: 'Rake coals' }).click();
+    // Reached for directly now rather than pressed on a HUD control; the
+    // dedicated exploration test below exercises the walk-up-and-touch path.
+    await act(page, 'rake');
     await page.waitForTimeout(800);
     await capture(page, '03-fire-tended');
 
@@ -249,5 +251,107 @@ test.describe('accessibility', () => {
       () => (window.__someMore!.store.state.ritual as unknown as { roastInput: { rotation: number } }).roastInput.rotation,
     );
     expect(after).toBeGreaterThan(before);
+  });
+});
+
+
+test.describe('exploration', () => {
+  test('the campsite can actually be walked around and looked at', async ({ page }) => {
+    // Until this existed the camera was on rails and the campsite was a set
+    // of views rather than a place (spec §5.1).
+    await page.goto('/?camp=camp-explore&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await act(page, 'arrive');
+    await page.waitForTimeout(1200);
+
+    const read = () =>
+      page.evaluate(() => {
+        const p = window.__someMore!.player!;
+        return {
+          x: Number(p.position.x.toFixed(3)),
+          z: Number(p.position.z.toFixed(3)),
+          facing: Number(p.facing.toFixed(3)),
+          still: p.stillnessSeconds,
+          walked: p.distanceWalked,
+        };
+      });
+
+    const start = await read();
+    // Arrival puts the player at the fireside, not stranded on the trail.
+    expect(Math.hypot(start.x, start.z)).toBeLessThan(4);
+
+    // Drag to look.
+    await page.mouse.move(512, 400);
+    await page.mouse.down();
+    for (let i = 1; i <= 18; i++) {
+      await page.mouse.move(512 + i * 14, 400);
+      await page.waitForTimeout(16);
+    }
+    await page.mouse.up();
+    const looked = await read();
+    expect(looked.facing).not.toBe(start.facing);
+    // Looking must not move you.
+    expect(looked.x).toBeCloseTo(start.x, 1);
+    expect(looked.z).toBeCloseTo(start.z, 1);
+    await capture(page, '22-exploring-look');
+
+    // Tap to walk.
+    await page.mouse.click(512, 650);
+    await page.waitForTimeout(3500);
+    const walked = await read();
+    expect(walked.walked).toBeGreaterThan(0.5);
+    await capture(page, '23-exploring-walk');
+
+    // Keyboard walk, as an alternate control scheme.
+    const before = (await read()).walked;
+    await page.keyboard.down('w');
+    await page.waitForTimeout(1800);
+    await page.keyboard.up('w');
+    await page.waitForTimeout(300);
+    expect((await read()).walked).toBeGreaterThan(before);
+
+    // The campsite is bounded — you cannot wander off into nothing.
+    const radius = await page.evaluate(() => window.__someMore!.walkable!.radius);
+    for (let i = 0; i < 6; i++) {
+      await page.keyboard.down('w');
+      await page.waitForTimeout(1500);
+      await page.keyboard.up('w');
+    }
+    const far = await read();
+    expect(Math.hypot(far.x, far.z)).toBeLessThanOrEqual(radius + 0.01);
+  });
+
+  test('walking up to something offers it, and standing away does not', async ({ page }) => {
+    await page.goto('/?camp=camp-reach&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await act(page, 'arrive');
+    await page.waitForTimeout(1200);
+
+    // Put the player out in the open, away from everything.
+    await page.evaluate(() => {
+      const p = window.__someMore!.player!;
+      p.position.x = 7;
+      p.position.z = 7;
+      p.moveTarget = null;
+    });
+    await page.waitForTimeout(600);
+    await expect(page.getByRole('button', { name: /Take a log|Poke the coals|Take a marshmallow/ })).toHaveCount(0);
+
+    // Now stand at the woodpile.
+    await page.evaluate(() => {
+      const p = window.__someMore!.player!;
+      p.position.x = 1.75;
+      p.position.z = -0.1;
+      p.facing = -Math.PI / 2;
+      p.moveTarget = null;
+    });
+    await page.waitForTimeout(700);
+    const logs = await page.evaluate(() => (window.__someMore!.store.state.ritual as unknown as { fire: { logs: unknown[] } }).fire.logs.length);
+    await page.getByRole('button', { name: 'Take a log' }).click();
+    await page.waitForTimeout(400);
+    expect(
+      await page.evaluate(() => (window.__someMore!.store.state.ritual as unknown as { fire: { logs: unknown[] } }).fire.logs.length),
+    ).toBe(logs + 1);
+    await capture(page, '24-reach-woodpile');
   });
 });

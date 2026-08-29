@@ -8,6 +8,7 @@ import type { RewardsService } from './domain/rewards.js';
 import type { SandwichService } from './domain/sandwiches.js';
 import type { SessionService } from './domain/sessions.js';
 import type { WorldStateService } from './domain/worldState.js';
+import type { Database } from './db/index.js';
 
 /** What this deployment can actually do, surfaced at `GET /v1/meta`. */
 export interface Capabilities {
@@ -33,4 +34,9 @@ export interface ServiceRegistry {
   readonly moderation: ModerationService;
   readonly analytics: AnalyticsService;
   readonly capabilities: Capabilities;
+  /**
+   * The open database, when there is one. Only `/health` reads it, and only to
+   * report reachability — no route may reach a repository through this.
+   */
+  readonly database: Database | null;
 }

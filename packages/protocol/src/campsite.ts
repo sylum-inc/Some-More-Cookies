@@ -74,8 +74,19 @@ export type CampsiteInvite = z.infer<typeof CampsiteInviteSchema>;
 /* The SM-01                                                                   */
 /* -------------------------------------------------------------------------- */
 
-/** `SM01-` + 4 + 4 alphanumerics, stamped on the machine's brass plate. */
-export const MachineSerialSchema = z.string().regex(/^SM01-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+/**
+ * A unit's canonical serial, e.g. `SM01-1999K-12345-B`.
+ *
+ * Build year, a batch letter, a five-digit unit number and a check character.
+ * This is the format the machine itself issues and prints on its decal and
+ * service panel (spec §3.3), and the one that appears on Passport receipts.
+ *
+ * An earlier version of this schema specified `SM01-XXXX-XXXX`, invented
+ * alongside the API rather than taken from the product — with the result that
+ * the service rejected every serial the world actually produced. The client
+ * and the server had simply never exchanged one.
+ */
+export const MachineSerialSchema = z.string().regex(/^SM01-(?:19|20)\d{2}[A-Z]-\d{5}-[A-Z]$/);
 
 export const MachineComponentValues = ['drum', 'press', 'chiller', 'dispenser', 'hopper', 'belt'] as const;
 export const MachineComponentSchema = z.enum(MachineComponentValues);

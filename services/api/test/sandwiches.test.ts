@@ -96,7 +96,7 @@ describe('recording a sandwich', () => {
     const wrongMachine = await make(player, campsite, {
       machineRun: {
         ...sandwichPayload(campsite.id, campsite.machine.serialNumber).machineRun,
-        machineSerial: 'SM01-ZZZZ-ZZZZ',
+        machineSerial: 'SM01-2001Z-99999-Z',
       },
     });
     expect(wrongMachine.status).toBe(400);

@@ -163,6 +163,6 @@ describe('routing errors', () => {
     expect(meta.status).toBe(200);
     expect(meta.body.schemaVersion).toBe(SCHEMA_VERSION);
     expect(meta.body.paymentProvider).toBe('fake');
-    expect(meta.body.persistence).toBe('memory');
+    expect(meta.body.persistence).toBe(api.persistence);
   });
 });

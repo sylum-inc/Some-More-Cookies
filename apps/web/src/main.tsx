@@ -85,6 +85,9 @@ declare global {
       actions: Record<string, (...args: never[]) => unknown>;
       /** Populated once the canvas exists; used by the screenshot harness. */
       three?: { gl: unknown; scene: unknown; camera: unknown };
+      /** The player being simulated, for inspection and end-to-end tests. */
+      player?: import('@somemore/sim').PlayerState;
+      walkable?: import('@somemore/sim').WalkableWorld;
       environments: readonly { id: string; name: string }[];
     };
   }

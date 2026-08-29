@@ -18,6 +18,10 @@ export * from './machine.js';
 export * from './sandwich.js';
 export * from './weather.js';
 export * from './astronomy.js';
+export * from './locomotion.js';
+export * from './wildlife.js';
+export * from './radio.js';
+export * from './discovery.js';
 export * from './ritual.js';
 
 // Significance is exported deliberately narrowly: the internal score must

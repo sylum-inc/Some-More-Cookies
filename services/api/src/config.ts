@@ -21,6 +21,20 @@ export interface ApiConfig {
   /** Salt for hashing client IPs before they touch an anti-abuse record. */
   readonly ipHashSalt: string;
 
+  /**
+   * Postgres connection string. Present => durable storage; absent => the
+   * in-memory repositories, which is what `npm run api` gets with no database.
+   */
+  readonly databaseUrl: string | null;
+  /** Apply pending migrations on first use. */
+  readonly databaseAutoMigrate: boolean;
+  readonly databasePoolMax: number;
+  readonly databasePoolMin: number;
+  readonly databaseIdleTimeoutMs: number;
+  readonly databaseAcquireTimeoutMs: number;
+  readonly databaseConnectTimeoutMs: number;
+  readonly databaseStatementTimeoutMs: number;
+
   readonly paymentProvider: 'stripe' | 'fake';
   readonly stripeSecretKey: string | null;
   readonly stripePublishableKey: string | null;
@@ -47,6 +61,12 @@ function envString(env: NodeJS.ProcessEnv, key: string): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+function envBool(env: NodeJS.ProcessEnv, key: string, fallback: boolean): boolean {
+  const raw = envString(env, key);
+  if (raw === null) return fallback;
+  return !['0', 'false', 'no', 'off'].includes(raw.toLowerCase());
+}
+
 function envInt(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   const raw = envString(env, key);
   if (raw === null) return fallback;
@@ -55,7 +75,12 @@ function envInt(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
 }
 
 export interface ConfigWarning {
-  readonly code: 'ephemeral_auth_secret' | 'fake_payments' | 'console_mailer' | 'ephemeral_ip_salt';
+  readonly code:
+    | 'ephemeral_auth_secret'
+    | 'fake_payments'
+    | 'console_mailer'
+    | 'ephemeral_ip_salt'
+    | 'memory_persistence';
   readonly message: string;
 }
 
@@ -106,6 +131,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     });
   }
 
+  const databaseUrl = envString(env, 'DATABASE_URL');
+  if (databaseUrl === null) {
+    warnings.push({
+      code: 'memory_persistence',
+      message:
+        'DATABASE_URL is not set; using the in-memory repositories. Every restart is a factory reset. '
+        + 'See README "Running Postgres locally".',
+    });
+  }
+
   const logLevelRaw = envString(env, 'LOG_LEVEL') ?? (nodeEnv === 'test' ? 'silent' : 'info');
   const logLevel = (['debug', 'info', 'warn', 'error', 'silent'] as const).find((l) => l === logLevelRaw) ?? 'info';
 
@@ -119,6 +154,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     authTokenTtlSeconds: envInt(env, 'AUTH_TOKEN_TTL_SECONDS', 60 * 60 * 24 * 30),
     magicLinkTtlSeconds: envInt(env, 'MAGIC_LINK_TTL_SECONDS', 60 * 15),
     ipHashSalt,
+    databaseUrl,
+    databaseAutoMigrate: envBool(env, 'DATABASE_AUTO_MIGRATE', true),
+    databasePoolMax: envInt(env, 'DATABASE_POOL_MAX', 10),
+    databasePoolMin: envInt(env, 'DATABASE_POOL_MIN', 0),
+    databaseIdleTimeoutMs: envInt(env, 'DATABASE_IDLE_TIMEOUT_MS', 30_000),
+    databaseAcquireTimeoutMs: envInt(env, 'DATABASE_ACQUIRE_TIMEOUT_MS', 10_000),
+    databaseConnectTimeoutMs: envInt(env, 'DATABASE_CONNECT_TIMEOUT_MS', 10_000),
+    databaseStatementTimeoutMs: envInt(env, 'DATABASE_STATEMENT_TIMEOUT_MS', 15_000),
     paymentProvider,
     stripeSecretKey,
     stripePublishableKey: envString(env, 'STRIPE_PUBLISHABLE_KEY'),

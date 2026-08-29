@@ -43,7 +43,7 @@ export const goodAssembly: AssemblyQuality = {
 
 export const goodRun: MachineRun = {
   runId: 'run_01',
-  machineSerial: 'SM01-4KQ2-9ZX7',
+  machineSerial: 'SM01-1999K-12345-B',
   program: 'classic',
   startedAt: NOW,
   completedAt: LATER,
@@ -60,7 +60,7 @@ export const goodRun: MachineRun = {
 
 export const machine: SM01 = {
   model: 'SM-01',
-  serialNumber: 'SM01-4KQ2-9ZX7',
+  serialNumber: 'SM01-1999K-12345-B',
   firmwareVersion: '2.1.0',
   installedAt: NOW,
   wear: { drum: 0, press: 0, chiller: 0, dispenser: 0, hopper: 0, belt: 0 },

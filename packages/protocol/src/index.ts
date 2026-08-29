@@ -15,6 +15,7 @@ export * from './identity.js';
 export * from './passport.js';
 export * from './campsite.js';
 export * from './session.js';
+export * from './realtime.js';
 export * from './sandwich.js';
 export * from './rewards.js';
 export * from './commerce.js';

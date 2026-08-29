@@ -1,0 +1,166 @@
+{
+  "tool": "tools/perf/sim-bench.mjs",
+  "what": "Cost of `stepRitual` at the fixed 60 Hz timestep, measured on the compiled @somemore/sim.",
+  "startedAt": "2026-08-29T20:00:00.394Z",
+  "finishedAt": "2026-08-29T20:00:02.337Z",
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "linux/x64",
+    "cpus": 4,
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "simDt": 0.016666666666666666,
+    "stepsPerSecond": 60
+  },
+  "budgets": {
+    "simulationMs": 1.5,
+    "assertAtMeanMs": 1.05,
+    "assertAtP99Ms": 1.5,
+    "retainedBytesPerStep": 8,
+    "transientBytesPerStep": 400
+  },
+  "stages": [
+    {
+      "id": "at-fire",
+      "label": "At the fire (fire + weather)",
+      "simulatedSeconds": 90,
+      "steps": 5400,
+      "ms": {
+        "mean": 0.0041,
+        "p50": 0.003,
+        "p95": 0.006,
+        "p99": 0.0191,
+        "max": 0.5366
+      },
+      "budgetUsage": 0.0027,
+      "withinBudget": true
+    },
+    {
+      "id": "roasting",
+      "label": "Roasting (32-patch thermal + input)",
+      "simulatedSeconds": 180,
+      "steps": 10800,
+      "ms": {
+        "mean": 0.0127,
+        "p50": 0.0069,
+        "p95": 0.0409,
+        "p99": 0.066,
+        "max": 1.5868
+      },
+      "budgetUsage": 0.0085,
+      "withinBudget": true
+    },
+    {
+      "id": "assembling",
+      "label": "Assembly",
+      "simulatedSeconds": 60,
+      "steps": 3600,
+      "ms": {
+        "mean": 0.0005,
+        "p50": 0.0005,
+        "p95": 0.0008,
+        "p99": 0.001,
+        "max": 0.0385
+      },
+      "budgetUsage": 0.0004,
+      "withinBudget": true
+    },
+    {
+      "id": "machine",
+      "label": "SM-01 run (full 50 s programme)",
+      "simulatedSeconds": 60,
+      "steps": 3600,
+      "ms": {
+        "mean": 0.0015,
+        "p50": 0.0012,
+        "p95": 0.0015,
+        "p99": 0.004,
+        "max": 0.219
+      },
+      "budgetUsage": 0.001,
+      "withinBudget": true
+    },
+    {
+      "id": "eating",
+      "label": "Eating / after",
+      "simulatedSeconds": 60,
+      "steps": 3600,
+      "ms": {
+        "mean": 0.0009,
+        "p50": 0.0008,
+        "p95": 0.0009,
+        "p99": 0.0014,
+        "max": 0.1733
+      },
+      "budgetUsage": 0.0006,
+      "withinBudget": true
+    }
+  ],
+  "worstStage": {
+    "id": "roasting",
+    "meanMs": 0.0127,
+    "budgetUsage": 0.0085
+  },
+  "worstP99Stage": {
+    "id": "roasting",
+    "p99Ms": 0.066
+  },
+  "retained": {
+    "blocks": 8,
+    "simulatedSeconds": 1920,
+    "steps": 115200,
+    "samples": [
+      {
+        "steps": 14400,
+        "heapUsedDeltaBytes": 10296
+      },
+      {
+        "steps": 28800,
+        "heapUsedDeltaBytes": 10624
+      },
+      {
+        "steps": 43200,
+        "heapUsedDeltaBytes": 10648
+      },
+      {
+        "steps": 57600,
+        "heapUsedDeltaBytes": 10576
+      },
+      {
+        "steps": 72000,
+        "heapUsedDeltaBytes": 31648
+      },
+      {
+        "steps": 86400,
+        "heapUsedDeltaBytes": 31688
+      },
+      {
+        "steps": 100800,
+        "heapUsedDeltaBytes": 31744
+      },
+      {
+        "steps": 115200,
+        "heapUsedDeltaBytes": 32336
+      }
+    ],
+    "retainedBytesPerStep": 0.2845,
+    "retainedTotalBytes": 32336,
+    "withinBudget": true
+  },
+  "allocation": {
+    "windowSteps": 4000,
+    "repeats": 7,
+    "samplesBytesPerStep": [
+      163.47,
+      183.66,
+      221.19,
+      229.04,
+      242.51,
+      246.81,
+      278.98
+    ],
+    "transientBytesPerStep": 229.04,
+    "withinBudget": true,
+    "note": "ARCHITECTURE §10 claims zero per-frame allocation in simulation hot paths. `stepRitual` derives named RNG streams with `rng.split(...)` and each split constructs an `Rng`, so the true figure is small and constant rather than zero. What is asserted is that it stays small and does not grow — see `retained` for the number that would indicate a real leak."
+  },
+  "passed": true
+}

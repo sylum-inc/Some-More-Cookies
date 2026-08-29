@@ -47,7 +47,20 @@ export default defineConfig({
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: [['list']],
+  /**
+   * `list` for a readable terminal run; `html` because CI uploads the report
+   * as an artifact and a failed visual comparison is only useful if you can
+   * see the expected/actual/diff triptych.
+   */
+  reporter: process.env['CI']
+    ? [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }], ['github']]
+    : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  /**
+   * Visual baselines live in one obvious, reviewable directory rather than
+   * beside each spec, so `e2e/__screenshots__/` is the whole set a reviewer
+   * has to look at when a diff is proposed. See `tools/README.md`.
+   */
+  snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}',
   use: {
     baseURL: 'http://127.0.0.1:4173',
     viewport: { width: 1024, height: 768 },
@@ -58,7 +71,16 @@ export default defineConfig({
       ...(chromiumPath ? { executablePath: chromiumPath } : {}),
     },
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  /**
+   * One project per kind of evidence, so a red build names the thing that
+   * broke: acceptance ("the ritual stopped working"), perf ("a budget was
+   * blown"), visual ("the picture changed"). CI runs them as separate jobs.
+   */
+  projects: [
+    { name: 'acceptance', testMatch: /ritual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'visual', testMatch: /visual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+  ],
   webServer: {
     command: 'npm run preview --workspace @somemore/web',
     url: 'http://127.0.0.1:4173',

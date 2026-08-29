@@ -13,6 +13,10 @@ import { TOKENS, FONT_STACK } from './styles.js';
 
 export interface HudProps {
   ritual: RitualState;
+  /** What is within arm's reach right now, if anything. */
+  reach: { id: string } | null;
+  onUse: () => void;
+  exploring: boolean;
   stage: RitualStage;
   subtitle: string | null;
   textScale: number;
@@ -27,14 +31,28 @@ export interface HudProps {
 }
 
 /** A quiet, diegetic line. Never an objective, never a checklist. */
+/** What a reachable thing offers, in plain words. */
+const REACH_LABELS: Record<string, string> = {
+  fire: 'Poke the coals',
+  woodpile: 'Take a log',
+  marshmallows: 'Take a marshmallow',
+  machine: 'The SM-01',
+  plate: 'The plate',
+  'log-seat': 'Sit down',
+};
+
+export function reachLabel(id: string): string {
+  return REACH_LABELS[id] ?? 'Use';
+}
+
 function guidanceFor(ritual: RitualState, stage: RitualStage): string {
   switch (stage) {
     case 'arriving':
       return 'Walk toward the fire.';
     case 'at-fire':
       return isEmberBed(ritual.fire)
-        ? 'The fire has burned down to coals. Take a marshmallow when you are ready.'
-        : 'Take a log from the pile, poke the coals, or reach for a marshmallow.';
+        ? 'The fire has burned down to coals.'
+        : 'Look around. Tap to walk, drag to look.';
     case 'roasting':
       return ritual.marshmallow.burning
         ? 'It has caught. Shake it out, or let it burn.'
@@ -127,6 +145,37 @@ export function Hud(props: HudProps): React.ReactElement {
             <CornerButton label="Make this real" onClick={props.onOpenTerminal} textScale={textScale} highContrast={highContrast} accent />
           )}
           <CornerButton label="Photo" onClick={props.onPhoto} textScale={textScale} highContrast={highContrast} />
+        </div>
+      )}
+
+      {/* What is within reach. The world offers rather than presenting a menu
+          (spec: contextual direct manipulation), so this appears only when
+          the player has actually walked up to something. */}
+      {props.exploring && props.reach && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: '18%',
+            transform: 'translateX(-50%)',
+            pointerEvents: 'auto',
+          }}
+        >
+          <button
+            className="sm-focus"
+            onClick={props.onUse}
+            style={{
+              background: 'rgba(8,10,14,0.66)',
+              color: 'rgba(240,232,214,0.95)',
+              border: `1px solid ${TOKENS.amber}`,
+              padding: `${9 * textScale}px ${16 * textScale}px`,
+              fontSize: scale(13),
+              letterSpacing: '0.08em',
+              borderRadius: 2,
+            }}
+          >
+            {reachLabel(props.reach.id)}
+          </button>
         </div>
       )}
 

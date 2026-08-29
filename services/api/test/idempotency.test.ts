@@ -203,7 +203,7 @@ describe('key conflicts', () => {
     const wrong = await api.request('/v1/sandwiches', {
       method: 'POST',
       token: player.token,
-      body: sandwichPayload(campsite.id, 'SM01-ZZZZ-ZZZZ', { idempotencyKey: sharedKey }),
+      body: sandwichPayload(campsite.id, 'SM01-2001Z-99999-Z', { idempotencyKey: sharedKey }),
     });
     expect(wrong.status).toBe(400);
 

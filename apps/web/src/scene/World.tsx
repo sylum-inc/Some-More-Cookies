@@ -13,13 +13,26 @@ import * as THREE from 'three';
 import {
   advance,
   beginRoasting,
+  bearingFromFire,
   createClock,
+  createPlayer,
+  createWorld,
+  eyePosition,
+  focused,
+  terrainHeight,
   isEmberBed,
+  lookDirection,
   operateMachine,
+  stepPlayer,
   stepRitual,
   tendFire,
+  vec3,
+  type Interactable,
+  type MoveIntent,
+  type PlayerState,
   type RitualStage,
   type RitualState,
+  type WalkableWorld,
 } from '@somemore/sim';
 import { getEnvironment } from '@somemore/content';
 import { Campsite } from './Campsite.js';
@@ -79,6 +92,12 @@ export function holdPoint(): [number, number, number] {
 /** Unit vector pointing out of the machine's face. */
 const MACHINE_FRONT: [number, number] = [Math.sin(LAYOUT.machineRotation), Math.cos(LAYOUT.machineRotation)];
 
+/** Field of view while exploring on foot. */
+const EXPLORE_FOV = 68;
+
+/** A player who is mid-interaction takes no movement input. */
+const EMPTY_INTENT: MoveIntent = {};
+
 /** Camera pose per ritual stage. */
 interface CameraPose {
   position: [number, number, number];
@@ -86,8 +105,35 @@ interface CameraPose {
   fov: number;
 }
 
-function poseFor(stage: RitualStage, arrivalProgress: number, marshmallow?: Vec3): CameraPose {
-  const bearing = LAYOUT.playerBearing;
+/**
+ * Stages that take the camera away from the player's own eyes.
+ *
+ * Everything else is explored on foot. The tactile stages keep a composed
+ * framing because they are close manipulation of small objects — hunting for
+ * a marshmallow with a free camera would be miserable, and the framing here
+ * took real work to get right. So: walk the campsite freely, and the camera
+ * settles into place when you actually start doing something.
+ */
+const ANCHORED_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>([
+  'roasting',
+  'assembling',
+  'machine',
+  'reveal',
+  'eating',
+  'after',
+]);
+
+export function isAnchored(stage: RitualStage): boolean {
+  return ANCHORED_STAGES.has(stage);
+}
+
+function poseFor(
+  stage: RitualStage,
+  arrivalProgress: number,
+  marshmallow?: Vec3,
+  playerBearing = LAYOUT.playerBearing,
+): CameraPose {
+  const bearing = playerBearing;
   const px = Math.cos(bearing);
   const pz = Math.sin(bearing);
 
@@ -118,11 +164,7 @@ function poseFor(stage: RitualStage, arrivalProgress: number, marshmallow?: Vec3
       const target: [number, number, number] = marshmallow
         ? [marshmallow.x * 0.82, marshmallow.y * 0.86, marshmallow.z * 0.82]
         : [px * 0.22, 0.14, pz * 0.22];
-      return {
-        position: [px * 0.78, 0.54, pz * 0.78],
-        target,
-        fov: 44,
-      };
+      return { position: [px * 0.78, 0.54, pz * 0.78], target, fov: 44 };
     }
     case 'assembling':
       return {
@@ -179,9 +221,28 @@ export interface WorldProps {
   /** Set while the arrival walk is playing. */
   arrivalRef: React.MutableRefObject<number>;
   onSimStep?: (ritual: RitualState) => void;
+  /** The player. Owned by the app so input handlers can steer it. */
+  player: PlayerState;
+  /** Movement intent for the current frame, refreshed by the app. */
+  intentRef: React.MutableRefObject<MoveIntent>;
+  /** Walkable world, derived from the environment manifest. */
+  walkable: WalkableWorld;
+  /** Reports what the player can act on, so the interface can offer it. */
+  onReachChange?: (interactable: Interactable | null) => void;
 }
 
-export function World({ store, roastControl, quality, onFrame, arrivalRef, onSimStep }: WorldProps): React.ReactElement {
+export function World({
+  store,
+  roastControl,
+  quality,
+  onFrame,
+  arrivalRef,
+  onSimStep,
+  player,
+  intentRef,
+  walkable,
+  onReachChange,
+}: WorldProps): React.ReactElement {
   const { camera, gl } = useThree();
   const clock = useMemo(() => createClock(), []);
   const state = store.state;
@@ -190,6 +251,16 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
   const qualitySettings = QUALITY[quality];
 
   const targetRef = useRef(new THREE.Vector3(0, 0.32, 0));
+  const eyeScratch = useMemo(() => vec3(), []);
+  const lookScratch = useMemo(() => vec3(), []);
+  /**
+   * The bearing the anchored framing uses. Captured when an interaction
+   * begins and held for its duration, so the composed shot does not swing
+   * around if the player happens to turn while roasting.
+   */
+  const anchorBearing = useRef(LAYOUT.playerBearing);
+  const anchored = isAnchored(ritual.stage);
+  const lastReach = useRef<string | null>(null);
   const lastStage = useRef<RitualStage>(ritual.stage);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
@@ -211,7 +282,14 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
 
     // --- Simulation ------------------------------------------------------
     advance(clock, delta, (dt) => {
+      // The player moves in every stage; the anchored stages simply stop
+      // taking movement input, so the world keeps simulating around them.
+      stepPlayer(player, walkable, anchored ? EMPTY_INTENT : intentRef.current, dt);
+
       if (ritual.stage === 'roasting') {
+        // The marshmallow is held from wherever the player is standing, so
+        // walking round the fire genuinely changes the roast.
+        roastControl.setBearing(bearingFromFire(player));
         const pose = roastControl.pose();
         ritual.roastInput.position.x = pose.position.x;
         ritual.roastInput.position.y = pose.position.y;
@@ -222,14 +300,71 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
       onSimStep?.(ritual);
     });
 
+    // A look delta is consumed once, not once per simulation step.
+    intentRef.current.look = undefined;
+
+    // Offer whatever is in reach. Only pushed to React when it changes, so
+    // walking around does not re-render the tree every frame.
+    if (!anchored) {
+      const target = focused(player, walkable);
+      const id = target?.id ?? null;
+      if (id !== lastReach.current) {
+        lastReach.current = id;
+        onReachChange?.(target);
+      }
+    } else if (lastReach.current !== null) {
+      lastReach.current = null;
+      onReachChange?.(null);
+    }
+
     if (ritual.stage !== lastStage.current) {
+      // Arriving puts the player at the fireside wherever they were before.
+      // Done here rather than at the end of the walk-in animation so that
+      // every route into the campsite lands the same way — including tests
+      // and links that skip the walk.
+      if (lastStage.current === 'arriving' && ritual.stage !== 'arriving') {
+        const bearing = LAYOUT.playerBearing;
+        player.position.x = Math.cos(bearing) * 2.4;
+        player.position.z = Math.sin(bearing) * 2.4;
+        player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
+        player.facing = Math.atan2(-player.position.z, -player.position.x);
+        player.pitch = -0.1;
+        player.velocity.x = 0;
+        player.velocity.z = 0;
+        player.moveTarget = null;
+      }
+      // Capture where the player was standing as the interaction begins.
+      if (isAnchored(ritual.stage) && !isAnchored(lastStage.current)) {
+        anchorBearing.current = bearingFromFire(player);
+      }
       lastStage.current = ritual.stage;
       store.setStageFromRitual();
     }
 
     // --- Camera ----------------------------------------------------------
-    const pose = poseFor(ritual.stage, arrivalRef.current, ritual.marshmallow.position);
     const perspective = camera as THREE.PerspectiveCamera;
+
+    if (!anchored && ritual.stage !== 'arriving') {
+      // Exploring: the camera is the player's own eyes. No easing — a first
+      // person view that lags its own head is nauseating.
+      eyePosition(player, eyeScratch);
+      lookDirection(player, lookScratch);
+      camera.position.set(eyeScratch.x, eyeScratch.y, eyeScratch.z);
+      targetRef.current.set(
+        eyeScratch.x + lookScratch.x,
+        eyeScratch.y + lookScratch.y,
+        eyeScratch.z + lookScratch.z,
+      );
+      if (Math.abs(perspective.fov - EXPLORE_FOV) > 0.05) {
+        perspective.fov += (EXPLORE_FOV - perspective.fov) * (1 - Math.exp(-6 * delta));
+        perspective.updateProjectionMatrix();
+      }
+      camera.lookAt(targetRef.current);
+      if (onFrame && typeof performance !== 'undefined') onFrame(performance.now() - frameStart);
+      return;
+    }
+
+    const pose = poseFor(ritual.stage, arrivalRef.current, ritual.marshmallow.position, anchorBearing.current);
     // Reduced motion damps the ease rather than removing it — an instant cut
     // between stages is more disorienting, not less.
     const ease = settings.reducedMotion ? 6 : 2.6;
@@ -268,8 +403,8 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
   const showSandwichInHand = (ritual.stage === 'eating' || ritual.stage === 'after') && ritual.sandwich !== null;
   const embers = isEmberBed(ritual.fire);
 
-  const px = Math.cos(LAYOUT.playerBearing);
-  const pz = Math.sin(LAYOUT.playerBearing);
+  const px = Math.cos(anchorBearing.current);
+  const pz = Math.sin(anchorBearing.current);
 
   return (
     <>
@@ -356,7 +491,7 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
       </group>
 
       {showStick && (
-        <RoastingStick marshmallow={ritual.marshmallow} settings={settings} bearing={LAYOUT.playerBearing} />
+        <RoastingStick marshmallow={ritual.marshmallow} settings={settings} bearing={anchorBearing.current} />
       )}
 
       {showAssembly && <AssemblyTable assembly={ritual.assembly} settings={settings} position={LAYOUT.assemblyTable} />}
@@ -389,7 +524,8 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
   );
 }
 
-function hashSeed(seed: string): number {
+/** Stable numeric seed from a campsite id. Shared with the app. */
+export function hashSeed(seed: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < seed.length; i++) {
     hash ^= seed.charCodeAt(i);

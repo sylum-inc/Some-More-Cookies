@@ -11,6 +11,7 @@ import { createFakePaymentProvider } from './payments/fake.js';
 import { createStripePaymentProvider } from './payments/stripe.js';
 import type { PaymentProvider } from './payments/types.js';
 import { createInMemoryRepositories } from './repos/memory/index.js';
+import { createDatabase, type Database } from './db/index.js';
 import type { Repositories } from './repos/interfaces.js';
 import { seedProducts, seedPromotions, seedRewards } from './domain/seed.js';
 import { createAnalyticsService } from './domain/analytics.js';
@@ -34,6 +35,12 @@ export interface AppOptions {
   readonly clock?: Clock;
   readonly ids?: IdFactory;
   readonly repositories?: Repositories;
+  /**
+   * An already-open database to use instead of the one `DATABASE_URL` would
+   * open. Tests share one across a file so each case is not paying for a fresh
+   * pool and a fresh migration run.
+   */
+  readonly database?: Database;
   readonly mailer?: Mailer;
   readonly payments?: PaymentProvider;
   readonly logger?: Logger;
@@ -44,6 +51,8 @@ export interface App {
   readonly router: Router;
   readonly services: ServiceRegistry;
   readonly repos: Repositories;
+  /** Non-null when this deployment is backed by Postgres. */
+  readonly database: Database | null;
   readonly config: ApiConfig;
   readonly clock: Clock;
   readonly logger: Logger;
@@ -66,13 +75,38 @@ export function createApp(options: AppOptions = {}): App {
 
   for (const warning of warnings) logger.warn(`config.${warning.code}`, { message: warning.message });
 
-  const repos =
-    options.repositories ??
-    createInMemoryRepositories({
-      products: seedProducts(),
-      promotions: seedPromotions(),
-      rewards: seedRewards(),
-    });
+  /*
+   * Storage selection, in one place:
+   *   explicit repositories  -> whatever the caller injected (tests)
+   *   an injected database   -> its Postgres repositories
+   *   DATABASE_URL is set    -> Postgres, migrated and seeded on first query
+   *   otherwise              -> in memory, having warned about it
+   */
+  const seed = { products: seedProducts(), promotions: seedPromotions(), rewards: seedRewards() };
+
+  let database: Database | null = null;
+  if (options.repositories === undefined) {
+    if (options.database !== undefined) {
+      database = options.database;
+    } else if (config.databaseUrl !== null) {
+      database = createDatabase({
+        url: config.databaseUrl,
+        logger,
+        seed,
+        autoMigrate: config.databaseAutoMigrate,
+        pool: {
+          maxConnections: config.databasePoolMax,
+          minConnections: config.databasePoolMin,
+          idleTimeoutMs: config.databaseIdleTimeoutMs,
+          acquireTimeoutMs: config.databaseAcquireTimeoutMs,
+          connectTimeoutMs: config.databaseConnectTimeoutMs,
+          statementTimeoutMs: config.databaseStatementTimeoutMs,
+        },
+      });
+    }
+  }
+
+  const repos = options.repositories ?? database?.repos ?? createInMemoryRepositories(seed);
 
   const mailer = options.mailer ?? createConsoleMailer(logger);
   const rateLimiter = createMemoryRateLimiter(clock);
@@ -112,8 +146,9 @@ export function createApp(options: AppOptions = {}): App {
       paymentProvider: payments.name,
       paymentsConfigured: payments.isConfigured(),
       mailer: mailer.name,
-      persistence: options.repositories === undefined ? 'memory' : 'memory',
+      persistence: database === null ? 'memory' : 'postgres',
     },
+    database,
   };
 
   const router = new Router(buildRoutes(services));
@@ -137,5 +172,18 @@ export function createApp(options: AppOptions = {}): App {
     },
   });
 
-  return { server, router, services, repos, config, clock, logger, mailer, payments, rateLimiter, warnings };
+  return {
+    server,
+    router,
+    services,
+    repos,
+    database,
+    config,
+    clock,
+    logger,
+    mailer,
+    payments,
+    rateLimiter,
+    warnings,
+  };
 }

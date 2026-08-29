@@ -8,21 +8,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Canvas } from '@react-three/fiber';
 import type * as THREE from 'three';
+import { Vector3 as ThreeVector3 } from 'three';
 import {
+  approachPoint,
+  bearingFromFire,
+  createPlayer,
+  createWorld,
+  focused,
+  terrainHeight,
   bite as takeBiteAction,
   blowOutMarshmallow,
   finishRoasting,
   arrive as arriveAction,
+  beginRoasting as beginRoastingAction,
   holdComponent,
   moveComponent,
   placeComponent,
   takeSandwich as takeSandwichAction,
   tendFire,
   vec3,
+  type Interactable,
   type MachineEvent,
+  type MoveIntent,
   type RitualState,
 } from '@somemore/sim';
-import { World, LAYOUT } from './scene/World.js';
+import { World, LAYOUT, hashSeed, isAnchored } from './scene/World.js';
+import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
+import { getEnvironment } from '@somemore/content';
 import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
@@ -33,6 +45,7 @@ import { AdaptiveQuality, applyRenderSettings, probeQualityTier, QUALITY, type Q
 import { BlowGestureDetector, RoastController, screenToTableOffset } from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
 import { AudioBridge } from './audio/bridge.js';
+import { SyncEngine } from './net/sync.js';
 
 export interface AppProps {
   store: Store;
@@ -44,6 +57,52 @@ export function App({ store }: AppProps): React.ReactElement {
 
   const roastControl = useMemo(() => new RoastController({}, LAYOUT.playerBearing), []);
   const blowDetector = useMemo(() => new BlowGestureDetector(), []);
+  const movement = useMemo(() => new MovementController(), []);
+  const keyboard = useMemo(() => new KeyboardMovement(), []);
+  const intentRef = useRef<MoveIntent>({});
+
+  /**
+   * The walkable campsite.
+   *
+   * Obstacles and interactables are placed from the same LAYOUT the scene
+   * uses, so what you can walk into and what you can reach are derived from
+   * where things actually are rather than maintained separately.
+   */
+  const walkable = useMemo(() => {
+    const environment = getEnvironment(state.environmentId);
+    const seed = hashSeed(state.campsiteSeed);
+    return createWorld({
+      seed,
+      radius: Math.max(8, Math.min(16, environment?.scene.walkableRadiusM ?? 13)),
+      obstacles: [
+        { id: 'fire', x: 0, z: 0, radius: 0.62, soft: true },
+        { id: 'machine', x: LAYOUT.machine[0], z: LAYOUT.machine[2], radius: 0.62 },
+        { id: 'stump', x: LAYOUT.assemblyTable[0], z: LAYOUT.assemblyTable[2], radius: 0.3 },
+        { id: 'log', x: -1.5, z: 0.9, radius: 0.4 },
+        { id: 'woodpile', x: 1.7, z: -0.9, radius: 0.35 },
+      ],
+      interactables: [
+        { id: 'fire', x: 0, z: 0, reach: 1.45 },
+        { id: 'woodpile', x: 1.7, z: -0.9, reach: 1.15 },
+        { id: 'machine', x: LAYOUT.machine[0], z: LAYOUT.machine[2], reach: 1.5 },
+        { id: 'marshmallows', x: LAYOUT.assemblyTable[0] - 0.16, z: LAYOUT.assemblyTable[2] - 0.16, reach: 1.1 },
+        { id: 'plate', x: LAYOUT.assemblyTable[0], z: LAYOUT.assemblyTable[2], reach: 1.1 },
+        { id: 'log-seat', x: -1.5, z: 0.9, reach: 1.0 },
+      ],
+    });
+  }, [state.environmentId, state.campsiteSeed]);
+
+  const player = useMemo(() => {
+    // Starts out on the trail, walking in.
+    const start = LAYOUT.trailStart;
+    const p = createPlayer(
+      { x: start[0], y: terrainHeight(start[0], start[2], walkable.seed, walkable.amplitude), z: start[2] },
+      Math.atan2(-start[2], -start[0]),
+    );
+    return p;
+  }, [walkable]);
+
+  const [reach, setReach] = useState<Interactable | null>(null);
   const arrivalRef = useRef(0);
   const arrivingRef = useRef(false);
   /**
@@ -61,6 +120,8 @@ export function App({ store }: AppProps): React.ReactElement {
     camera: THREE.Camera;
   } | null>(null);
   const audioRef = useRef<AudioBridge | null>(null);
+  const syncRef = useRef<SyncEngine | null>(null);
+  const campsiteIdRef = useRef<string | null>(null);
 
   const [quality, setQuality] = useState<QualityTier>(() =>
     probeQualityTier({
@@ -70,6 +131,17 @@ export function App({ store }: AppProps): React.ReactElement {
     }),
   );
   const adaptive = useMemo(() => new AdaptiveQuality(quality), []);
+
+  // Publish the player for the inspection harness and the console. The E2E
+  // suite asserts on real movement, so it needs the same object the
+  // simulation is stepping.
+  useEffect(() => {
+    const handle = window.__someMore;
+    if (handle) {
+      handle.player = player;
+      handle.walkable = walkable;
+    }
+  }, [player, walkable]);
 
   // Inject the global stylesheet once.
   useEffect(() => {
@@ -90,6 +162,27 @@ export function App({ store }: AppProps): React.ReactElement {
     audioRef.current = bridge;
     return () => bridge.dispose();
   }, []);
+
+  // --- Sync ----------------------------------------------------------------
+  // Local-first: this establishes an anonymous account and a server-side
+  // campsite in the background. Nothing in the ritual waits for it, and a
+  // failure means the player carries on with a device-local Passport.
+  useEffect(() => {
+    const baseUrl = import.meta.env['VITE_API_URL'] ?? '';
+    const sync = new SyncEngine({ baseUrl: String(baseUrl) });
+    syncRef.current = sync;
+    void (async () => {
+      const environment = getEnvironment(state.environmentId);
+      const id = await sync.ensureCampsite(
+        environment?.name ?? 'Camp',
+        state.environmentId,
+        hashSeed(state.campsiteSeed) % 2_147_483_647,
+      );
+      campsiteIdRef.current = id;
+      void sync.drain();
+    })();
+    return () => sync.dispose();
+  }, [state.environmentId, state.campsiteSeed]);
 
   useEffect(() => {
     audioRef.current?.applySettings(state.audio);
@@ -114,12 +207,44 @@ export function App({ store }: AppProps): React.ReactElement {
       if (t < 1) {
         requestAnimationFrame(tick);
       } else {
+        // World places the player at the fireside on the stage change, so
+        // every route in lands identically.
         arriveAction(ritual);
         store.touch();
       }
     };
     requestAnimationFrame(tick);
   }, [ritual, store]);
+
+  /** Acts on whatever is within reach. The world offers; it never menus. */
+  const handleUse = useCallback(() => {
+    const target = focused(player, walkable);
+    if (!target) return;
+    switch (target.id) {
+      case 'woodpile': {
+        const environment = getEnvironment(state.environmentId);
+        const woodId = environment?.fuel.sources[0]?.woodId ?? 'oak';
+        tendFire(ritual, { type: 'add-log', woodId, placement: 0.78 });
+        audioRef.current?.playFoley('stick');
+        break;
+      }
+      case 'fire':
+        tendFire(ritual, { type: 'rake' });
+        break;
+      case 'marshmallows':
+        if (ritual.stage === 'at-fire' || ritual.stage === 'after') beginRoastingAction(ritual);
+        break;
+      case 'machine':
+        if (ritual.stage === 'at-fire' || ritual.stage === 'after') store.setSubtitle('[the SM-01 is idle]');
+        break;
+      case 'log-seat':
+        intentRef.current.sit = !player.seated;
+        break;
+      default:
+        break;
+    }
+    store.touch();
+  }, [player, walkable, ritual, state.environmentId, store]);
 
   // --- Pointer handling --------------------------------------------------
   const dragging = useRef(false);
@@ -132,6 +257,15 @@ export function App({ store }: AppProps): React.ReactElement {
 
       if (ritual.stage === 'arriving') {
         beginArrival();
+        return;
+      }
+
+      // Exploring: one finger serves both looking and walking. The gesture
+      // stays undecided until it either travels (look) or lifts (tap).
+      if (!isAnchored(ritual.stage)) {
+        movement.useJoystick = state.accessibility.virtualJoystick;
+        movement.begin(event.clientX, event.clientY, performance.now());
+        (event.target as Element).setPointerCapture?.(event.pointerId);
         return;
       }
       if (ritual.stage === 'roasting') {
@@ -156,6 +290,12 @@ export function App({ store }: AppProps): React.ReactElement {
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent) => {
+      if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
+        const look = movement.move(event.clientX, event.clientY);
+        if (look) intentRef.current.look = look;
+        if (movement.gesture === 'joystick') intentRef.current.move = movement.joystick();
+        return;
+      }
       if (!dragging.current) return;
       if (ritual.stage === 'roasting') {
         roastControl.move(event.clientX, event.clientY);
@@ -181,6 +321,13 @@ export function App({ store }: AppProps): React.ReactElement {
   );
 
   const onPointerUp = useCallback(() => {
+    if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
+      const wasJoystick = movement.gesture === 'joystick';
+      const tap = movement.end(performance.now());
+      if (wasJoystick) intentRef.current.move = { forward: 0, strafe: 0 };
+      if (tap) handleTap(tap.x, tap.y);
+      return;
+    }
     if (!dragging.current) return;
     dragging.current = false;
     roastControl.end();
@@ -202,6 +349,13 @@ export function App({ store }: AppProps): React.ReactElement {
       if (ritual.stage === 'arriving' && (event.key === 'Enter' || event.key === ' ')) {
         beginArrival();
       }
+      // Walking on the keyboard, as an alternate control scheme (spec §12).
+      if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
+        const before = keyboard.active;
+        keyboard.down(event.key);
+        if (keyboard.active || before) intentRef.current.move = keyboard.intent();
+        if (event.key === 'e' || event.key === 'Enter' || event.key === ' ') handleUse();
+      }
       // Keyboard alternative to the roasting drag (spec §12).
       if (ritual.stage === 'roasting') {
         if (event.key === 'ArrowUp') roastControl.nudge(-0.04, 0);
@@ -211,9 +365,25 @@ export function App({ store }: AppProps): React.ReactElement {
         if (event.key === 'b' && blowOutMarshmallow(ritual)) store.touch();
       }
     };
+    const onKeyUp = (event: KeyboardEvent) => {
+      keyboard.up(event.key);
+      intentRef.current.move = keyboard.intent();
+    };
+    // Losing focus mid-stride must not leave the player walking forever.
+    const onBlur = () => {
+      keyboard.clear();
+      intentRef.current.move = { forward: 0, strafe: 0 };
+      movement.cancel();
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [state.overlay, ritual, roastControl, beginArrival, store]);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [state.overlay, ritual, roastControl, beginArrival, store, keyboard, movement, handleUse]);
 
   // --- Simulation-driven audio and subtitles ------------------------------
   const lastSubtitle = useRef<{ text: string; at: number } | null>(null);
@@ -244,6 +414,48 @@ export function App({ store }: AppProps): React.ReactElement {
     [store],
   );
 
+  /**
+   * Turns a tap into either a destination or an interaction.
+   *
+   * The ground point is found by marching the camera ray against the terrain
+   * height function rather than raycasting the mesh: the same analytic
+   * function the simulation walks on, so where you tap and where you arrive
+   * cannot disagree.
+   */
+  const handleTap = useCallback(
+    (screenX: number, screenY: number) => {
+      const renderer = rendererRef.current;
+      if (!renderer) return;
+      const canvas = renderer.gl.domElement;
+      const rect = canvas.getBoundingClientRect();
+      const ndcX = ((screenX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -(((screenY - rect.top) / rect.height) * 2 - 1);
+
+      const ground = groundPointAt(renderer.camera, ndcX, ndcY, walkable);
+      if (!ground) return;
+
+      // Tapping on or beside a thing walks you to it rather than through it.
+      let nearest: Interactable | null = null;
+      let nearestDistance = Infinity;
+      for (const candidate of walkable.interactables) {
+        const distance = Math.hypot(candidate.x - ground.x, candidate.z - ground.z);
+        if (distance < Math.max(0.9, candidate.reach * 0.8) && distance < nearestDistance) {
+          nearest = candidate;
+          nearestDistance = distance;
+        }
+      }
+
+      if (nearest) {
+        const point = approachPoint(nearest, player, Math.max(0.7, nearest.reach * 0.62));
+        intentRef.current.target = point;
+      } else {
+        intentRef.current.target = ground;
+      }
+      intentRef.current.sit = false;
+    },
+    [walkable, player],
+  );
+
   // --- Actions -----------------------------------------------------------
   const handleFinishRoasting = useCallback(() => {
     finishRoasting(ritual);
@@ -252,7 +464,18 @@ export function App({ store }: AppProps): React.ReactElement {
 
   const handleTakeSandwich = useCallback(() => {
     const sandwich = takeSandwichAction(ritual);
-    if (sandwich) store.saveSandwich(sandwich);
+    if (sandwich) {
+      store.saveSandwich(sandwich);
+      // Queued, never awaited. The Passport already has it.
+      const campsiteId = campsiteIdRef.current;
+      if (campsiteId) {
+        try {
+          syncRef.current?.enqueueSandwich(sandwich, campsiteId);
+        } catch {
+          // A mapping failure must never cost the player their sandwich.
+        }
+      }
+    }
     store.touch();
   }, [ritual, store]);
 
@@ -338,11 +561,18 @@ export function App({ store }: AppProps): React.ReactElement {
           onFrame={onFrame}
           arrivalRef={arrivalRef}
           onSimStep={onSimStep}
+          player={player}
+          intentRef={intentRef}
+          walkable={walkable}
+          onReachChange={setReach}
         />
       </Canvas>
 
       <Hud
         ritual={ritual}
+        reach={reach}
+        onUse={handleUse}
+        exploring={!isAnchored(state.stage) && state.stage !== 'arriving'}
         stage={state.stage}
         subtitle={state.subtitle}
         textScale={state.accessibility.textScale}
@@ -357,7 +587,9 @@ export function App({ store }: AppProps): React.ReactElement {
       />
 
       {/* Fire tending affordances, shown only where they make sense */}
-      {(state.stage === 'at-fire' || state.stage === 'roasting' || state.stage === 'after') && state.overlay === 'none' && (
+      {/* Kept as an accessibility fallback for anyone who cannot walk to the
+          woodpile or aim a tap; the diegetic route is to reach for them. */}
+      {(state.stage === 'roasting' || state.accessibility.simplifiedGestures) && state.overlay === 'none' && (
         <div
           style={{
             position: 'fixed',
@@ -386,9 +618,10 @@ export function App({ store }: AppProps): React.ReactElement {
           textScale={state.accessibility.textScale}
           onClose={() => store.setOverlay('none')}
           onLink={(provider) => {
-            // Linking is a server operation; the client only records intent
-            // until the identity service is reachable.
+            // Optimistic: the Passport is already this device's, so linking
+            // uploads it rather than replacing it (spec §6.1).
             store.set({ passport: { ...state.passport, linkedProvider: provider } });
+            void syncRef.current?.link(provider, `dev-credential:${provider}`);
           }}
         />
       )}
@@ -540,6 +773,33 @@ function BiteRing({
       ))}
     </div>
   );
+}
+
+/** Screen NDC → a walkable ground point, via the shared height function. */
+function groundPointAt(
+  camera: THREE.Camera,
+  ndcX: number,
+  ndcY: number,
+  walkable: { seed: number; amplitude: number; radius: number },
+): { x: number; y: number; z: number } | null {
+  const direction = new ThreeVector3(ndcX, ndcY, 0.5).unproject(camera).sub(camera.position).normalize();
+  const hit = marchToGround(
+    camera.position.x,
+    camera.position.y,
+    camera.position.z,
+    direction.x,
+    direction.y,
+    direction.z,
+    (x, z) => terrainHeight(x, z, walkable.seed, walkable.amplitude),
+  );
+  if (!hit) return null;
+  // Never accept a destination outside the campsite.
+  const distance = Math.hypot(hit.x, hit.z);
+  if (distance > walkable.radius) {
+    const scale = (walkable.radius - 0.4) / distance;
+    return { x: hit.x * scale, y: hit.y, z: hit.z * scale };
+  }
+  return hit;
 }
 
 function easeInOut(t: number): number {

@@ -77,8 +77,8 @@ describe('campsite', () => {
 
 describe('SM-01', () => {
   it('validates the serial number format', () => {
-    expect(MachineSerialSchema.safeParse('SM01-4KQ2-9ZX7').success).toBe(true);
-    expect(MachineSerialSchema.safeParse('SM01-4kq2-9ZX7').success).toBe(false);
+    expect(MachineSerialSchema.safeParse('SM01-1999K-12345-B').success).toBe(true);
+    expect(MachineSerialSchema.safeParse('SM01-1999k-12345-B').success).toBe(false);
     expect(MachineSerialSchema.safeParse('SM02-4KQ2-9ZX7').success).toBe(false);
     expect(CampCodeSchema.safeParse('K7QMR3').success).toBe(true);
   });

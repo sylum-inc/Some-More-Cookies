@@ -1,0 +1,2186 @@
+{
+  "tool": "tools/audio/analyse.mjs",
+  "what": "Offline rendering and measurement of the procedural audio engine, via a real OfflineAudioContext in Chromium.",
+  "capturedAt": "2026-08-29T20:21:25.229Z",
+  "sampleRate": 48000,
+  "soundsAnalysed": 25,
+  "passed": false,
+  "pageErrors": [],
+  "proves": [
+    "Every sound listed actually renders to audio. They are not silent, not scheduled-but-never-triggered, and not dependent on a real AudioContext to exist.",
+    "None of them clips, and none carries a DC offset.",
+    "Each one has the spectral character its design brief claims: the latch is low-frequency dominant, the frost crackle is high, the completion tone is tonal and dark, the fan is broadband.",
+    "Each has a plausible envelope — a transient is a transient, a bed sustains, a ramp ramps.",
+    "The relationships between sounds hold: the latch sits far below the frost, embers read brighter than flames, the completion tone is quieter than the machinery around it, and the five relays are measurably distinguishable.",
+    "A dead fire renders exact silence, all the way to the samples rather than only in the parameter mapping."
+  ],
+  "cannotProve": [
+    "That any of it sounds good. Timbre, taste and the line between \"industrial\" and \"annoying\" are human judgements and no measurement here substitutes for them.",
+    "That the SM-01 sequence has the right pacing. The gaps between events carry the machine's narrative, and whether those gaps feel right needs a listener.",
+    "That the mix balances. Every sound is measured in isolation through a unit gain, not through the engine's buses, master, limiter and reverb sends, and not against each other at their in-game levels.",
+    "That it is comfortable over a long session. Fatigue, harshness and the CRT whine's audibility vary by listener and by playback system.",
+    "Spatialisation. HRTF panning is not exercised here, and it cannot be evaluated without ears.",
+    "How it sounds on a phone speaker, which reproduces almost none of the low end the latch and the compressor are built on — the single largest gap between this report and the shipped experience."
+  ],
+  "universalExpectations": {
+    "clippedSamples": [
+      0,
+      0
+    ],
+    "dcOffset": [
+      -0.005,
+      0.005
+    ],
+    "peak": [
+      0.0005,
+      0.95
+    ]
+  },
+  "sounds": [
+    {
+      "id": "latch-clunk",
+      "label": "SM-01 latch — the heavy two-stage clunk",
+      "why": "The signature sound of the machine: a bright scrape as the handle travels, a ~70 ms gap, then a 92→52 Hz thunk and an inharmonic steel-panel ring. It must be dominated by low frequencies — a bright clunk reads as plastic, and the whole point of this sound is mass.",
+      "seconds": 1.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 1.6,
+        "silent": false,
+        "peak": 0.491332,
+        "peakDbfs": -6.17,
+        "rms": 0.058777,
+        "rmsDbfs": -24.62,
+        "crestFactor": 8.359,
+        "dcOffset": -0.00044,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 289.5,
+        "spectralRolloff85Hz": 234.4,
+        "spectralFlatness": 0.0179,
+        "zeroCrossingRateHz": 388.8,
+        "bandEnergy": {
+          "sub": 0.8338,
+          "low": 0.1637,
+          "lowMid": 0.0024,
+          "mid": 0.0001,
+          "high": 0,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0.0533,
+          "attackSeconds": 0.08,
+          "peakSeconds": 0.1333,
+          "decaySeconds": 0.1013,
+          "activeSeconds": 0.264,
+          "peakRms": 0.413136
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.00044,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.491332,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.sub+low",
+          "value": 0.9975,
+          "min": 0.35,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 289.5,
+          "min": 40,
+          "max": 900,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.08,
+          "min": 0,
+          "max": 0.15,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.264,
+          "min": 0.08,
+          "max": 1.4,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0.058777,
+          "min": 0.002,
+          "max": 0.3,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "switch-detent",
+      "label": "Panel switch detent",
+      "why": "A tick, a plastic ping and a return-spring click. Tiny, bright, and over almost immediately.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.095116,
+        "peakDbfs": -20.43,
+        "rms": 0.002987,
+        "rmsDbfs": -50.5,
+        "crestFactor": 31.844,
+        "dcOffset": 0.000002,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 5970.4,
+        "spectralRolloff85Hz": 10265.6,
+        "spectralFlatness": 0.4013,
+        "zeroCrossingRateHz": 913.3,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0.0001,
+          "lowMid": 0.0067,
+          "mid": 0.7574,
+          "high": 0.2222,
+          "air": 0.0136
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0027,
+          "peakSeconds": 0.0507,
+          "decaySeconds": 0.0107,
+          "activeSeconds": 0.024,
+          "peakRms": 0.038599
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0.000002,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.095116,
+          "min": 0.005,
+          "max": 0.7,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 5970.4,
+          "min": 700,
+          "max": 9000,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.024,
+          "min": 0.0005,
+          "max": 0.25,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "relay-click-0",
+      "label": "Relay 0 click",
+      "why": "Five relays the player is expected to tell apart by ear: coil thump then contact snap, differing in register, brightness, bounce count and decay. Each must be a short transient, not a tone.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.291573,
+        "peakDbfs": -10.71,
+        "rms": 0.033197,
+        "rmsDbfs": -29.58,
+        "crestFactor": 8.783,
+        "dcOffset": -0.000235,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 2615.3,
+        "spectralRolloff85Hz": 5554.7,
+        "spectralFlatness": 0.1922,
+        "zeroCrossingRateHz": 900,
+        "bandEnergy": {
+          "sub": 0.4609,
+          "low": 0.488,
+          "lowMid": 0.0037,
+          "mid": 0.0442,
+          "high": 0.0029,
+          "air": 0.0002
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0053,
+          "peakSeconds": 0.0533,
+          "decaySeconds": 0.0427,
+          "activeSeconds": 0.0693,
+          "peakRms": 0.247362
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000235,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.291573,
+          "min": 0.005,
+          "max": 0.8,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.0053,
+          "min": 0,
+          "max": 0.05,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.0693,
+          "min": 0.0005,
+          "max": 0.3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.1922,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "relay-click-1",
+      "label": "Relay 1 click",
+      "why": "Five relays the player is expected to tell apart by ear: coil thump then contact snap, differing in register, brightness, bounce count and decay. Each must be a short transient, not a tone.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.24763,
+        "peakDbfs": -12.12,
+        "rms": 0.020439,
+        "rmsDbfs": -33.79,
+        "crestFactor": 12.115,
+        "dcOffset": -0.000103,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 3718.9,
+        "spectralRolloff85Hz": 7007.8,
+        "spectralFlatness": 0.2375,
+        "zeroCrossingRateHz": 146.7,
+        "bandEnergy": {
+          "sub": 0.0019,
+          "low": 0.8522,
+          "lowMid": 0.0038,
+          "mid": 0.1259,
+          "high": 0.0155,
+          "air": 0.0008
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0107,
+          "peakSeconds": 0.0587,
+          "decaySeconds": 0.048,
+          "activeSeconds": 0.072,
+          "peakRms": 0.122787
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000103,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.24763,
+          "min": 0.005,
+          "max": 0.8,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.0107,
+          "min": 0,
+          "max": 0.05,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.072,
+          "min": 0.0005,
+          "max": 0.3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.2375,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "relay-click-2",
+      "label": "Relay 2 click",
+      "why": "Five relays the player is expected to tell apart by ear: coil thump then contact snap, differing in register, brightness, bounce count and decay. Each must be a short transient, not a tone.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.242443,
+        "peakDbfs": -12.31,
+        "rms": 0.026384,
+        "rmsDbfs": -31.57,
+        "crestFactor": 9.189,
+        "dcOffset": -0.000182,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 2268.9,
+        "spectralRolloff85Hz": 4593.8,
+        "spectralFlatness": 0.1822,
+        "zeroCrossingRateHz": 1196.7,
+        "bandEnergy": {
+          "sub": 0.0994,
+          "low": 0.859,
+          "lowMid": 0.0166,
+          "mid": 0.0232,
+          "high": 0.0016,
+          "air": 0.0002
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0053,
+          "peakSeconds": 0.0533,
+          "decaySeconds": 0.0427,
+          "activeSeconds": 0.0693,
+          "peakRms": 0.20089
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000182,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.242443,
+          "min": 0.005,
+          "max": 0.8,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.0053,
+          "min": 0,
+          "max": 0.05,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.0693,
+          "min": 0.0005,
+          "max": 0.3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.1822,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "relay-click-3",
+      "label": "Relay 3 click",
+      "why": "Five relays the player is expected to tell apart by ear: coil thump then contact snap, differing in register, brightness, bounce count and decay. Each must be a short transient, not a tone.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.132841,
+        "peakDbfs": -17.53,
+        "rms": 0.010161,
+        "rmsDbfs": -39.86,
+        "crestFactor": 13.073,
+        "dcOffset": -0.000032,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 4732.5,
+        "spectralRolloff85Hz": 8320.3,
+        "spectralFlatness": 0.2748,
+        "zeroCrossingRateHz": 160,
+        "bandEnergy": {
+          "sub": 0.0005,
+          "low": 0.8639,
+          "lowMid": 0.0292,
+          "mid": 0.008,
+          "high": 0.0971,
+          "air": 0.0012
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.008,
+          "peakSeconds": 0.056,
+          "decaySeconds": 0.048,
+          "activeSeconds": 0.072,
+          "peakRms": 0.065122
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000032,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.132841,
+          "min": 0.005,
+          "max": 0.8,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.008,
+          "min": 0,
+          "max": 0.05,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.072,
+          "min": 0.0005,
+          "max": 0.3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.2748,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "relay-click-4",
+      "label": "Relay 4 click",
+      "why": "Five relays the player is expected to tell apart by ear: coil thump then contact snap, differing in register, brightness, bounce count and decay. Each must be a short transient, not a tone.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.403259,
+        "peakDbfs": -7.89,
+        "rms": 0.038501,
+        "rmsDbfs": -28.29,
+        "crestFactor": 10.474,
+        "dcOffset": -0.00035,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 2128.8,
+        "spectralRolloff85Hz": 4523.4,
+        "spectralFlatness": 0.1716,
+        "zeroCrossingRateHz": 1693.3,
+        "bandEnergy": {
+          "sub": 0.8074,
+          "low": 0.1657,
+          "lowMid": 0.0166,
+          "mid": 0.0089,
+          "high": 0.0012,
+          "air": 0.0001
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.008,
+          "peakSeconds": 0.056,
+          "decaySeconds": 0.0347,
+          "activeSeconds": 0.072,
+          "peakRms": 0.284172
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.00035,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.403259,
+          "min": 0.005,
+          "max": 0.8,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.008,
+          "min": 0,
+          "max": 0.05,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.072,
+          "min": 0.0005,
+          "max": 0.3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.1716,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "compressor-start",
+      "label": "Compressor start — contactor, spin-up, running hum",
+      "why": "An induction motor pulling in: a contactor click, a harmonic stack gliding from 42 % to running speed over 1.1 s, then a sustained hum with mains ripple. It is the sound that tells the player the machine is working, so it has to sustain rather than decay, and it has to be low.",
+      "seconds": 3.5,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3.5,
+        "silent": false,
+        "peak": 0.291587,
+        "peakDbfs": -10.7,
+        "rms": 0.069713,
+        "rmsDbfs": -23.13,
+        "crestFactor": 4.183,
+        "dcOffset": -0.00001,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 520.7,
+        "spectralRolloff85Hz": 796.9,
+        "spectralFlatness": 0.0238,
+        "zeroCrossingRateHz": 165.4,
+        "bandEnergy": {
+          "sub": 0.6643,
+          "low": 0.3055,
+          "lowMid": 0.0289,
+          "mid": 0.0012,
+          "high": 0,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0053,
+          "peakSeconds": 0.0533,
+          "decaySeconds": 0.048,
+          "activeSeconds": 3.32,
+          "peakRms": 0.247348
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.00001,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.291587,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.sub+low",
+          "value": 0.9698,
+          "min": 0.3,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 520.7,
+          "min": 30,
+          "max": 1400,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 3.32,
+          "min": 1.5,
+          "max": 3.5,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0.069713,
+          "min": 0.002,
+          "max": 0.35,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "compressor-stop",
+      "label": "Compressor stop — hum droops and dies, refrigerant equalises",
+      "why": "The counterpart. The hum has to actually stop: the tail must be quieter than the body.",
+      "seconds": 4,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 4,
+        "silent": false,
+        "peak": 0.326131,
+        "peakDbfs": -9.73,
+        "rms": 0.059195,
+        "rmsDbfs": -24.55,
+        "crestFactor": 5.509,
+        "dcOffset": -0.00009,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 714,
+        "spectralRolloff85Hz": 890.6,
+        "spectralFlatness": 0.0575,
+        "zeroCrossingRateHz": 712,
+        "bandEnergy": {
+          "sub": 0.7257,
+          "low": 0.2495,
+          "lowMid": 0.0236,
+          "mid": 0.0012,
+          "high": 0,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0.0027,
+          "attackSeconds": 0.0027,
+          "peakSeconds": 0.0053,
+          "decaySeconds": 0.0347,
+          "activeSeconds": 1.5147,
+          "peakRms": 0.282732
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.00009,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.326131,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.sub+low",
+          "value": 0.9752,
+          "min": 0.2,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 1.5147,
+          "min": 0.5,
+          "max": 4,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "fan-ramp",
+      "label": "Condenser fan ramping to full speed",
+      "why": "Low-passed pink noise whose cutoff and level ramp, plus a blade tone at blades × rpm / 60. It has to be broadband (a fan is air, not a note) and it has to *ramp* — quieter at the start than at the end.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": false,
+        "peak": 0.321149,
+        "peakDbfs": -9.87,
+        "rms": 0.057522,
+        "rmsDbfs": -24.8,
+        "crestFactor": 5.583,
+        "dcOffset": 0.000117,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 3055.3,
+        "spectralRolloff85Hz": 5953.1,
+        "spectralFlatness": 0.1123,
+        "zeroCrossingRateHz": 3194.7,
+        "bandEnergy": {
+          "sub": 0.3861,
+          "low": 0.1842,
+          "lowMid": 0.1842,
+          "mid": 0.1728,
+          "high": 0.0724,
+          "air": 0.0003
+        },
+        "envelope": {
+          "onsetSeconds": 0.9973,
+          "attackSeconds": 1.6347,
+          "peakSeconds": 2.632,
+          "decaySeconds": 0.3653,
+          "activeSeconds": 1.8693,
+          "peakRms": 0.19156
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0.000117,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.321149,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.1123,
+          "min": 0.005,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 1.6347,
+          "min": 0.2,
+          "max": 3,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 1.8693,
+          "min": 0.5,
+          "max": 3,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0.057522,
+          "min": 0.002,
+          "max": 0.35,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "refrigerant-flow",
+      "label": "Refrigerant through the capillary",
+      "why": "Band-passed velvet noise wandering in centre frequency, with descending resonant gurgles.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": false,
+        "peak": 0.093718,
+        "peakDbfs": -20.56,
+        "rms": 0.011547,
+        "rmsDbfs": -38.75,
+        "crestFactor": 8.116,
+        "dcOffset": 0.000009,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 2336.5,
+        "spectralRolloff85Hz": 3914.1,
+        "spectralFlatness": 0.1734,
+        "zeroCrossingRateHz": 2802.7,
+        "bandEnergy": {
+          "sub": 0.0001,
+          "low": 0.0003,
+          "lowMid": 0.9723,
+          "mid": 0.0246,
+          "high": 0.0025,
+          "air": 0.0002
+        },
+        "envelope": {
+          "onsetSeconds": 0.0933,
+          "attackSeconds": 1.304,
+          "peakSeconds": 1.3973,
+          "decaySeconds": 0.1387,
+          "activeSeconds": 1.8187,
+          "peakRms": 0.062258
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0.000009,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.093718,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 1.8187,
+          "min": 0.3,
+          "max": 3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.1734,
+          "min": 0.002,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "frost-crackle",
+      "label": "Frost crackle at high coverage",
+      "why": "Poisson ticks at 5–11 kHz, fractions of a millisecond long, very quiet. Ice is a tiny, high sound; this is the sound that must sit at the opposite end of the spectrum from the latch. If it ever becomes low-frequency dominant, something has gone badly wrong.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": false,
+        "peak": 0.037817,
+        "peakDbfs": -28.45,
+        "rms": 0.001521,
+        "rmsDbfs": -56.36,
+        "crestFactor": 24.858,
+        "dcOffset": 0,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 8772.4,
+        "spectralRolloff85Hz": 11554.7,
+        "spectralFlatness": 0.3822,
+        "zeroCrossingRateHz": 4722,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0,
+          "lowMid": 0.0002,
+          "mid": 0.0093,
+          "high": 0.9636,
+          "air": 0.0269
+        },
+        "envelope": {
+          "onsetSeconds": 0.152,
+          "attackSeconds": 1.7013,
+          "peakSeconds": 1.8533,
+          "decaySeconds": 0.0187,
+          "activeSeconds": 0.3627,
+          "peakRms": 0.015434
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.037817,
+          "min": 0.0005,
+          "max": 0.35,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 8772.4,
+          "min": 3000,
+          "max": 20000,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.high+air",
+          "value": 0.9905,
+          "min": 0.5,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.sub+low",
+          "value": 0,
+          "min": 0,
+          "max": 0.15,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0.001521,
+          "min": 0.00002,
+          "max": 0.05,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "completion-tone",
+      "label": "Completion tone — C5 → G4 with a relay underneath",
+      "why": "The most easily ruined sound in the product. The brief is \"a machine finishing a cycle and dropping its contactor, not a reward\". Measurably: it must be a *tone* (low spectral flatness, not noise), centred low (it is low-passed at 2 kHz and its partials are 392–523 Hz), quieter than the latch, and it must have a soft attack and a long decay rather than a bright jingle's fast attack and short tail.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": false,
+        "peak": 0.422801,
+        "peakDbfs": -7.48,
+        "rms": 0.050013,
+        "rmsDbfs": -26.02,
+        "crestFactor": 8.454,
+        "dcOffset": -0.00004,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 1065.1,
+        "spectralRolloff85Hz": 1054.7,
+        "spectralFlatness": 0.0601,
+        "zeroCrossingRateHz": 391.3,
+        "bandEnergy": {
+          "sub": 0.0037,
+          "low": 0.0289,
+          "lowMid": 0.966,
+          "mid": 0.0013,
+          "high": 0.0001,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0.0533,
+          "attackSeconds": 0.024,
+          "peakSeconds": 0.0773,
+          "decaySeconds": 0.912,
+          "activeSeconds": 1.1653,
+          "peakRms": 0.227177
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.00004,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.422801,
+          "min": 0.01,
+          "max": 0.5,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 1065.1,
+          "min": 150,
+          "max": 1400,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.0601,
+          "min": 0,
+          "max": 0.15,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.high+air",
+          "value": 0.0001,
+          "min": 0,
+          "max": 0.1,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.024,
+          "min": 0.005,
+          "max": 0.6,
+          "ok": true
+        },
+        {
+          "path": "envelope.decaySeconds",
+          "value": 0.912,
+          "min": 0.15,
+          "max": 2.5,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "beep-confirm",
+      "label": "Panel beep — confirm",
+      "why": "A 1997 panel beeper: flat, short, low-passed, peak capped at 0.26.",
+      "seconds": 0.6,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.6,
+        "silent": false,
+        "peak": 0.307679,
+        "peakDbfs": -10.24,
+        "rms": 0.077195,
+        "rmsDbfs": -22.25,
+        "crestFactor": 3.986,
+        "dcOffset": -0.000003,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 1664.7,
+        "spectralRolloff85Hz": 2648.4,
+        "spectralFlatness": 0.0008,
+        "zeroCrossingRateHz": 303.3,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0,
+          "lowMid": 0.8946,
+          "mid": 0.0999,
+          "high": 0.0055,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0453,
+          "peakSeconds": 0.0933,
+          "decaySeconds": 0.032,
+          "activeSeconds": 0.0773,
+          "peakRms": 0.226918
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000003,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.307679,
+          "min": 0.01,
+          "max": 0.4,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.0773,
+          "min": 0.01,
+          "max": 0.3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.0008,
+          "min": 0,
+          "max": 0.35,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "beep-deny",
+      "label": "Panel beep — deny (two falling steps)",
+      "why": "Two low beeps, falling. Reads as \"no\" without being punitive, so it must stay quiet and dull.",
+      "seconds": 0.8,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 0.8,
+        "silent": false,
+        "peak": 0.283559,
+        "peakDbfs": -10.95,
+        "rms": 0.095689,
+        "rmsDbfs": -20.38,
+        "crestFactor": 2.963,
+        "dcOffset": -0.000063,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 1019.1,
+        "spectralRolloff85Hz": 1945.3,
+        "spectralFlatness": 0.0011,
+        "zeroCrossingRateHz": 260,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0.0018,
+          "lowMid": 0.957,
+          "mid": 0.0408,
+          "high": 0.0004,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.176,
+          "peakSeconds": 0.224,
+          "decaySeconds": 0.0613,
+          "activeSeconds": 0.184,
+          "peakRms": 0.210049
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000063,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.283559,
+          "min": 0.01,
+          "max": 0.4,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 1019.1,
+          "min": 100,
+          "max": 2500,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "door-open",
+      "label": "Insulated door opening — gasket peel, seal thump, air inrush",
+      "why": "The reveal begins with this. Heavy, low, and long enough to feel like a door rather than a click.",
+      "seconds": 2.5,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 2.5,
+        "silent": false,
+        "peak": 0.472295,
+        "peakDbfs": -6.52,
+        "rms": 0.046652,
+        "rmsDbfs": -26.62,
+        "crestFactor": 10.124,
+        "dcOffset": -0.000159,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 1714.8,
+        "spectralRolloff85Hz": 3351.6,
+        "spectralFlatness": 0.1486,
+        "zeroCrossingRateHz": 769.6,
+        "bandEnergy": {
+          "sub": 0.6219,
+          "low": 0.3665,
+          "lowMid": 0.0067,
+          "mid": 0.0042,
+          "high": 0.0006,
+          "air": 0.0001
+        },
+        "envelope": {
+          "onsetSeconds": 0.072,
+          "attackSeconds": 0.0693,
+          "peakSeconds": 0.1413,
+          "decaySeconds": 0.1653,
+          "activeSeconds": 0.3947,
+          "peakRms": 0.355527
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000159,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.472295,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.sub+low",
+          "value": 0.9884,
+          "min": 0.15,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.3947,
+          "min": 0.1,
+          "max": 2.5,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "vapor-release",
+      "label": "Vapour release",
+      "why": "A valve cracking, then a band-pass swept 3 k→700 Hz. Broadband, not tonal.",
+      "seconds": 2,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 2,
+        "silent": false,
+        "peak": 0.287265,
+        "peakDbfs": -10.83,
+        "rms": 0.031278,
+        "rmsDbfs": -30.1,
+        "crestFactor": 9.184,
+        "dcOffset": -0.000047,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 6144.3,
+        "spectralRolloff85Hz": 11601.6,
+        "spectralFlatness": 0.5209,
+        "zeroCrossingRateHz": 7559.5,
+        "bandEnergy": {
+          "sub": 0.6012,
+          "low": 0.0639,
+          "lowMid": 0.0062,
+          "mid": 0.1575,
+          "high": 0.1585,
+          "air": 0.0127
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0187,
+          "peakSeconds": 0.0667,
+          "decaySeconds": 0.5733,
+          "activeSeconds": 0.896,
+          "peakRms": 0.139259
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000047,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.287265,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.5209,
+          "min": 0.002,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.896,
+          "min": 0.05,
+          "max": 2,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "fire-bed",
+      "label": "Fire bed — flaming, fuelled, light wind",
+      "why": "The continuous bed under most of the product: pink-noise roar, white-noise hiss, brown-noise rumble, velvet ember fizz and Poisson crackles. It must be broadband, continuous (active for essentially the whole render), and dominated by the low end — a fire that is mostly hiss sounds like rain.",
+      "seconds": 4,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 4,
+        "silent": false,
+        "peak": 0.636909,
+        "peakDbfs": -3.92,
+        "rms": 0.14517,
+        "rmsDbfs": -16.76,
+        "crestFactor": 4.387,
+        "dcOffset": -0.006384,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 9872.4,
+        "spectralRolloff85Hz": 19500,
+        "spectralFlatness": 0.8727,
+        "zeroCrossingRateHz": 11806.8,
+        "bandEnergy": {
+          "sub": 0.4107,
+          "low": 0.1467,
+          "lowMid": 0.173,
+          "mid": 0.0231,
+          "high": 0.11,
+          "air": 0.1365
+        },
+        "envelope": {
+          "onsetSeconds": 0.0187,
+          "attackSeconds": 1.8347,
+          "peakSeconds": 1.8533,
+          "decaySeconds": 2.144,
+          "activeSeconds": 3.9733,
+          "peakRms": 0.411114
+        },
+        "stereoCorrelation": 0.9987
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.006384,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": false
+        },
+        {
+          "path": "peak",
+          "value": 0.636909,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.8727,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "bandEnergy.sub+low",
+          "value": 0.5574,
+          "min": 0.2,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 3.9733,
+          "min": 3,
+          "max": 4,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0.14517,
+          "min": 0.002,
+          "max": 0.4,
+          "ok": true
+        }
+      ],
+      "passed": false
+    },
+    {
+      "id": "fire-embers",
+      "label": "Fire bed — burned down to coals",
+      "why": "The roasting surface. Ember fizz is designed to be loudest when flames are *low*, so this state must still make sound, and must be brighter than the flaming bed (the fizz sits at 1.8–3.6 kHz while the roar and rumble have gone).",
+      "seconds": 4,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 4,
+        "silent": false,
+        "peak": 0.080153,
+        "peakDbfs": -21.92,
+        "rms": 0.008288,
+        "rmsDbfs": -41.63,
+        "crestFactor": 9.671,
+        "dcOffset": -0.000117,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 9884.4,
+        "spectralRolloff85Hz": 19007.8,
+        "spectralFlatness": 0.924,
+        "zeroCrossingRateHz": 19869.5,
+        "bandEnergy": {
+          "sub": 0.0395,
+          "low": 0.0224,
+          "lowMid": 0.0147,
+          "mid": 0.3659,
+          "high": 0.3359,
+          "air": 0.2216
+        },
+        "envelope": {
+          "onsetSeconds": 0.024,
+          "attackSeconds": 2.216,
+          "peakSeconds": 2.24,
+          "decaySeconds": 1.7573,
+          "activeSeconds": 3.9733,
+          "peakRms": 0.028542
+        },
+        "stereoCorrelation": 0.9813
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000117,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.080153,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 3.9733,
+          "min": 2,
+          "max": 4,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0.008288,
+          "min": 0.00005,
+          "max": 0.3,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "fire-dead",
+      "label": "Fire bed — dead",
+      "why": "A dead fire has to produce exactly nothing. The README states it as a design rule (\"silence is information too\") and the state→parameter mapping is written to guarantee it; this is the check that the guarantee survives all the way to the samples.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": true,
+        "peak": 0,
+        "peakDbfs": null,
+        "rms": 0,
+        "rmsDbfs": null,
+        "crestFactor": 0,
+        "dcOffset": 0,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 0,
+        "spectralRolloff85Hz": 0,
+        "spectralFlatness": 1,
+        "zeroCrossingRateHz": 0,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0,
+          "lowMid": 0,
+          "mid": 0,
+          "high": 0,
+          "air": 0
+        },
+        "envelope": {
+          "onsetSeconds": 0,
+          "attackSeconds": 0,
+          "peakSeconds": 0,
+          "decaySeconds": 0,
+          "activeSeconds": 0,
+          "peakRms": 0
+        },
+        "stereoCorrelation": 0
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0,
+          "min": 0,
+          "max": 0.002,
+          "ok": true
+        },
+        {
+          "path": "rms",
+          "value": 0,
+          "min": 0,
+          "max": 0.0005,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "sizzle",
+      "label": "Marshmallow sizzle — hot and wet",
+      "why": "Band-passed velvet steam plus bubble grains. Continuous, broadband, and not loud.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": false,
+        "peak": 0.078491,
+        "peakDbfs": -22.1,
+        "rms": 0.019781,
+        "rmsDbfs": -34.08,
+        "crestFactor": 3.968,
+        "dcOffset": 0.000157,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 6819,
+        "spectralRolloff85Hz": 12046.9,
+        "spectralFlatness": 0.557,
+        "zeroCrossingRateHz": 8149.7,
+        "bandEnergy": {
+          "sub": 0.0032,
+          "low": 0.0007,
+          "lowMid": 0.0098,
+          "mid": 0.4625,
+          "high": 0.49,
+          "air": 0.0338
+        },
+        "envelope": {
+          "onsetSeconds": 0.0053,
+          "attackSeconds": 2.3653,
+          "peakSeconds": 2.3707,
+          "decaySeconds": 0.6267,
+          "activeSeconds": 2.9947,
+          "peakRms": 0.026644
+        },
+        "stereoCorrelation": 0.9997
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0.000157,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.078491,
+          "min": 0.0005,
+          "max": 0.6,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 2.9947,
+          "min": 1.5,
+          "max": 3,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.557,
+          "min": 0.001,
+          "max": 1,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "graham-snap",
+      "label": "Graham cracker snapping",
+      "why": "A modal tick plus scattered crumbs. Short, transient, with crumbs arriving after the break.",
+      "seconds": 1,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 1,
+        "silent": false,
+        "peak": 0.161752,
+        "peakDbfs": -15.82,
+        "rms": 0.004719,
+        "rmsDbfs": -46.52,
+        "crestFactor": 34.28,
+        "dcOffset": 0.000001,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 5660,
+        "spectralRolloff85Hz": 10875,
+        "spectralFlatness": 0.4379,
+        "zeroCrossingRateHz": 2366,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0.0006,
+          "lowMid": 0.1176,
+          "mid": 0.6568,
+          "high": 0.2065,
+          "air": 0.0185
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0027,
+          "peakSeconds": 0.0507,
+          "decaySeconds": 0.0293,
+          "activeSeconds": 0.048,
+          "peakRms": 0.05353
+        },
+        "stereoCorrelation": 0.9997
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0.000001,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.161752,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.0027,
+          "min": 0,
+          "max": 0.08,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.048,
+          "min": 0.001,
+          "max": 0.8,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "chocolate-fracture",
+      "label": "Chocolate fracturing",
+      "why": "A higher, cleaner, glassier version of the snap with almost no crumble — so it must be brighter.",
+      "seconds": 1,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 1,
+        "silent": false,
+        "peak": 0.127705,
+        "peakDbfs": -17.88,
+        "rms": 0.003205,
+        "rmsDbfs": -49.88,
+        "crestFactor": 39.843,
+        "dcOffset": 0.000001,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 7159.2,
+        "spectralRolloff85Hz": 11765.6,
+        "spectralFlatness": 0.4485,
+        "zeroCrossingRateHz": 2148,
+        "bandEnergy": {
+          "sub": 0,
+          "low": 0,
+          "lowMid": 0.0008,
+          "mid": 0.1351,
+          "high": 0.8409,
+          "air": 0.0232
+        },
+        "envelope": {
+          "onsetSeconds": 0.048,
+          "attackSeconds": 0.0027,
+          "peakSeconds": 0.0507,
+          "decaySeconds": 0.0133,
+          "activeSeconds": 0.0213,
+          "peakRms": 0.049522
+        },
+        "stereoCorrelation": 0.9999
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": 0.000001,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.127705,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "envelope.attackSeconds",
+          "value": 0.0027,
+          "min": 0,
+          "max": 0.08,
+          "ok": true
+        },
+        {
+          "path": "spectralCentroidHz",
+          "value": 7159.2,
+          "min": 300,
+          "max": 14000,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "ignition-whoosh",
+      "label": "Marshmallow catching fire",
+      "why": "A swell opening upward. Broadband, with a slower attack than any of the impacts.",
+      "seconds": 2,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 2,
+        "silent": false,
+        "peak": 0.232079,
+        "peakDbfs": -12.69,
+        "rms": 0.026509,
+        "rmsDbfs": -31.53,
+        "crestFactor": 8.755,
+        "dcOffset": -0.000051,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 2766.5,
+        "spectralRolloff85Hz": 6328.1,
+        "spectralFlatness": 0.2517,
+        "zeroCrossingRateHz": 1687,
+        "bandEnergy": {
+          "sub": 0.3232,
+          "low": 0.5772,
+          "lowMid": 0.0715,
+          "mid": 0.0223,
+          "high": 0.0054,
+          "air": 0.0004
+        },
+        "envelope": {
+          "onsetSeconds": 0.0507,
+          "attackSeconds": 0.0107,
+          "peakSeconds": 0.0613,
+          "decaySeconds": 0.1627,
+          "activeSeconds": 0.6,
+          "peakRms": 0.155342
+        },
+        "stereoCorrelation": 1
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000051,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.232079,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "spectralFlatness",
+          "value": 0.2517,
+          "min": 0.002,
+          "max": 1,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.6,
+          "min": 0.05,
+          "max": 2,
+          "ok": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "id": "impulse-clearing",
+      "label": "Reverb impulse response — clearing",
+      "why": "Not a game sound but the thing every other sound is convolved with. Measured here because a broken IR ruins everything downstream: it must decay (not sustain), and it must be decorrelated between channels or the reverb collapses to mono.",
+      "seconds": 3,
+      "metrics": {
+        "sampleRate": 48000,
+        "channels": 2,
+        "durationSeconds": 3,
+        "silent": false,
+        "peak": 0.42,
+        "peakDbfs": -7.54,
+        "rms": 0.028245,
+        "rmsDbfs": -30.98,
+        "crestFactor": 14.87,
+        "dcOffset": -0.000034,
+        "clippedSamples": 0,
+        "clipFraction": 0,
+        "spectralCentroidHz": 11794.7,
+        "spectralRolloff85Hz": 20296.9,
+        "spectralFlatness": 0.9767,
+        "zeroCrossingRateHz": 7928,
+        "bandEnergy": {
+          "sub": 0.0035,
+          "low": 0.011,
+          "lowMid": 0.0444,
+          "mid": 0.1249,
+          "high": 0.3444,
+          "air": 0.4718
+        },
+        "envelope": {
+          "onsetSeconds": 0.0613,
+          "attackSeconds": 0.08,
+          "peakSeconds": 0.1413,
+          "decaySeconds": 0.2773,
+          "activeSeconds": 0.44,
+          "peakRms": 0.118488
+        },
+        "stereoCorrelation": 0.0056
+      },
+      "checks": [
+        {
+          "path": "clippedSamples",
+          "value": 0,
+          "min": 0,
+          "max": 0,
+          "ok": true
+        },
+        {
+          "path": "dcOffset",
+          "value": -0.000034,
+          "min": -0.005,
+          "max": 0.005,
+          "ok": true
+        },
+        {
+          "path": "peak",
+          "value": 0.42,
+          "min": 0.0005,
+          "max": 0.95,
+          "ok": true
+        },
+        {
+          "path": "envelope.activeSeconds",
+          "value": 0.44,
+          "min": 0.05,
+          "max": 3,
+          "ok": true
+        },
+        {
+          "path": "stereoCorrelation",
+          "value": 0.0056,
+          "min": -0.6,
+          "max": 0.8,
+          "ok": true
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "relations": [
+    {
+      "id": "latch-below-frost",
+      "claim": "The latch clunk is lower-pitched than the frost crackle",
+      "why": "The two ends of the SM-01's vocabulary. Mass at the bottom, ice at the top. If these ever converge, the machine stops reading as a machine.",
+      "detail": "latch 289.5 Hz vs frost 8772.4 Hz (ratio 30.3x, needs > 3x)",
+      "ok": true
+    },
+    {
+      "id": "completion-restrained",
+      "claim": "The completion tone is quieter than the latch it follows",
+      "why": "The reward moment must not be the loudest thing in the sequence. A completion sound louder than the machinery is the exact \"bright jingle\" failure the design brief rules out.",
+      "detail": "completion peak 0.422801 vs latch peak 0.491332",
+      "ok": true
+    },
+    {
+      "id": "completion-is-tonal",
+      "claim": "The completion tone is more tonal than any machine noise",
+      "why": "It is the only pitched sound in the kit. If its flatness approaches the fan's, it has become noise.",
+      "detail": "completion flatness 0.0601 vs fan 0.1123",
+      "ok": true
+    },
+    {
+      "id": "embers-brighter-than-flames",
+      "claim": "A burned-down bed is brighter than a flaming one",
+      "why": "Ember fizz is designed to be loudest when the flames are low, and the roar and rumble that dominate a flaming fire are gone. This is what makes \"the fire has burned down\" audible without being told.",
+      "detail": "embers 9884.4 Hz vs flames 9872.4 Hz",
+      "ok": true
+    },
+    {
+      "id": "chocolate-brighter-than-graham",
+      "claim": "Chocolate fractures brighter than a graham cracker snaps",
+      "why": "Glassy versus crumbly. The design says so; this is whether the samples agree.",
+      "detail": "chocolate 7159.2 Hz vs graham 5660 Hz",
+      "ok": true
+    },
+    {
+      "id": "relays-distinguishable",
+      "claim": "The five relays are distinguishable by ear-relevant measurements",
+      "why": "The player is expected to learn which relay just fired. That only works if they differ in more than random noise: this requires the brightest and dullest to differ by at least 40 %.",
+      "detail": "centroids 2615, 3719, 2269, 4733, 2129 Hz",
+      "ok": true
+    },
+    {
+      "id": "dead-fire-is-silent",
+      "claim": "A dead fire renders true silence",
+      "why": "Not \"quiet\" — nothing. Asserted on the samples, not on the parameter mapping.",
+      "detail": "dead-fire peak 0 (-Infinity dBFS)",
+      "ok": true
+    }
+  ]
+}

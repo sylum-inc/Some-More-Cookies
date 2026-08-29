@@ -79,9 +79,11 @@ export function campsiteRoutes(services: ServiceRegistry): AnyRoute[] {
       async handle(ctx) {
         const auth = ctx.requireAuth();
         const invite = await campsites.createInvite(auth.accountId, ctx.params.campsiteId, ctx.body);
+        // Signed when this deployment has code keys, legacy when it does not;
+        // `join` accepts both, so the QR path never depends on a credential.
         return {
           status: 201,
-          body: { invite, qrPayload: `somemore://join?t=${invite.token}` },
+          body: { invite, qrPayload: campsites.qrPayloadFor(invite) },
         };
       },
     }),

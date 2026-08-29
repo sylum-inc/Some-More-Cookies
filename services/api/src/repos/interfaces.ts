@@ -1,5 +1,9 @@
 import type {
   Account,
+  CodeBatch,
+  CodeRedemption,
+  ContentDocument,
+  ContentRelease,
   AuthorityRecord,
   Campsite,
   CampsiteInvite,
@@ -201,6 +205,68 @@ export interface RewardClaimRepository {
 }
 
 /* -------------------------------------------------------------------------- */
+/* live ops                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export interface ContentDocumentFilter {
+  readonly kind?: ContentDocument['kind'];
+  readonly slug?: string;
+  readonly status?: ContentDocument['status'];
+}
+
+export interface ContentDocumentRepository {
+  create(document: ContentDocument): Promise<ContentDocument>;
+  get(documentId: string): Promise<ContentDocument | null>;
+  update(documentId: string, mutate: (current: ContentDocument) => ContentDocument): Promise<ContentDocument>;
+  list(filter?: ContentDocumentFilter): Promise<ContentDocument[]>;
+  /** Highest version number for `(kind, slug)`, or 0 when there is none yet. */
+  latestVersion(kind: ContentDocument['kind'], slug: string): Promise<number>;
+  /**
+   * The published version of `(kind, slug)`, if any. At most one may exist —
+   * `content_documents_one_published` is what makes "at most" true under
+   * concurrency rather than by convention.
+   */
+  findPublished(kind: ContentDocument['kind'], slug: string): Promise<ContentDocument | null>;
+  listPublished(): Promise<ContentDocument[]>;
+}
+
+export interface ContentReleaseRepository {
+  create(release: ContentRelease): Promise<ContentRelease>;
+  /** The release currently rendered by the manifest, or null before the first. */
+  latest(): Promise<ContentRelease | null>;
+  getByVersion(version: number): Promise<ContentRelease | null>;
+  list(limit?: number): Promise<ContentRelease[]>;
+}
+
+export interface CodeBatchRepository {
+  create(batch: CodeBatch): Promise<CodeBatch>;
+  get(batchId: string): Promise<CodeBatch | null>;
+  list(): Promise<CodeBatch[]>;
+  update(batchId: string, mutate: (current: CodeBatch) => CodeBatch): Promise<CodeBatch>;
+}
+
+export interface CodeRedemptionRepository {
+  /**
+   * Claim-once, decided by the database.
+   *
+   * Raises `code_already_redeemed` when this exact code has been redeemed
+   * before, and again when `perAccountUnique` is set and the account has
+   * already redeemed something from this run. Both are unique indexes, not
+   * checks: two simultaneous scans of the same wrapper produce one grant and
+   * one refusal regardless of how the requests interleave.
+   */
+  redeem(redemption: CodeRedemption, options: { perAccountUnique: boolean }): Promise<CodeRedemption>;
+  get(redemptionId: string): Promise<CodeRedemption | null>;
+  findByCode(batchId: string, codeRef: string): Promise<CodeRedemption | null>;
+  countForBatch(batchId: string): Promise<number>;
+  countForAccountAndBatch(accountId: string, batchId: string): Promise<number>;
+  /** Velocity signal: is this run suddenly being redeemed by the internet? */
+  countForBatchSince(batchId: string, sinceIso: string): Promise<number>;
+  listByAccount(accountId: string): Promise<CodeRedemption[]>;
+  reassignAccount(fromAccountId: string, toAccountId: string): Promise<number>;
+}
+
+/* -------------------------------------------------------------------------- */
 /* commerce                                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -295,6 +361,10 @@ export interface Repositories {
   readonly rewardDefinitions: RewardDefinitionRepository;
   readonly rewardGrants: RewardGrantRepository;
   readonly rewardClaims: RewardClaimRepository;
+  readonly contentDocuments: ContentDocumentRepository;
+  readonly contentReleases: ContentReleaseRepository;
+  readonly codeBatches: CodeBatchRepository;
+  readonly codeRedemptions: CodeRedemptionRepository;
   readonly products: ProductRepository;
   readonly carts: CartRepository;
   readonly orders: OrderRepository;

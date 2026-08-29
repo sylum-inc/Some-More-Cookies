@@ -33,6 +33,22 @@ export interface RewardsService {
   listGrants(accountId: string): Promise<RewardGrant[]>;
   grant(accountId: string, code: string, source: RewardSource): Promise<RewardGrant | null>;
   grantGameplayRewards(accountId: string, sandwich: SandwichRecord): Promise<RewardGrant[]>;
+  /**
+   * Grant what a signed physical or event code entitles the holder to.
+   *
+   * This is the one path that may grant a `high` reward without the claim flow,
+   * and the reason is that the validation already happened: the code carries an
+   * Ed25519 signature this service minted, its run is active, and the database
+   * has just accepted a claim-once row for it. Requiring gameplay prerequisites
+   * on top would mean a person who bought a box could not have what they paid
+   * for until they had also roasted enough marshmallows.
+   *
+   * Everything else still holds: per-account limits, the global cap, the
+   * availability window, and `reward_grants_one_live_per_account_reward`.
+   * Returns `null` when there is nothing to add rather than throwing, because a
+   * second box is not an error.
+   */
+  grantFromCode(accountId: string, code: string, source: RewardSource): Promise<RewardGrant | null>;
   claim(accountId: string, request: ClaimRewardRequest, context: ClaimContext): Promise<ClaimRewardResult>;
   /** Used by commerce when a reward grant is redeemed against an order. */
   consumeGrant(accountId: string, grantId: string, orderId: string): Promise<RewardGrant>;
@@ -213,6 +229,23 @@ export function createRewardsService(deps: DomainDeps, passports: PassportServic
       const unmet = await unmetPrerequisites(accountId, definition.prerequisites);
       if (unmet.length > 0) return null;
       return createGrant(accountId, definition, source);
+    },
+
+    async grantFromCode(accountId, code, source) {
+      const definition = await repos.rewardDefinitions.getByCode(code);
+      if (definition === null) throw notFound(`No reward called ${code}.`);
+      if (!(await available(definition, clock.isoNow()))) return null;
+      const held = await repos.rewardGrants.countForAccountAndReward(accountId, definition.id);
+      if (held >= definition.perAccountLimit) return null;
+      if (definition.globalLimit !== null && definition.globalClaimed >= definition.globalLimit) return null;
+      try {
+        return await createGrant(accountId, definition, source);
+      } catch (error) {
+        // The claim-once index is the authority. Losing that race is not an
+        // error for the player: they already have the thing.
+        if (error instanceof ApiError && error.code === 'reward_already_claimed') return null;
+        throw error;
+      }
     },
 
     async grantGameplayRewards(accountId, sandwich) {

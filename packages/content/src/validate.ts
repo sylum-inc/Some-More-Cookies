@@ -15,11 +15,15 @@
 import { QUIRK_POOL, WOOD_TYPES, type SkyEvent, type WeatherKind } from '@somemore/sim';
 
 import {
+  ALL_ENVIRONMENTS,
   MAX_REGION_AFFINITY,
   MIN_REGION_AFFINITY,
   REGIONS,
   REVERB_SPACES,
+  SEASONAL_EVENT_KINDS,
   type EnvironmentManifest,
+  type SeasonalEventManifest,
+  type StationProgrammingManifest,
 } from './schema.js';
 
 /* -------------------------------------------------------------------------- */
@@ -886,5 +890,182 @@ export function assertValidEnvironment(value: unknown): asserts value is Environ
   if (issues.length > 0) {
     const lines = issues.map((issue) => `  ${issue.path}: ${issue.message}`).join('\n');
     throw new Error(`Environment failed validation (${issues.length} issue(s)):\n${lines}`);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Live-ops documents (§14)                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The same predicates, pointed at the small shapes live ops publishes.
+ *
+ * These run **before** a document is published, on our machine, against the
+ * operator's request — never on a player's phone at render time. The whole
+ * reason the CMS reuses this file rather than growing its own validator is that
+ * an environment pushed by live ops must pass exactly the checks an environment
+ * compiled into the client passes. Two validators is two answers to the same
+ * question, and one of them would be wrong.
+ */
+
+/** Shared by both live-ops shapes: a list of environment ids, or `['*']`. */
+function validateEnvironmentTargets(issues: Issues, path: string, value: unknown): void {
+  const list = arrayOf(issues, path, value, 1, 64);
+  if (!list) return;
+  const seen = new Set<string>();
+  list.forEach((entry, i) => {
+    const ePath = `${path}[${i}]`;
+    const id = str(issues, ePath, entry, 64);
+    if (id === null) return;
+    if (id !== ALL_ENVIRONMENTS && !ID_PATTERN.test(id)) {
+      issues.add(ePath, `must be an environment id matching ^[a-z0-9_]+$, or "${ALL_ENVIRONMENTS}"`);
+    }
+    if (seen.has(id)) issues.add(ePath, `duplicate environment target "${id}"`);
+    seen.add(id);
+  });
+  if (list.includes(ALL_ENVIRONMENTS) && list.length > 1) {
+    issues.add(path, `"${ALL_ENVIRONMENTS}" already means every environment; list nothing beside it`);
+  }
+}
+
+/** Stations, wherever they appear: in an environment's radio profile or an event's. */
+function validateStationList(
+  issues: Issues,
+  path: string,
+  value: unknown,
+  minLength: number,
+  maxLength: number,
+): void {
+  const stations = arrayOf(issues, path, value, minLength, maxLength);
+  if (!stations) return;
+  const seen = new Set<string>();
+  stations.forEach((station, i) => {
+    const sPath = `${path}[${i}]`;
+    if (!isRecord(station)) {
+      issues.add(sPath, 'must be an object');
+      return;
+    }
+    const id = str(issues, `${sPath}.id`, station['id'], 64);
+    if (id !== null) {
+      if (!KEY_PATTERN.test(id)) issues.add(`${sPath}.id`, 'must match ^[a-z0-9_]+$');
+      if (seen.has(id)) issues.add(`${sPath}.id`, `duplicate station id "${id}"`);
+      seen.add(id);
+    }
+    num(issues, `${sPath}.dial`, station['dial'], 0.1, 30_000);
+    oneOf(issues, `${sPath}.band`, station['band'], RADIO_BANDS);
+    str(issues, `${sPath}.name`, station['name']);
+    oneOf(issues, `${sPath}.character`, station['character'], STATION_CHARACTERS);
+    unit(issues, `${sPath}.reception`, station['reception']);
+    str(issues, `${sPath}.note`, station['note']);
+  });
+}
+
+/**
+ * A seasonal event: a meteor-shower weekend, a winter campsite, a limited
+ * flavour. Time-bounded content that leans on the world without replacing it.
+ */
+export function validateSeasonalEvent(value: unknown, pathPrefix?: string): readonly ValidationIssue[] {
+  const issues = new Issues();
+  if (!isRecord(value)) {
+    issues.add(pathPrefix ?? '<event>', 'must be an object');
+    return issues.list;
+  }
+  const rawId = value['id'];
+  const path = pathPrefix ?? (typeof rawId === 'string' && rawId.length > 0 ? rawId : '<event>');
+
+  const id = str(issues, `${path}.id`, rawId, 64);
+  if (id !== null && !ID_PATTERN.test(id)) {
+    issues.add(`${path}.id`, 'must match ^[a-z0-9_]+$ so it can be persisted as a content slug');
+  }
+  str(issues, `${path}.name`, value['name'], 80);
+  str(issues, `${path}.tagline`, value['tagline'], 240);
+  str(issues, `${path}.note`, value['note']);
+  oneOf(issues, `${path}.kind`, value['kind'], SEASONAL_EVENT_KINDS);
+  validateEnvironmentTargets(issues, `${path}.environments`, value['environments']);
+  unit(issues, `${path}.intensity`, value['intensity']);
+  oneOf(issues, `${path}.performanceCost`, value['performanceCost'], PERFORMANCE_COSTS);
+
+  const rewardCodes = arrayOf(issues, `${path}.rewardCodes`, value['rewardCodes'], 0, 16);
+  rewardCodes?.forEach((code, i) => {
+    const cPath = `${path}.rewardCodes[${i}]`;
+    const text = str(issues, cPath, code, 64);
+    if (text !== null && !KEY_PATTERN.test(text)) issues.add(cPath, 'must match ^[a-z0-9_]+$');
+  });
+
+  validateStationList(issues, `${path}.stations`, value['stations'], 0, 8);
+
+  // Kind-specific requirements. A `sky-event` with no sky event is a document
+  // that would publish cleanly and then do nothing at all, which is worse than
+  // a rejection because nobody would notice for a week.
+  const kind = value['kind'];
+  if (kind === 'sky-event') {
+    oneOf(issues, `${path}.skyEvent`, value['skyEvent'], SKY_EVENTS);
+    if (value['skyEvent'] === 'none') {
+      issues.add(`${path}.skyEvent`, 'a sky-event with skyEvent "none" would change nothing');
+    }
+  } else if (value['skyEvent'] !== undefined) {
+    issues.add(`${path}.skyEvent`, `is only meaningful when kind is "sky-event" (kind is "${String(kind)}")`);
+  }
+
+  if (kind === 'weather') {
+    oneOf(issues, `${path}.weather`, value['weather'], WEATHER_KINDS);
+  } else if (value['weather'] !== undefined) {
+    issues.add(`${path}.weather`, `is only meaningful when kind is "weather" (kind is "${String(kind)}")`);
+  }
+
+  if (kind === 'station' && (!Array.isArray(value['stations']) || value['stations'].length === 0)) {
+    issues.add(`${path}.stations`, 'a station event must carry at least one station');
+  }
+
+  // Spec §5.5 and §8: rare events are gifts, not gates. An event may add reward
+  // codes, and the reward definitions themselves decide reachability — but an
+  // event that is the *only* path to something is a design error we can catch
+  // here cheaply, so `exclusive` is simply not expressible.
+  if (value['exclusive'] !== undefined || value['gates'] !== undefined) {
+    issues.add(
+      `${path}.exclusive`,
+      'seasonal content may never gate anything; a missed window must strand nobody (spec §5.5, §8)',
+    );
+  }
+
+  return issues.list;
+}
+
+/** A block of radio programming pushed at one or more environments. */
+export function validateStationProgramming(value: unknown, pathPrefix?: string): readonly ValidationIssue[] {
+  const issues = new Issues();
+  if (!isRecord(value)) {
+    issues.add(pathPrefix ?? '<programming>', 'must be an object');
+    return issues.list;
+  }
+  const rawId = value['id'];
+  const path = pathPrefix ?? (typeof rawId === 'string' && rawId.length > 0 ? rawId : '<programming>');
+
+  const id = str(issues, `${path}.id`, rawId, 64);
+  if (id !== null && !ID_PATTERN.test(id)) {
+    issues.add(`${path}.id`, 'must match ^[a-z0-9_]+$ so it can be persisted as a content slug');
+  }
+  str(issues, `${path}.name`, value['name'], 80);
+  str(issues, `${path}.note`, value['note']);
+  validateEnvironmentTargets(issues, `${path}.environments`, value['environments']);
+  validateStationList(issues, `${path}.stations`, value['stations'], 1, 12);
+  return issues.list;
+}
+
+/** Throws with every problem listed. Mirrors `assertValidEnvironment`. */
+export function assertValidSeasonalEvent(value: unknown): asserts value is SeasonalEventManifest {
+  const issues = validateSeasonalEvent(value);
+  if (issues.length > 0) {
+    const lines = issues.map((issue) => `  ${issue.path}: ${issue.message}`).join('\n');
+    throw new Error(`Seasonal event failed validation (${issues.length} issue(s)):\n${lines}`);
+  }
+}
+
+/** Throws with every problem listed. Mirrors `assertValidEnvironment`. */
+export function assertValidStationProgramming(value: unknown): asserts value is StationProgrammingManifest {
+  const issues = validateStationProgramming(value);
+  if (issues.length > 0) {
+    const lines = issues.map((issue) => `  ${issue.path}: ${issue.message}`).join('\n');
+    throw new Error(`Station programming failed validation (${issues.length} issue(s)):\n${lines}`);
   }
 }

@@ -14,7 +14,7 @@
  * everything else: deterministic, fixed timestep, no wall clock.
  */
 
-import { approach, clamp, clamp01, smoothstep, TAU, wrapAngle } from './math.js';
+import { approach, clamp, clamp01, lerp, smoothstep, TAU, wrapAngle } from './math.js';
 import { hashToUnit } from './rng.js';
 import { vec3, type Vec3 } from './types.js';
 
@@ -31,15 +31,67 @@ import { vec3, type Vec3 } from './types.js';
  * The clearing is deliberately flat: the fire, the machine and the player all
  * stand on level ground, and the undulation only starts further out.
  */
-export function terrainHeight(x: number, z: number, seed: number, amplitude = 0.7): number {
+export function terrainHeight(
+  x: number,
+  z: number,
+  seed: number,
+  amplitude = 0.7,
+  basin?: WaterBasin,
+): number {
   const distance = Math.sqrt(x * x + z * z);
   const flatten = smoothstep(3.5, 9.5, distance);
-  if (flatten <= 0) return 0;
+  const base =
+    flatten <= 0
+      ? 0
+      : (Math.sin(x * 0.35) * Math.cos(z * 0.28) * 0.5 +
+          // Two octaves of interpolated value noise, evaluated analytically.
+          (valueNoise2D(seed, x * 0.22, z * 0.22) * 0.6 +
+            valueNoise2D(seed ^ 0x9e37, x * 0.55, z * 0.55) * 0.25 -
+            0.42)) *
+        amplitude *
+        flatten;
 
-  const rolling = Math.sin(x * 0.35) * Math.cos(z * 0.28) * 0.5;
-  // Two octaves of interpolated value noise, evaluated analytically.
-  const grain = valueNoise2D(seed, x * 0.22, z * 0.22) * 0.6 + valueNoise2D(seed ^ 0x9e37, x * 0.55, z * 0.55) * 0.25;
-  return (rolling + (grain - 0.42)) * amplitude * flatten;
+  if (!basin) return base;
+  return lerp(base, -basin.depthM, basinDepth(basin, x, z));
+}
+
+/**
+ * Where the ground goes down to meet the water.
+ *
+ * Without this the water surface is a plane laid over undulating ground and
+ * the shore is wherever the noise happens to poke through — which reads as
+ * flooding, not as a lakeshore. The bed is part of the terrain because the
+ * player walks on it: wading in at the edge has to be the same ground function
+ * the simulation and the renderer both use, for exactly the reason
+ * `terrainHeight` is analytic in the first place.
+ *
+ * It is deliberately shallow. The campsite bound stops a player well before
+ * the middle of a lake, so the only water anyone can stand in is the margin,
+ * and the margin is ankle-deep.
+ */
+export interface WaterBasin {
+  /** Direction from the fire toward the water, radians. */
+  readonly bearing: number;
+  /** Metres from the fire to the water's edge. */
+  readonly distanceM: number;
+  /** How far below the clearing's datum the bed settles. */
+  readonly depthM: number;
+  /**
+   * Half-width of a channel, metres, for a creek or a beck. Omitted for open
+   * water, where everything past the shore line is water.
+   */
+  readonly halfWidthM?: number;
+}
+
+/** 0 on dry land, 1 in open water. */
+function basinDepth(basin: WaterBasin, x: number, z: number): number {
+  const along = x * Math.cos(basin.bearing) + z * Math.sin(basin.bearing);
+  const past = smoothstep(basin.distanceM - 0.6, basin.distanceM + 6, along);
+  if (basin.halfWidthM === undefined) return past;
+  // A creek is a channel, not a half-plane: it has a far bank.
+  const across = Math.abs(along - basin.distanceM - basin.halfWidthM);
+  const inChannel = 1 - smoothstep(basin.halfWidthM * 0.55, basin.halfWidthM * 1.25, across);
+  return Math.min(past, inChannel);
 }
 
 /** Smooth 2D value noise. Deterministic, no tables, no allocation. */
@@ -59,9 +111,20 @@ function valueNoise2D(seed: number, x: number, z: number): number {
 }
 
 /** Surface normal, for foot placement and for leaning props into the slope. */
-export function terrainNormal(x: number, z: number, seed: number, amplitude = 0.7, epsilon = 0.15): Vec3 {
-  const hx = terrainHeight(x + epsilon, z, seed, amplitude) - terrainHeight(x - epsilon, z, seed, amplitude);
-  const hz = terrainHeight(x, z + epsilon, seed, amplitude) - terrainHeight(x, z - epsilon, seed, amplitude);
+export function terrainNormal(
+  x: number,
+  z: number,
+  seed: number,
+  amplitude = 0.7,
+  epsilon = 0.15,
+  basin?: WaterBasin,
+): Vec3 {
+  const hx =
+    terrainHeight(x + epsilon, z, seed, amplitude, basin) -
+    terrainHeight(x - epsilon, z, seed, amplitude, basin);
+  const hz =
+    terrainHeight(x, z + epsilon, seed, amplitude, basin) -
+    terrainHeight(x, z - epsilon, seed, amplitude, basin);
   const nx = -hx / (2 * epsilon);
   const nz = -hz / (2 * epsilon);
   const length = Math.sqrt(nx * nx + 1 + nz * nz);
@@ -102,6 +165,8 @@ export interface WalkableWorld {
   readonly amplitude: number;
   readonly obstacles: readonly Obstacle[];
   readonly interactables: readonly Interactable[];
+  /** The ground going down to the water, at a campsite that has any. */
+  readonly basin?: WaterBasin;
 }
 
 export function createWorld(options: {
@@ -110,6 +175,7 @@ export function createWorld(options: {
   amplitude?: number;
   obstacles?: readonly Obstacle[];
   interactables?: readonly Interactable[];
+  basin?: WaterBasin;
 }): WalkableWorld {
   return {
     radius: options.radius ?? 14,
@@ -117,6 +183,7 @@ export function createWorld(options: {
     amplitude: options.amplitude ?? 0.7,
     obstacles: options.obstacles ?? [],
     interactables: options.interactables ?? [],
+    ...(options.basin ? { basin: options.basin } : {}),
   };
 }
 
@@ -324,7 +391,7 @@ export function stepPlayer(player: PlayerState, world: WalkableWorld, intent: Mo
   const moved = Math.hypot(nextX - player.position.x, nextZ - player.position.z);
   player.position.x = nextX;
   player.position.z = nextZ;
-  player.position.y = terrainHeight(nextX, nextZ, world.seed, world.amplitude);
+  player.position.y = terrainHeight(nextX, nextZ, world.seed, world.amplitude, world.basin);
   player.distanceWalked += moved;
   player.speed = dt > 0 ? moved / dt : 0;
 

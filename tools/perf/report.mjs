@@ -15,7 +15,14 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 
-import { FRAME_BUDGET_MS, KNOWN_DEVIATIONS, MEASURABLE_HERE, STATIC_BUDGETS, UNMEASURABLE_HERE } from '../budgets.mjs';
+import {
+  FRAME_BUDGET_MS,
+  KNOWN_DEVIATIONS,
+  MEASURABLE_HERE,
+  STATIC_BUDGETS,
+  UNMEASURABLE_HERE,
+  ceilingFor,
+} from '../budgets.mjs';
 import { artifactPath, relative, table, verdict, wrap, writeJson, writeText } from '../lib/io.mjs';
 
 const read = (path) => (existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null);
@@ -32,7 +39,28 @@ if (missing.length > 0) {
   process.exit(2);
 }
 
-const passed = Boolean(sim.passed);
+/**
+ * A budget row's verdict.
+ *
+ * `PASS` inside §10; `OVER (pinned)` for a recorded deviation that has not
+ * grown past its pin; `FAIL` for anything else. A pinned deviation is not a
+ * pass and does not print as one — but it does not fail the merged report
+ * either, because it is already recorded, explained and capped.
+ */
+function rowVerdict(name, value) {
+  if (value <= STATIC_BUDGETS[name]) return { label: 'PASS', ok: true };
+  if (KNOWN_DEVIATIONS[name] && value <= ceilingFor(name)) return { label: 'OVER (pinned)', ok: true };
+  return { label: 'FAIL', ok: false };
+}
+
+const rows = {
+  drawCalls: rowVerdict('drawCalls', render.peaks.drawCalls.value),
+  triangles: rowVerdict('triangles', render.peaks.triangles.value),
+  textureMegabytes: rowVerdict('textureMegabytes', render.peaks.textureMegabytes.value),
+  dynamicLights: rowVerdict('dynamicLights', render.peaks.dynamicLights.value),
+};
+
+const passed = Boolean(sim.passed) && Object.values(rows).every((row) => row.ok);
 
 const report = {
   tool: 'tools/perf/report.mjs',
@@ -41,6 +69,7 @@ const report = {
   knownDeviations: KNOWN_DEVIATIONS,
   simulation: sim,
   renderer: render,
+  budgetVerdicts: rows,
   measurableHere: MEASURABLE_HERE,
   unmeasurableHere: UNMEASURABLE_HERE,
   passed,
@@ -95,7 +124,7 @@ lines.push(
         peaks.drawCalls.stage,
         STATIC_BUDGETS.drawCalls,
         `${((peaks.drawCalls.value / STATIC_BUDGETS.drawCalls) * 100).toFixed(0)}%`,
-        verdict(peaks.drawCalls.value <= STATIC_BUDGETS.drawCalls),
+        rows.drawCalls.label,
       ],
       [
         'triangles',
@@ -103,7 +132,7 @@ lines.push(
         peaks.triangles.stage,
         STATIC_BUDGETS.triangles,
         `${((peaks.triangles.value / STATIC_BUDGETS.triangles) * 100).toFixed(0)}%`,
-        verdict(peaks.triangles.value <= STATIC_BUDGETS.triangles),
+        rows.triangles.label,
       ],
       [
         'texture MB',
@@ -111,7 +140,7 @@ lines.push(
         peaks.textureMegabytes.stage,
         STATIC_BUDGETS.textureMegabytes,
         `${((peaks.textureMegabytes.value / STATIC_BUDGETS.textureMegabytes) * 100).toFixed(0)}%`,
-        verdict(peaks.textureMegabytes.value <= STATIC_BUDGETS.textureMegabytes),
+        rows.textureMegabytes.label,
       ],
       [
         'dynamic lights',
@@ -119,7 +148,7 @@ lines.push(
         peaks.dynamicLights.stage,
         STATIC_BUDGETS.dynamicLights,
         `${((peaks.dynamicLights.value / STATIC_BUDGETS.dynamicLights) * 100).toFixed(0)}%`,
-        peaks.dynamicLights.value <= STATIC_BUDGETS.dynamicLights ? 'PASS' : 'OVER (pinned)',
+        rows.dynamicLights.label,
       ],
     ],
   ),
@@ -207,7 +236,8 @@ const markdown = [
         ...Object.entries(KNOWN_DEVIATIONS).map(
           ([name, deviation]) =>
             `- **${name}**: budget ${deviation.budget}, measured ${deviation.measured}, pinned at ` +
-            `${deviation.ceiling} (stages: ${deviation.stages.join(', ')}). ${deviation.why}`,
+            `${deviation.ceiling} (stages: ${deviation.stages.join(', ')}).` +
+            `${deviation.status ? ` _${deviation.status}_` : ''} ${deviation.why}`,
         ),
         '',
       ]

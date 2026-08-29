@@ -68,6 +68,11 @@ export const RewardSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('order'), orderId: IdSchema }),
   z.object({ type: z.literal('referral'), referrerAccountId: IdSchema }),
   z.object({ type: z.literal('admin'), actor: z.string().max(64), reason: z.string().max(200) }),
+  /**
+   * Redeemed from a signed physical or event code. `batchId` + `codeRef` is the
+   * provenance a fraud reviewer needs: which print run, which code in it.
+   */
+  z.object({ type: z.literal('code'), batchId: IdSchema, codeRef: z.string().max(128) }),
 ]);
 export type RewardSource = z.infer<typeof RewardSourceSchema>;
 

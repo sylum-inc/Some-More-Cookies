@@ -1,7 +1,10 @@
 import {
   CampsiteSchema,
+  QR_JOIN_PREFIX,
   SCHEMA_VERSION,
+  codeToUri,
   parseQrJoinPayload,
+  parseSomeMoreCode,
   roleAtLeast,
   type Campsite,
   type CampsiteInvite,
@@ -17,6 +20,7 @@ import {
 } from '@somemore/protocol';
 import { ApiError, forbidden, notFound, preconditionFailed } from '../errors.js';
 import { ID_PREFIX } from '../ids.js';
+import type { CodeSigner } from '../codes/signing.js';
 import type { PassportService } from './passport.js';
 import type { DomainDeps } from './types.js';
 
@@ -36,12 +40,66 @@ export interface CampsiteService {
   recordMaintenance(accountId: string, campsiteId: string, request: RecordMaintenanceRequest): Promise<SM01>;
   /** Shared with worldState/sessions: throws unless the caller is a member. */
   requireMember(accountId: string, campsiteId: string, minimumRole?: MemberRole): Promise<Campsite>;
+  /**
+   * What to put in the QR image for an invite.
+   *
+   * A signed `somemore://c/SM1.…` code when this deployment has keys, and the
+   * unsigned `somemore://join?t=…` form when it does not — because a campfire
+   * with no QR is worse than a campfire whose QR is only as strong as the
+   * invite token behind it, which is what it has always been. Both are accepted
+   * by `join`, so a code printed today keeps working after keys arrive.
+   */
+  qrPayloadFor(invite: CampsiteInvite): string;
 }
 
 const WEAR_COMPONENTS = ['drum', 'press', 'chiller', 'dispenser', 'hopper', 'belt'] as const;
 
-export function createCampsiteService(deps: DomainDeps, passports: PassportService): CampsiteService {
+export function createCampsiteService(
+  deps: DomainDeps,
+  passports: PassportService,
+  signer: CodeSigner,
+): CampsiteService {
   const { repos, clock, ids, logger } = deps;
+
+  /**
+   * Turn a scanned QR into an invite token.
+   *
+   * One format serves the whole product, so this tries the signed code first:
+   * a forged or tampered camp QR is rejected by an Ed25519 check before the
+   * invite table is touched at all. The legacy unsigned payload stays
+   * supported — codes already in the wild must keep working, and a deployment
+   * with no keys still has to be able to invite a friend to a fire.
+   */
+  function inviteTokenFromQr(payload: string): string {
+    const parsed = parseSomeMoreCode(payload);
+    if (parsed.ok) {
+      const verdict = signer.verify(parsed.code);
+      if (verdict === 'not_configured') {
+        throw new ApiError(
+          'service_not_configured',
+          'This deployment cannot verify signed codes (no CODE_VERIFY_PUBLIC_KEYS).',
+        );
+      }
+      if (verdict !== 'ok') {
+        throw new ApiError('code_invalid', 'That does not look like a Some More code.', {
+          details: { reason: 'invalid' },
+        });
+      }
+      if (parsed.code.body.kind !== 'camp') {
+        throw new ApiError('code_invalid', 'That code is not a campsite invite.', {
+          details: { reason: 'wrong_kind' },
+        });
+      }
+      const expiry = parsed.code.body.expiresAtUnix;
+      if (expiry !== 0 && expiry * 1000 <= clock.now().getTime()) {
+        throw new ApiError('code_invalid', 'That invite has expired.', { details: { reason: 'expired' } });
+      }
+      return parsed.code.body.ref;
+    }
+    const token = parseQrJoinPayload(payload);
+    if (token === null) throw notFound('That QR code is not a Some More invite.');
+    return token;
+  }
 
   function memberRole(campsite: Campsite, accountId: string): MemberRole | null {
     const member = campsite.members.find((m) => m.accountId === accountId);
@@ -114,6 +172,19 @@ export function createCampsiteService(deps: DomainDeps, passports: PassportServi
 
   return {
     requireMember,
+
+    qrPayloadFor(invite) {
+      const expiresAtUnix = Math.floor(Date.parse(invite.expiresAt) / 1000);
+      const signed = signer.mint({
+        kind: 'camp',
+        // Campsite invites are not a print run; `invite` is the pseudo-batch
+        // that says so, and nothing in `code_batches` ever refers to it.
+        batchId: 'invite',
+        ref: invite.token,
+        expiresAtUnix,
+      });
+      return signed === null ? `${QR_JOIN_PREFIX}${invite.token}` : codeToUri(signed.token);
+    },
 
     async create(accountId, request) {
       const now = clock.isoNow();
@@ -201,8 +272,7 @@ export function createCampsiteService(deps: DomainDeps, passports: PassportServi
       if (request.join.method === 'invite_link' || request.join.method === 'qr') {
         via = request.join.method;
         const token =
-          request.join.method === 'invite_link' ? request.join.token : parseQrJoinPayload(request.join.payload);
-        if (token === null) throw notFound('That QR code is not a Some More invite.');
+          request.join.method === 'invite_link' ? request.join.token : inviteTokenFromQr(request.join.payload);
         invite = await repos.invites.findByToken(token);
         if (invite === null) throw notFound('That invite is not valid.');
       } else {

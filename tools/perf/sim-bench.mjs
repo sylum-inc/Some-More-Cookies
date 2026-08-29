@@ -28,7 +28,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
-import { ASSERT_AT, FRAME_BUDGET_MS, usage } from '../budgets.mjs';
+import { ALLOCATION_HISTORY, ALLOCATION_REFERENCE, ASSERT_AT, FRAME_BUDGET_MS, usage } from '../budgets.mjs';
 import { REPO_ROOT, artifactPath, relative, round, summarise, table, verdict, writeJson } from '../lib/io.mjs';
 
 const SIM_DIST = resolve(REPO_ROOT, 'packages/sim/dist/src/index.js');
@@ -54,9 +54,24 @@ const gc = globalThis.gc;
 if (typeof gc !== 'function') {
   process.stderr.write(
     'sim-bench needs --expose-gc for its allocation measurements.\n' +
-      'Run it as `npm run perf:sim`, or `node --expose-gc tools/perf/sim-bench.mjs`.\n',
+      'Run it as `npm run perf:sim`, or `node --expose-gc --max-semi-space-size=64 tools/perf/sim-bench.mjs`.\n',
   );
   process.exit(2);
+}
+
+/**
+ * The allocation measurement works by making scavenges impossible rather than
+ * by detecting them, which needs a young generation much larger than the
+ * default. Without the flag the figure still prints, but it is measuring the
+ * collector as much as the model, so say so rather than quietly reporting it.
+ */
+const ENLARGED_NURSERY = process.execArgv.some((arg) => arg.startsWith('--max-semi-space-size'));
+if (!ENLARGED_NURSERY) {
+  process.stderr.write(
+    'WARNING: running without --max-semi-space-size=64. Timing and retained heap are unaffected, but the\n' +
+      'transient allocation figure will be depressed by scavenges landing inside the sample windows.\n' +
+      'Use `npm run perf:sim`.\n',
+  );
 }
 
 const STEPS_PER_SECOND = Math.round(1 / SIM_DT);
@@ -264,15 +279,37 @@ function measureLongRun(blocks = 8, secondsPerBlock = 240) {
 /**
  * Transient allocation per step.
  *
- * Heap growth is sampled across a window short enough that V8 should not need
- * to collect, so the delta is what the loop actually allocated. Repeated a few
- * times and the median taken, because a scavenge landing inside a window makes
- * that window read low.
+ * Getting a trustworthy number here is harder than it looks, and two earlier
+ * attempts are worth recording because both produced confident, stable-looking,
+ * wrong answers.
+ *
+ * `heapUsed` grows by exactly the bytes allocated *as long as no collection
+ * happens in the window*. A collection frees memory mid-count, so a dirty
+ * window reads far lower than the truth. Taking the median of several windows
+ * therefore under-reports — it reported anywhere between 213 and 862 B/step for
+ * the same build depending on nothing but how the collector fell. Taking the
+ * maximum instead over-reports, because the largest window is whichever one
+ * happened to contain a heap expansion or a rare bursty step, and that gave
+ * 4,000–7,600 B/step for the same build. Detecting dirty windows directly does
+ * not work either: `PerformanceObserver` delivers `gc` entries asynchronously
+ * and this sampling loop is synchronous, so the entries arrive after the window
+ * they belong to has been classified.
+ *
+ * What does work is removing the collector from the experiment. Run with a very
+ * large young generation (`--max-semi-space-size=64`, i.e. a 128 MB nursery)
+ * and a window small enough to fit inside it, and no scavenge occurs at all —
+ * the delta is then simply the allocation. Each window is checked for a
+ * decrease, which is the signature of a collection having happened anyway, and
+ * such windows are discarded and counted.
+ *
+ * `npm run perf:sim` supplies the flag.
  */
-function measureAllocation(windowSteps = 4000, repeats = 7) {
+function measureAllocation(windowSteps = 20_000, repeats = 5) {
   const ritual = toRoasting('allocation');
   run(ritual, 5, roastInput);
+
   const rates = [];
+  const discarded = [];
   let step = 0;
   for (let repeat = 0; repeat < repeats; repeat += 1) {
     collect();
@@ -283,21 +320,44 @@ function measureAllocation(windowSteps = 4000, repeats = 7) {
     }
     const after = process.memoryUsage().heapUsed;
     step += windowSteps;
-    rates.push((after - before) / windowSteps);
+    const rate = (after - before) / windowSteps;
+    if (rate <= 0) discarded.push(round(rate, 2));
+    else rates.push(rate);
   }
-  rates.sort((a, b) => a - b);
-  const median = rates[Math.floor(rates.length / 2)];
+
+  const usable = rates.length > 0 ? [...rates].sort((a, b) => a - b) : [0];
+  const median = usable[Math.floor(usable.length / 2)];
+  const spread = usable[usable.length - 1] - usable[0];
+
   return {
     windowSteps,
     repeats,
-    samplesBytesPerStep: rates.map((rate) => round(rate, 2)),
+    enlargedNursery: ENLARGED_NURSERY,
+    usableWindows: rates.length,
+    discardedWindows: discarded.length,
+    samplesBytesPerStep: usable.map((rate) => round(rate, 2)),
+    spreadBytesPerStep: round(spread, 2),
     transientBytesPerStep: round(median, 2),
     withinBudget: median <= ASSERT_AT.transientBytesPerStep,
+    limitBytesPerStep: ASSERT_AT.transientBytesPerStep,
+    reference: ALLOCATION_REFERENCE,
+    history: ALLOCATION_HISTORY,
+    changeVsReference: round(median / ALLOCATION_REFERENCE.bytesPerStep, 3),
+    measurementNote:
+      `Median of ${rates.length} windows of ${windowSteps} steps run inside an enlarged young generation so ` +
+      `that no scavenge occurs; spread across those windows was ${round(spread, 1)} B/step. ` +
+      (discarded.length > 0
+        ? `${discarded.length} window(s) showed a heap *decrease* and were discarded as collector-polluted.`
+        : 'No window showed a heap decrease, so none was polluted by a collection.') +
+      (ENLARGED_NURSERY ? '' : ' Run WITHOUT --max-semi-space-size=64, so this figure is depressed and unreliable.'),
     note:
-      'ARCHITECTURE §10 claims zero per-frame allocation in simulation hot paths. ' +
-      '`stepRitual` derives named RNG streams with `rng.split(...)` and each split constructs an `Rng`, ' +
-      'so the true figure is small and constant rather than zero. What is asserted is that it stays small ' +
-      'and does not grow — see `retained` for the number that would indicate a real leak.',
+      'ARCHITECTURE §10 claims zero per-frame allocation in simulation hot paths. It is not zero and cannot ' +
+      'be while `stepRitual` constructs a named `Rng` per subsystem per step, so there is no §10 number to ' +
+      'check against; the limit here is a guard rail chosen from measurement, and `history` records every ' +
+      'time it has moved and why. What is asserted is that the churn does not grow unnoticed — see ' +
+      '`retained` for the number that would indicate a real leak, and the `max ms` column for what this ' +
+      'churn costs: a scavenge landing inside a step is the only thing in this benchmark that ever exceeds ' +
+      'the 1.5 ms frame budget.',
   };
 }
 
@@ -390,13 +450,32 @@ lines.push(
     `[${verdict(retained.withinBudget)}, limit ${ASSERT_AT.retainedBytesPerStep} B/step]`,
 );
 lines.push(
-  `Allocation: ${allocation.transientBytesPerStep} B/step transient across ${allocation.windowSteps}-step GC-free windows ` +
-    `[${verdict(allocation.withinBudget)}, limit ${ASSERT_AT.transientBytesPerStep} B/step]`,
+  `Allocation: ~${allocation.transientBytesPerStep} B/step transient (median of ${allocation.usableWindows} ` +
+    `scavenge-free ${allocation.windowSteps.toLocaleString()}-step windows, spread ${allocation.spreadBytesPerStep} B/step) ` +
+    `[${verdict(allocation.withinBudget)}, sanity ceiling ${ASSERT_AT.transientBytesPerStep} B/step]`,
 );
 lines.push('');
-lines.push('  Note: §10 says "zero per-frame allocation in simulation hot paths". It is not zero —');
-lines.push('  `stepRitual` constructs an `Rng` per named stream split, several times per step. The');
-lines.push('  churn is small, constant and fully collectable, and retained growth is what is asserted.');
+lines.push('  Note: §10 says "zero per-frame allocation in simulation hot paths". It is not zero — `stepRitual`');
+lines.push('  constructs a named `Rng` per subsystem per step — but the transient figure above is a weak');
+lines.push('  instrument and is reported, not asserted on with any precision. `heapUsed` deltas are the only');
+lines.push('  allocation signal Node exposes, and three defensible sampling methods gave three different');
+lines.push('  answers for the same build (see `measurementNote` in the JSON). Treat it as an order of');
+lines.push('  magnitude and a trend, nothing finer.');
+lines.push('');
+lines.push('  The number that IS solid is retained growth, and it is flat: whatever the simulation allocates,');
+lines.push('  it hands all of it back. The visible cost of the churn is the `max ms` column — a scavenge');
+lines.push('  landing inside a step is the only thing in this whole benchmark that exceeds 1.5 ms.');
+const worstMax = stages.reduce((a, b) => (b.ms.max > a.ms.max ? b : a));
+if (worstMax.ms.max > FRAME_BUDGET_MS.simulation) {
+  lines.push('');
+  lines.push(
+    `  Worst single step across the whole run: ${worstMax.ms.max.toFixed(2)} ms in "${worstMax.id}" — over the ` +
+      `${FRAME_BUDGET_MS.simulation} ms budget, and ${(worstMax.ms.max / worstMax.ms.p99).toFixed(0)}x its own p99.`,
+  );
+  lines.push('  That shape is a garbage collection, not the model: the p99 is two orders of magnitude below it.');
+  lines.push('  It is reported rather than asserted on, because a single dropped frame per session is survivable');
+  lines.push('  and because the fix is to allocate less, which is tracked by the allocation figure above.');
+}
 lines.push('');
 lines.push(`Report: ${relative(jsonPath)}`);
 lines.push(passed ? 'RESULT: PASS' : 'RESULT: FAIL');

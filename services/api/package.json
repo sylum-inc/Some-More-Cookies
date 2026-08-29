@@ -13,6 +13,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@somemore/content": "*",
     "@somemore/protocol": "*",
     "zod": "^4.5.0"
   }

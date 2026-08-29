@@ -73,7 +73,7 @@ const STEPS = [
     job: 'performance',
     title: 'Simulation benchmark',
     command: 'node',
-    args: ['--expose-gc', 'tools/perf/sim-bench.mjs'],
+    args: ['--expose-gc', '--max-semi-space-size=64', 'tools/perf/sim-bench.mjs'],
     proves: 'stepRitual stays inside the 1.5 ms budget, and a long session neither leaks nor allocates unboundedly.',
   },
   {

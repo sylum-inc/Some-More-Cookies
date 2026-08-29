@@ -124,13 +124,14 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
       await repos.passports.delete(absorbedId);
     }
 
-    const [identities, photos, sandwiches, campsites, grants, orders] = await Promise.all([
+    const [identities, photos, sandwiches, campsites, grants, orders, codeRedemptions] = await Promise.all([
       repos.identities.reassignAccount(absorbedId, survivingId),
       repos.photos.reassignAccount(absorbedId, survivingId),
       repos.sandwiches.reassignAccount(absorbedId, survivingId),
       repos.campsites.reassignAccount(absorbedId, survivingId),
       repos.rewardGrants.reassignAccount(absorbedId, survivingId),
       repos.orders.reassignAccount(absorbedId, survivingId),
+      repos.codeRedemptions.reassignAccount(absorbedId, survivingId),
     ]);
     await repos.analytics.remapAccount(absorbedId, survivingId);
 
@@ -158,6 +159,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
         campsites,
         rewardGrants: grants,
         orders,
+        codeRedemptions,
       },
       resolutions: [
         {

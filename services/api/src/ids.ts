@@ -34,6 +34,10 @@ export const ID_PREFIX = {
   request: 'req',
   magicLink: 'mlt',
   event: 'evt',
+  contentDocument: 'cdoc',
+  contentRelease: 'crel',
+  codeBatch: 'bat',
+  codeRedemption: 'crd',
 } as const;
 
 export type IdPrefix = (typeof ID_PREFIX)[keyof typeof ID_PREFIX];

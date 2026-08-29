@@ -97,6 +97,50 @@ export {
 export type { FoleyOptions, FootstepMaterial, FootstepSpec, SizzleParams, SizzleState, StickAction } from './foley.js';
 
 export {
+  BAND_CHARACTERS,
+  DEFAULT_RADIO_OPTIONS,
+  DEFAULT_RADIO_STATE,
+  RADIO_HISS_PEAK,
+  RADIO_PROGRAMME_PEAK,
+  RADIO_WHISTLE_PEAK,
+  RadioKit,
+  bandCharacter,
+  createRadioVoiceParams,
+  mapRadioState,
+} from './radio.js';
+export type {
+  BandCharacter,
+  RadioAudioState,
+  RadioBandKind,
+  RadioKitOptions,
+  RadioProgramme,
+  RadioSegmentKind,
+  RadioVoiceParams,
+} from './radio.js';
+
+export {
+  DEFAULT_WILDLIFE_OPTIONS,
+  MAX_CALL_SECONDS,
+  PHASE_CALL_RATE,
+  PHASE_MOVEMENT_RATE,
+  WILDLIFE_ARCHETYPES,
+  WILDLIFE_AUDIBLE_METRES,
+  WildlifeKit,
+  callRate,
+  distanceCutoffHz,
+  individualVoice,
+  movementRate,
+  speciesVoice,
+} from './wildlife.js';
+export type {
+  WildlifeAnimalAudio,
+  WildlifeArchetype,
+  WildlifeAudioPhase,
+  WildlifeKitOptions,
+  WildlifeVoiceSpec,
+} from './wildlife.js';
+
+export {
   DEFAULT_SPATIAL_OPTIONS,
   HRTF_SOURCE_BUDGET,
   SpatialEmitter,

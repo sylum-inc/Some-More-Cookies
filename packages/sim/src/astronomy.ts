@@ -128,6 +128,29 @@ export function sunState(date: Date, latitudeDeg: number, longitudeDeg: number):
   };
 }
 
+/**
+ * Where an object with these catalogue coordinates is in the sky right now.
+ *
+ * Public so the stargazing model can place the constellation list on the
+ * actual dome for the actual date, rather than scattering it decoratively:
+ * Orion has to be where Orion is, or "findable" means nothing.
+ */
+export function horizonPositionOf(
+  raHours: number,
+  decDeg: number,
+  date: Date,
+  latitudeDeg: number,
+  longitudeDeg: number,
+): { altitude: number; azimuth: number } {
+  return equatorialToHorizontal(
+    (raHours / 24) * TAU,
+    decDeg * DEG,
+    date,
+    latitudeDeg,
+    longitudeDeg,
+  );
+}
+
 function equatorialToHorizontal(
   rightAscension: number,
   declination: number,

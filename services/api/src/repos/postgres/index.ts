@@ -26,6 +26,12 @@ import {
   seedProductCatalog,
   seedPromotionCatalog,
 } from './commerce.js';
+import {
+  createPostgresCodeBatchRepository,
+  createPostgresCodeRedemptionRepository,
+  createPostgresContentDocumentRepository,
+  createPostgresContentReleaseRepository,
+} from './liveops.js';
 import { createPostgresModerationRepository } from './moderation.js';
 import { createPostgresAnalyticsRepository } from './analytics.js';
 
@@ -59,6 +65,10 @@ export function createPostgresRepositories(pool: PgPool): Repositories {
     rewardDefinitions: createPostgresRewardDefinitionRepository(pool),
     rewardGrants: createPostgresRewardGrantRepository(pool),
     rewardClaims: createPostgresRewardClaimRepository(pool),
+    contentDocuments: createPostgresContentDocumentRepository(pool),
+    contentReleases: createPostgresContentReleaseRepository(pool),
+    codeBatches: createPostgresCodeBatchRepository(pool),
+    codeRedemptions: createPostgresCodeRedemptionRepository(pool),
     products: createPostgresProductRepository(pool),
     carts: createPostgresCartRepository(pool),
     orders: createPostgresOrderRepository(pool),

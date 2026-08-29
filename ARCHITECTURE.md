@@ -254,3 +254,5 @@ Settings live in one observable store consumed by simulation (assists), renderin
 | [0004](./docs/adr/0004-defer-rapier.md) | Defer Rapier behind a physics abstraction |
 | [0005](./docs/adr/0005-node-http-backend.md) | `node:http` + typed router instead of a framework |
 | [0006](./docs/adr/0006-input-authority-multiplayer.md) | Multiplayer replicates inputs + authority, not simulation state |
+| [0007](./docs/adr/0007-live-ops-content-overlay.md) | Live content is a versioned overlay with append-only releases |
+| [0008](./docs/adr/0008-signed-offline-verifiable-codes.md) | One signed, offline-verifiable code format for wrappers, events and campfires |

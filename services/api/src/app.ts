@@ -16,6 +16,8 @@ import type { Repositories } from './repos/interfaces.js';
 import { seedProducts, seedPromotions, seedRewards } from './domain/seed.js';
 import { createAnalyticsService } from './domain/analytics.js';
 import { createCampsiteService } from './domain/campsites.js';
+import { createCodesService } from './domain/codes.js';
+import { createLiveOpsService } from './domain/liveops.js';
 import { createCommerceService } from './domain/commerce.js';
 import { createIdentityService } from './domain/identity.js';
 import { createModerationService } from './domain/moderation.js';
@@ -25,6 +27,7 @@ import { createSandwichService } from './domain/sandwiches.js';
 import { createSessionService } from './domain/sessions.js';
 import { createWorldStateService } from './domain/worldState.js';
 import type { DomainDeps } from './domain/types.js';
+import { createCodeSigner, createOperatorGate } from './codes/signing.js';
 import { Router } from './http/router.js';
 import { createApiServer } from './http/server.js';
 import { buildRoutes } from './routes/index.js';
@@ -120,9 +123,12 @@ export function createApp(options: AppOptions = {}): App {
 
   const deps: DomainDeps = { repos, clock, ids, logger, config, payments, mailer, rateLimiter, tokens };
 
+  const codeSigner = createCodeSigner({ config, logger });
+  const operators = createOperatorGate(config);
+
   const passports = createPassportService(deps);
   const identity = createIdentityService(deps, passports);
-  const campsites = createCampsiteService(deps, passports);
+  const campsites = createCampsiteService(deps, passports, codeSigner);
   const worldState = createWorldStateService(deps, campsites, passports);
   const sessions = createSessionService(deps, campsites);
   const rewards = createRewardsService(deps, passports);
@@ -130,6 +136,8 @@ export function createApp(options: AppOptions = {}): App {
   const commerce = createCommerceService(deps, rewards);
   const moderation = createModerationService(deps);
   const analytics = createAnalyticsService(deps);
+  const liveOps = createLiveOpsService(deps);
+  const codes = createCodesService(deps, codeSigner, rewards);
 
   const services: ServiceRegistry = {
     identity,
@@ -142,11 +150,17 @@ export function createApp(options: AppOptions = {}): App {
     commerce,
     moderation,
     analytics,
+    liveOps,
+    codes,
+    operators,
     capabilities: {
       paymentProvider: payments.name,
       paymentsConfigured: payments.isConfigured(),
       mailer: mailer.name,
       persistence: database === null ? 'memory' : 'postgres',
+      liveOpsAuthoring: operators.isConfigured(),
+      codeVerification: codeSigner.isConfigured(),
+      codeMinting: codeSigner.canMint(),
     },
     database,
   };

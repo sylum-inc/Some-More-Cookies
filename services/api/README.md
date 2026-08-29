@@ -5,7 +5,7 @@ marshmallow, build a hot s'more, feed it to an SM-01, and walk away with a
 roasted-marshmallow ice cream sandwich and a Campfire Passport full of proof.
 
 It is one deployable service: a `node:http` server with a small typed router,
-nine domain modules behind explicit interfaces, and a repository layer with two
+eleven domain modules behind explicit interfaces, and a repository layer with two
 complete implementations — in memory for local dev and tests, PostgreSQL for
 anything that has to survive a restart.
 
@@ -170,6 +170,14 @@ npx tsc -b packages/protocol services/api
 | `REWARD_CLAIM_WINDOW_SECONDS` | no | `3600` | High-value reward claim window. |
 | `REWARD_CLAIMS_PER_WINDOW` | no | `3` | Claims allowed per account per window. |
 | `MAGIC_LINKS_PER_WINDOW` | no | `5` | Sign-in links per email address per hour. |
+| `LIVE_OPS_TOKEN` | for authoring | — | Shared secret presented as `x-somemore-ops-token` *alongside* a normal bearer token. Absent ⇒ the content service is read-only and every authoring route answers `503 service_not_configured`. Not RBAC; see Blocker 9. |
+| `CODE_SIGNING_KEY_ID` | for minting | — | Which key new codes are signed with, e.g. `k1`. |
+| `CODE_SIGNING_PRIVATE_KEY` | for minting | — | Base64 Ed25519 private key (a raw 32-byte seed or a PKCS8 DER blob). Absent ⇒ codes can still be *verified* if public keys are set, but none can be minted. |
+| `CODE_VERIFY_PUBLIC_KEYS` | for scanning | — | `keyId:base64,keyId:base64`. Old print runs keep verifying after a rotation. Absent *and* no private key ⇒ scanning is disabled with a structured `not_configured`, never permissively. |
+| `CODE_REDEMPTION_WINDOW_SECONDS` | no | `3600` | Window for both redemption limits below. |
+| `CODE_REDEMPTIONS_PER_WINDOW` | no | `10` | Scan attempts per account per window. |
+| `CODE_FAILURES_PER_WINDOW` | no | `20` | Failed scans per salted IP hash per window. |
+| `CODE_BATCH_VELOCITY_FLAG` | no | `200` | Redemptions per run per window above which the run is flagged for human review (never auto-retired). |
 
 The connection string may also carry pool settings as query parameters
 (`pool_max`, `pool_min`, `idle_timeout_ms`, `acquire_timeout_ms`,
@@ -185,7 +193,7 @@ category (`unreachable`, `not_migrated`) and pool occupancy, nothing more.
 
 ## Domain boundaries
 
-Nine modules under `src/domain/`. Each owns its aggregate, exposes an interface,
+Eleven modules under `src/domain/`. Each owns its aggregate, exposes an interface,
 and reaches other domains only through those interfaces (wired in `src/app.ts`).
 Route handlers never touch a repository; repositories never contain rules.
 
@@ -201,6 +209,8 @@ Route handlers never touch a repository; repositories never contain rules.
 | `commerce` | catalog, cart, quotes, orders, refunds | The order fulfillment state machine, tax/shipping boundary objects, promotions, reward redemption, idempotency on every mutation. |
 | `moderation` | reports and blocks | Child-safety reports are urgent and never auto-dismissed; blocks make you invisible to the blocked account. |
 | `analytics` | telemetry ingest | Named events only, de-duplicated by client-minted id, never trusting a client-declared account id. |
+| `liveOps` | content documents, releases, the manifest | `draft → staged → published → retired`; validation at publish time using `@somemore/content`'s validator; append-only numbered releases; rollback as a forward-only republish; activation windows evaluated against the injected clock. |
+| `codes` | print runs, minting, redemption | Ed25519 signatures, claim-once by unique index, per-run retirement, per-account and per-IP-hash rate limits, velocity flagging. |
 
 ### Layers
 
@@ -224,7 +234,7 @@ Cross-cutting: `http/router.ts` (matching, validation, error envelope),
 
 ## Route table
 
-64 routes. `auth=required` means a valid bearer token; `auth=optional` means the
+80 routes. `auth=required` means a valid bearer token; `auth=optional` means the
 route works signed-out but behaves better signed in; `auth=none` is deliberately
 public. Every route marked **idem** requires an idempotency key (body
 `idempotencyKey`, or the `Idempotency-Key` header).
@@ -295,6 +305,25 @@ public. Every route marked **idem** requires an idempotency key (body
 | `GET` | `/v1/moderation/blocks` | required | - | Everyone you have blocked. |
 | `DELETE` | `/v1/moderation/blocks/:accountId` | required | - | Unblock a player. |
 | `POST` | `/v1/events` | optional | - | Ingest a batch of telemetry events. |
+| `GET` | `/v1/content/manifest` | optional | - | The published content overlay, with an ETag; `If-None-Match` answers `304`. |
+| `GET` | `/v1/content/documents/:kind/:slug` | optional | - | One published content document, with its own ETag. |
+| `GET` | `/v1/live-ops/status` | required | - | Whether this deployment can author content and mint codes. |
+| `POST` | `/v1/live-ops/documents/validate` | required | - | Dry-run the publish gate against a body without storing anything. |
+| `POST` | `/v1/live-ops/documents` | required | yes | Draft the next version of a content document. |
+| `GET` | `/v1/live-ops/documents` | required | - | List documents, filtered by kind, slug or status. |
+| `GET` | `/v1/live-ops/documents/:documentId` | required | - | Read one document at one version, in any status. |
+| `POST` | `/v1/live-ops/documents/:documentId/transitions` | required | yes | Move a document through its lifecycle. Publishing runs validation. |
+| `GET` | `/v1/live-ops/releases` | required | - | The append-only release history. |
+| `POST` | `/v1/live-ops/releases/rollback` | required | yes | Undo a bad publish by republishing an earlier release. No deploy. |
+| `POST` | `/v1/live-ops/code-batches` | required | yes | Open a print run. |
+| `GET` | `/v1/live-ops/code-batches` | required | - | Every print run, with minted and redeemed counts. |
+| `POST` | `/v1/live-ops/code-batches/:batchId/mint` | required | yes | Mint codes. This response is the only copy that exists. |
+| `POST` | `/v1/live-ops/code-batches/:batchId/retire` | required | yes | Retire one compromised run. Every other run keeps working. |
+| `POST` | `/v1/codes/redeem` | required | yes | Redeem a scanned code. Claim-once is enforced by the database. |
+| `GET` | `/v1/codes/redemptions` | required | - | Codes you have redeemed, newest first. |
+
+Every `/v1/live-ops/*` route needs **two** credentials: a valid bearer token
+*and* the `x-somemore-ops-token` header. See **Live ops** below.
 
 ### Error envelope
 
@@ -408,9 +437,237 @@ Claims store a **salted hash** of the client IP, never the IP.
 
 ---
 
+## Live ops
+
+Environments, seasonal events, station programming and reward definitions ship
+compiled into the client (`packages/content`). That is right for the base
+catalogue — the campfire has to start with no network — and wrong for anything
+that changes after ship. Live ops is the service side of the second half.
+
+Everything here is an **overlay**. The client boots from what it was built with,
+fetches the manifest afterwards, and applies whatever it got. A timeout, a 500,
+a 304 and a DNS failure are all the same thing to a campsite: the overlay it
+already had, or none. `ContentManifest` says so in the payload — `overlay: true`,
+and the schema does not permit `false`.
+
+### The lifecycle
+
+`draft → staged → published → retired`. There is no un-publish: taking something
+down is `retired`, which is an event of its own, and `published → staged` is not
+a legal move. Publishing straight from `draft` is refused, because a preview step
+you can skip is not a preview step.
+
+`(kind, slug)` is the thing being versioned; each edit is a new immutable
+version. Two operators drafting the same slug at the same instant both compute
+`max(version) + 1`, the unique index refuses one, and the service takes the next
+number and retries rather than handing a person a 409 for something they did
+nothing to cause.
+
+### Validation happens at publish time, on our machine
+
+A document that violates the content rules is an operator's `422
+content_invalid`, never a player's broken campsite. Every problem comes back at
+once, as `{ path, message }` with dotted paths:
+
+```json
+{ "error": { "code": "content_invalid",
+  "message": "That document has 4 problem(s) and was not published.",
+  "details": { "issues": [
+    { "path": "manual_bad.intensity", "message": "must be within [0, 1] (got 5)" },
+    { "path": "manual_bad.skyEvent", "message": "a sky-event with skyEvent \"none\" would change nothing" },
+    { "path": "manual_bad.environments[0]", "message": "no environment \"nowhere\" is compiled in or published" }
+  ] } } }
+```
+
+The rules come from **`packages/content/src/validate.ts`** — the same validator
+the compiled catalogue passes. A second validator would be a second answer to
+one question, and the day they disagreed is the day live ops published something
+the client refused to load. Reward definitions are checked against the
+protocol's own Zod schema instead, because rewards are a wire contract rather
+than content; the Zod paths are flattened to the same dotted form so an operator
+sees one kind of error.
+
+Two checks need storage and therefore live in the domain: an event may not name
+an environment that is neither compiled in nor published, and it may not offer a
+reward code nobody defined. Both are silent failures otherwise — the sort nobody
+notices for a week.
+
+`POST /v1/live-ops/documents/validate` runs the whole gate and stores nothing.
+
+### Releases and rollback
+
+Every publish, retirement and rollback appends an immutable numbered **release**:
+exactly which document versions were live. Nothing is rewritten.
+
+Rolling back promotes an earlier release *forward*. It does not resurrect
+retired rows; it republishes those bodies as new document versions and retires
+whatever the target did not contain, then records release *N+1* with
+`rolledBackFromVersion`. Same reasoning as the migration runner having no
+`down`: the state that ships is a state that was recorded, and "what was live at
+03:14" is still answerable after three rollbacks in a row.
+
+Rollback re-runs validation, so a validator that has tightened since the
+original publish can block one. That is deliberate — the alternative is
+knowingly republishing content we now consider broken — and the error names the
+document and the path.
+
+### Delivery
+
+```bash
+curl -i localhost:8787/v1/content/manifest
+# ETag: "62d7f9f679f39dbdb23367c55c1dff83"
+curl -o /dev/null -w '%{http_code} %{size_download}\n' \
+  localhost:8787/v1/content/manifest -H 'if-none-match: "62d7f9…"'
+# 304 0
+```
+
+The ETag is a strong validator over the release version **and the current
+activation state**, so a seasonal window opening flips it without anybody
+publishing anything: a phone polling with a stale ETag finds out about the
+meteor shower on the request that would otherwise have been a 304. Weak (`W/"…"`)
+and listed (`"a", "b"`) validators are accepted, because a proxy is entitled to
+send them.
+
+### Seasonal events
+
+Time-bounded content — a meteor-shower weekend, a winter campsite, a limited
+flavour — carries an activation window and is evaluated **server-side against
+the injected clock**. Not `Date.now()` in a handler, and never a time the client
+sent: a phone with its clock wound forward is the oldest trick there is, and a
+limited edition is exactly what it would be pointed at. Windows are half-open,
+so two events that abut are never both live for a millisecond.
+
+Content may not gate anything. `exclusive` and `gates` are not expressible and
+the validator rejects them by name, because spec §5.5 and §8 say rare events are
+gifts and a missed window must strand nobody.
+
+### Authoring authentication, and what it is not
+
+Every `/v1/live-ops/*` route requires a valid bearer token **and** the
+`x-somemore-ops-token` header, compared in constant time over sha256 digests so
+neither the value nor its length leaks. Two credentials, one of which is a real
+account in the audit trail, is meaningfully better than a shared secret alone.
+
+It is still not RBAC, and it does not pretend to be — there is no staff identity
+provider (Blocker 9). With `LIVE_OPS_TOKEN` unset, reads keep working and every
+authoring route answers `503 service_not_configured` naming the variable.
+
+---
+
+## Codes: the physical bridge
+
+One format for every scannable thing Some More prints or shows — a wrapper, an
+event card, and the QR a player holds up so a friend can join their fire.
+
+```
+somemore://c/SM1.<base64url(body)>.<base64url(ed25519 signature)>
+
+body = "1|pkg|k1|bat_bu9OU7k-|000000|HLud_w2POl5P|0"
+        ^ ^   ^  ^            ^      ^            ^
+        | |   |  |            |      |            expiry, unix seconds (0 = never)
+        | |   |  |            |      96-bit per-code nonce
+        | |   |  |            serial in the run, or the invite token for `camp`
+        | |   |  which print run
+        | |   which key signed it
+        | pkg | evt | camp
+        format version
+```
+
+162 characters as a URI. A canonical positional body rather than JSON, because a
+signature covers exact bytes; the parser re-encodes what it parsed and refuses
+anything that does not round-trip.
+
+### What is not in a code, and why
+
+A code on a mass-produced wrapper is **public**. It will be photographed and
+posted. So it carries **no account, name or email**; **no auth token, session
+token or capability**; **no reward id, sku or value**; and no secret of any kind.
+The entitlement lives on the *batch*, server-side, so a run printed for one
+promotion can be repointed, downgraded or switched off after the boxes are in a
+warehouse — and a photo of a wrapper never advertises "this is the free-kit one".
+
+Redeeming always requires an authenticated account, which is what makes a
+scraped code worth nothing on its own.
+
+### Minting
+
+```bash
+POST /v1/live-ops/code-batches          # label, kind, entitlement, size, window
+POST /v1/live-ops/code-batches/:id/mint # count -> the codes
+```
+
+**The mint response is the only copy that exists.** Codes are not written to the
+database, not logged and not recoverable; there is nothing here for a leaked
+backup to contain. A redemption row records `(batch_id, code_ref)` — enough to
+enforce claim-once and to answer "which run was this", and not enough to
+reconstruct a code, because the signature is not stored. A lost print file is a
+reprint, and that is the right trade.
+
+### Claim-once, decided by the database
+
+`code_redemptions_one_per_code` is unique on `(batch_id, code_ref)`.
+`code_redemptions_one_per_account` is a partial unique index on
+`(batch_id, per_account_key)`, where `per_account_key` is the batch's
+one-per-account rule projected onto the row that has to obey it (a partial index
+cannot consult another table). Two phones scanning the same posted photo at the
+same instant produce one grant and one `409 code_already_redeemed`, whatever
+order the requests interleave in. Same shape as
+`reward_grants_one_live_per_account_reward`, for the same reason, and
+`test/postgres.test.ts` races them.
+
+### Retiring a compromised run
+
+`POST /v1/live-ops/code-batches/:id/retire` stops **that run**. Codes from every
+other run keep working. That is the whole reason `batchId` is in the payload: a
+leaked pallet is a leaked pallet, and invalidating every code ever printed would
+be the wrong blast radius.
+
+### Abuse
+
+Someone will scrape codes off Instagram. The design assumes it:
+
+* A forged code dies at the signature check, before storage is touched.
+* There is nothing to enumerate: 96 bits of nonce inside a signed body.
+* Failures are rate-limited per account **and** per salted IP hash. A real code
+  presented a second time counts as a failure, because that is exactly what
+  working through a scraped list looks like.
+* Every "no" a stranger can provoke is the same word. `malformed`, `bad
+  signature`, `unknown key`, `unknown batch` and `never minted` all answer `400
+  code_invalid` with `details.reason: "invalid"`. Only the reasons a real
+  customer needs — `expired`, `batch_retired`, `already_redeemed`,
+  `limit_reached` — are distinguished, and each of those is already obvious to
+  somebody holding the box.
+* A serial beyond what the run minted is refused — the check that buys time if a
+  signing key ever leaks.
+* A run redeemed unusually fast is **flagged for a human, not auto-retired**.
+  Pulling a live run punishes everyone holding a real box; a person decides.
+* Redemption records a **salted hash** of the client IP, never the address.
+
+### Campsite QR joins use the same format
+
+`POST /v1/campsites/:id/invites` returns a signed `camp` code whose `ref` is the
+invite token, and `POST /v1/campsites/join` accepts it — so a forged or tampered
+camp QR is rejected by a signature check *before* the invite table is read. The
+legacy `somemore://join?t=…` payload is still accepted, and is what an invite
+falls back to when this deployment has no keys, because a campfire with no QR is
+worse than a QR that is only as strong as the invite behind it (which is what it
+has always been). A `pkg` code presented to `join`, or a `camp` code presented to
+`redeem`, is refused.
+
+### With no keys configured
+
+Scanning is **disabled**, honestly: `GET /v1/live-ops/status` reports
+`{"status":"not_configured","fallback":"scanning_disabled","reason":"… CODE_SIGNING_PRIVATE_KEY …"}`
+and `POST /v1/codes/redeem` answers `503 service_not_configured`. It never
+degrades to accepting everything — that is the one failure mode that would turn
+a missing environment variable into free ice cream. A deployment holding only
+public keys verifies codes signed elsewhere and refuses to mint.
+
+---
+
 ## Persistence
 
-Two implementations of the same twenty-two repository interfaces. Which one you
+Two implementations of the same twenty-six repository interfaces. Which one you
 get is decided in exactly one place (`createApp` in `src/app.ts`) by exactly one
 question: is `DATABASE_URL` set?
 
@@ -555,7 +812,9 @@ pretends to be the real thing.
 | Object storage | The API stores keys and metadata only. There is no bucket, no pre-signed upload URL endpoint. | `src/domain/passport.ts` |
 | Sales tax | Flat internal table by US state, marked `internal_flat` on the quote. | `quoteTax()` in `src/domain/commerce.ts` |
 | Shipping rates | Flat $12 two-day frozen, marked `internal_flat`. | `quoteShipping()` |
-| Operator/admin auth | Fulfillment transitions authorize the **order owner**, because no staff RBAC exists yet. | `POST /v1/commerce/orders/:orderId/transitions` |
+| Operator/admin auth | Fulfillment transitions authorize the **order owner**, because no staff RBAC exists yet. Live-ops authoring is gated by a shared `LIVE_OPS_TOKEN` on top of a bearer token — better than a secret alone, still not a role model. | `POST /v1/commerce/orders/:orderId/transitions`, `src/routes/liveops.ts` |
+| Code print vendor | Minting is real and the codes verify; nothing turns them into artwork. There is no vendor, no imposition file, no QR image, no proof workflow. | `src/domain/codes.ts` |
+| Code signing keys | Real Ed25519 over `node:crypto`, but no key exists outside a developer's shell. No HSM, no rotation schedule, no key-compromise runbook. | `src/codes/signing.ts` |
 | Rate limiting | In-process fixed windows; does not survive a restart or span instances. | `src/ratelimit.ts` |
 | Realtime | Presence and authority are HTTP request/response. There is no WebSocket or WebRTC transport. | `src/domain/sessions.ts` |
 
@@ -572,7 +831,7 @@ these is a credential, a provisioned service or a contract.
 * ~~*Blocker 2, PostgreSQL* — a migration runner and the Postgres
   implementations of the repository interfaces.~~ Both exist. `migrations/` is a
   real forward-only runner with checksums, and `src/repos/postgres/` implements
-  every one of the twenty-two interfaces. The entire API suite passes against a
+  every one of the twenty-six interfaces. The entire API suite passes against a
   live PostgreSQL 16. What remains of that blocker is *a provisioned instance
   and a connection string* — the part that was always going to be somebody
   else's purchase order, restated below.
@@ -640,10 +899,15 @@ Two blockers are *narrowed* rather than removed:
    (EasyPost/Shippo), real transit-time data, and a webhook for delivery events.
    Until then, shipping is a flat $12 guess and fulfillment transitions are
    driven by hand.
-9. **Staff/admin authentication** — none.
-   *Needed:* an operator identity provider and a role model, so fulfillment
-   transitions, refunds beyond the customer's own order, reward-claim review and
-   moderation actioning stop authorizing the customer.
+9. **Staff/admin authentication** — none. *Narrowed, not closed:* live-ops
+   authoring now needs a bearer token **and** `LIVE_OPS_TOKEN`, so it is not
+   reachable by an ordinary player, and every action is attributed to a real
+   account id. That is one shared secret with no roles, no per-person
+   revocation, and no separation between "may draft" and "may mint 100,000
+   codes". *Needed:* an operator identity provider and a role model, so
+   fulfillment transitions, refunds beyond the customer's own order,
+   reward-claim review, content publishing, code minting and moderation
+   actioning stop authorizing the customer.
 10. **Moderation review tooling and on-call** — reports queue up with nobody
     reading them. *Needed:* a review queue UI, an actioning path (suspend,
     remove content, ban), an appeals process, and a documented escalation for
@@ -655,8 +919,32 @@ Two blockers are *narrowed* rather than removed:
     bypassed by hitting a different node.
 12. **Secrets management and deployment target** — no host, no secret store, no
     TLS termination, no CI deploy. *Needed:* a runtime (Fly/Render/ECS), a
-    secrets manager for `AUTH_TOKEN_SECRET`/`IP_HASH_SALT`/provider keys, and a
+    secrets manager for `AUTH_TOKEN_SECRET`/`IP_HASH_SALT`/`DATABASE_URL`/
+    `LIVE_OPS_TOKEN`/`CODE_SIGNING_PRIVATE_KEY`/provider keys, and a
     log/metrics sink for the structured JSON this service already emits.
+13. **A code signing key, and somewhere to keep it** — the code is finished;
+    no key exists. *Needed:* an Ed25519 key pair generated into the secret
+    store (`generateCodeKeyPair()` in `src/codes/signing.ts` will mint one, and
+    deliberately writes nothing to disk), a decision on whether the private half
+    lives in an HSM/KMS rather than an environment variable, a rotation schedule,
+    and a written key-compromise procedure. The format already supports rotation
+    — a code names the key that signed it and every configured key verifies —
+    but a rotation nobody has rehearsed is not a rotation. Until a key exists,
+    scanning is disabled and says so; nothing pretends.
+14. **A print vendor and an artwork pipeline** — codes are minted and verified;
+    nothing turns them into something you can print. *Needed:* a vendor
+    contract, a secure channel for the mint response (it is the only copy of the
+    run and must not travel by email), QR image generation at a tested module
+    size and error-correction level for the substrate, an imposition/serialised
+    -print workflow, and a physical proof scanned by a real phone camera under
+    real light before a run is ordered. The wrapper is where this system either
+    works or does not, and none of that has been tested on paper.
+15. **A live-ops console** — every authoring route exists and none of them has a
+    screen. *Needed:* an operator UI for drafting, previewing (the manifest a
+    given release *would* produce, at a chosen time), diffing versions, scheduling
+    windows, one-click rollback, and reading the release history. Today this is
+    `curl`, which is fine for an engineer and not fine for the person who
+    actually schedules a meteor-shower weekend.
 
 ### Not blockers, but decisions someone owes us
 

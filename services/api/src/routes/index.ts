@@ -3,6 +3,9 @@ import type { ServiceRegistry } from '../services.js';
 import { analyticsRoutes } from './analytics.js';
 import { authRoutes } from './auth.js';
 import { campsiteRoutes } from './campsites.js';
+import { codeRoutes } from './codes.js';
+import { contentRoutes } from './content.js';
+import { liveOpsRoutes } from './liveops.js';
 import { commerceRoutes } from './commerce.js';
 import { healthRoutes } from './health.js';
 import { moderationRoutes } from './moderation.js';
@@ -24,6 +27,9 @@ export function buildRoutes(services: ServiceRegistry): AnyRoute[] {
     ...commerceRoutes(services),
     ...moderationRoutes(services),
     ...analyticsRoutes(services),
+    ...contentRoutes(services),
+    ...liveOpsRoutes(services),
+    ...codeRoutes(services),
   ];
 }
 

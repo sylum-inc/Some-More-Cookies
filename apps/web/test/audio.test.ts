@@ -1602,28 +1602,30 @@ describe('AudioEngine (headless)', () => {
     await engine.close();
   });
 
-  it('places the fire and the machine in 3D and exposes emitters for voice', async () => {
+  it('places the fire, the machine and the radio in 3D and exposes emitters for voice', async () => {
     const { engine, ctx } = makeEngine();
     await engine.resume();
     expect(engine.fireEmitter).not.toBeNull();
     expect(engine.machineEmitter).not.toBeNull();
-    expect(ctx.countOf('panner')).toBeGreaterThanOrEqual(2);
+    expect(engine.radioEmitter).not.toBeNull();
+    expect(ctx.countOf('panner')).toBeGreaterThanOrEqual(3);
 
     engine.setMachinePosition(3, 0, -4);
     const panner = ctx.nodesOf('panner')[1] as unknown as { positionX: FakeAudioParam };
     expect(panner.positionX.lastEvent?.value).toBe(3);
 
     // A voice emitter is just another emitter on the voice bus.
+    const before = engine.emitterCount;
     const emitter = engine.createEmitter('voice', { refDistance: 1.2 });
     expect(emitter).not.toBeNull();
-    expect(engine.emitterCount).toBe(3);
+    expect(engine.emitterCount).toBe(before + 1);
     if (emitter) {
       expect(emitter.panner.refDistance).toBe(1.2);
       // No MediaStream support in the fake context: must return null, not throw.
       expect(emitter.attachMediaStream({} as MediaStream)).toBeNull();
       engine.releaseEmitter(emitter);
     }
-    expect(engine.emitterCount).toBe(2);
+    expect(engine.emitterCount).toBe(before);
     await engine.close();
   });
 

@@ -272,6 +272,22 @@ export interface WildlifeInput {
   /** Unattended objects. Never mutated by this module. */
   objects?: readonly WildlifeObject[];
   weather?: WildlifeWeather;
+  /**
+   * Multiplier ≥ 1 on how fast stillness accrues, from `sitting.ts`.
+   *
+   * Standing motionless is 1. Somebody who has actually sat down and settled
+   * accrues faster, which is the strongest expression of "quiet behaviour
+   * reveals rarer wildlife" (§7) the product has. Defaults to 1, so a caller
+   * that knows nothing about sitting behaves exactly as before.
+   */
+  stillnessRate?: number;
+  /**
+   * Multiplier ≥ 1 on how fast the place's own disturbance settles again.
+   *
+   * A camp goes quiet around somebody who has stopped moving. This is why a
+   * fox put off by the walk in comes back for a player who sat down.
+   */
+  settleRate?: number;
 }
 
 export function createWildlifeInput(overrides: Partial<WildlifeInput> = {}): WildlifeInput {
@@ -284,6 +300,8 @@ export function createWildlifeInput(overrides: Partial<WildlifeInput> = {}): Wil
     cues: {},
     window: 'early-night',
     objects: [],
+    stillnessRate: 1,
+    settleRate: 1,
     ...overrides,
   };
 }
@@ -635,12 +653,22 @@ export function stepWildlife(state: WildlifeState, input: WildlifeInput, dt: num
   const target = clamp01(
     clamp01(input.playerSpeed / 2.2) * 0.6 + clamp01(input.noise) * 0.8 + clamp01(input.lightSweep) * 0.7,
   );
-  // Rises immediately, falls slowly: the place takes a while to settle again.
-  state.disturbance = approach(state.disturbance, target, target > state.disturbance ? 5 : 0.22, dt);
+  // Rises immediately, falls slowly: the place takes a while to settle again —
+  // and faster around somebody who has sat down (`settleRate`, from sitting.ts).
+  const settleRate = Math.max(1, input.settleRate ?? 1);
+  state.disturbance = approach(
+    state.disturbance,
+    target,
+    target > state.disturbance ? 5 : 0.22 * settleRate,
+    dt,
+  );
   state.disturbance = clamp01(state.disturbance + state.startlePulse);
 
   if (state.disturbance < 0.12) {
-    state.stillnessSeconds += dt;
+    // Sitting is the strongest generator of stillness there is. Standing
+    // motionless still works; it simply takes the two and a half minutes the
+    // calm curve asks for, rather than under one.
+    state.stillnessSeconds += dt * Math.max(1, input.stillnessRate ?? 1);
   } else {
     // A single loud moment costs real time, which is what makes stillness a
     // mechanic rather than a modifier.

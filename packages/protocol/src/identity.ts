@@ -176,6 +176,11 @@ export const MergeReportSchema = z.object({
     campsites: NonNegativeIntSchema,
     rewardGrants: NonNegativeIntSchema,
     orders: NonNegativeIntSchema,
+    /**
+     * Codes the absorbed account had scanned. They move with it: a merge is
+     * never a reset, and the box was genuinely bought.
+     */
+    codeRedemptions: NonNegativeIntSchema.default(0),
   }),
   /** Non-mergeable singletons and how they were resolved. */
   resolutions: z.array(

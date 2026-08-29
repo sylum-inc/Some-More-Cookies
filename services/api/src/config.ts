@@ -52,6 +52,28 @@ export interface ApiConfig {
   readonly rewardClaimWindowSeconds: number;
   readonly rewardClaimsPerWindow: number;
   readonly magicLinksPerWindow: number;
+
+  /**
+   * Live-ops authoring. Absent => the content service is read-only and says so
+   * (there is no staff identity provider yet; see README Blocker 9).
+   */
+  readonly liveOpsToken: string | null;
+
+  /**
+   * Ed25519 key material for physical/event codes. Absent => scanning is
+   * switched off with a structured `not_configured`, never a fake success.
+   */
+  readonly codeSigningKeyId: string | null;
+  readonly codeSigningPrivateKey: string | null;
+  /** `keyId -> base64 public key`, so old print runs verify after a rotation. */
+  readonly codeVerifyPublicKeys: Readonly<Record<string, string>>;
+
+  /** Redemption limits. Someone will scrape codes off Instagram; see codes.ts. */
+  readonly codeRedemptionWindowSeconds: number;
+  readonly codeRedemptionsPerWindow: number;
+  readonly codeFailuresPerWindow: number;
+  /** Redemptions per batch per window above which a run is flagged for review. */
+  readonly codeBatchVelocityFlag: number;
 }
 
 function envString(env: NodeJS.ProcessEnv, key: string): string | null {
@@ -74,13 +96,36 @@ function envInt(env: NodeJS.ProcessEnv, key: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/**
+ * `keyId:base64,keyId:base64` — the shape a secret store can hold as one
+ * string. Malformed entries are dropped here and reported by the signer, which
+ * is the only thing that can say whether the material is a usable key.
+ */
+function parseKeyList(raw: string | null): Record<string, string> {
+  if (raw === null) return {};
+  const out: Record<string, string> = {};
+  for (const entry of raw.split(',')) {
+    const trimmed = entry.trim();
+    if (trimmed.length === 0) continue;
+    const separator = trimmed.indexOf(':');
+    if (separator <= 0) continue;
+    const keyId = trimmed.slice(0, separator).trim();
+    const material = trimmed.slice(separator + 1).trim();
+    if (keyId.length === 0 || material.length === 0) continue;
+    out[keyId] = material;
+  }
+  return out;
+}
+
 export interface ConfigWarning {
   readonly code:
     | 'ephemeral_auth_secret'
     | 'fake_payments'
     | 'console_mailer'
     | 'ephemeral_ip_salt'
-    | 'memory_persistence';
+    | 'memory_persistence'
+    | 'live_ops_read_only'
+    | 'codes_not_configured';
   readonly message: string;
 }
 
@@ -141,6 +186,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     });
   }
 
+  const liveOpsToken = envString(env, 'LIVE_OPS_TOKEN');
+  if (liveOpsToken === null) {
+    warnings.push({
+      code: 'live_ops_read_only',
+      message:
+        'LIVE_OPS_TOKEN is not set; the content service is read-only. Publishing, rollback and code minting '
+        + 'answer 503 service_not_configured. See README "Blockers".',
+    });
+  }
+
+  const codeSigningPrivateKey = envString(env, 'CODE_SIGNING_PRIVATE_KEY');
+  const codeVerifyPublicKeys = parseKeyList(envString(env, 'CODE_VERIFY_PUBLIC_KEYS'));
+  if (codeSigningPrivateKey === null && Object.keys(codeVerifyPublicKeys).length === 0) {
+    warnings.push({
+      code: 'codes_not_configured',
+      message:
+        'No Ed25519 code keys configured (CODE_SIGNING_PRIVATE_KEY / CODE_VERIFY_PUBLIC_KEYS); QR and package '
+        + 'codes cannot be minted or verified. Scanning is disabled rather than permissive.',
+    });
+  }
+
   const logLevelRaw = envString(env, 'LOG_LEVEL') ?? (nodeEnv === 'test' ? 'silent' : 'info');
   const logLevel = (['debug', 'info', 'warn', 'error', 'silent'] as const).find((l) => l === logLevelRaw) ?? 'info';
 
@@ -174,6 +240,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     rewardClaimWindowSeconds: envInt(env, 'REWARD_CLAIM_WINDOW_SECONDS', 60 * 60),
     rewardClaimsPerWindow: envInt(env, 'REWARD_CLAIMS_PER_WINDOW', 3),
     magicLinksPerWindow: envInt(env, 'MAGIC_LINKS_PER_WINDOW', 5),
+    liveOpsToken,
+    codeSigningKeyId: envString(env, 'CODE_SIGNING_KEY_ID'),
+    codeSigningPrivateKey,
+    codeVerifyPublicKeys,
+    codeRedemptionWindowSeconds: envInt(env, 'CODE_REDEMPTION_WINDOW_SECONDS', 60 * 60),
+    codeRedemptionsPerWindow: envInt(env, 'CODE_REDEMPTIONS_PER_WINDOW', 10),
+    codeFailuresPerWindow: envInt(env, 'CODE_FAILURES_PER_WINDOW', 20),
+    codeBatchVelocityFlag: envInt(env, 'CODE_BATCH_VELOCITY_FLAG', 200),
   };
 
   return { config, warnings };

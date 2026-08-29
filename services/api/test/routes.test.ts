@@ -36,6 +36,11 @@ describe('the route table', () => {
       'GET /health',
       'GET /v1/commerce/products',
       'GET /v1/commerce/products/:productId',
+      // The content overlay is public and cacheable on purpose: it is the same
+      // data that ships compiled into the client, and a campsite must be able
+      // to pick it up before anyone signs in.
+      'GET /v1/content/documents/:kind/:slug',
+      'GET /v1/content/manifest',
       'GET /v1/meta',
       'POST /v1/auth/anonymous',
       'POST /v1/auth/magic-link',

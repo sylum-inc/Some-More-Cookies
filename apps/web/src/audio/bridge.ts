@@ -7,39 +7,175 @@
  */
 
 import {
+  animalsPresent,
+  currentSegment,
+  describeReception,
+  describeSighting,
   fireSignals,
   isEmberBed,
+  radioReadout,
+  wildlifeSignals,
   type MachineEvent,
+  type RadioEvent,
   type RitualState,
+  type WildlifeEvent,
 } from '@somemore/sim';
-import { AudioEngine } from './engine.js';
+import { AudioEngine, type AudioEngineOptions } from './engine.js';
 import { AMBIENCE_PRESETS } from './ambience.js';
+import { hashSeed } from './rng.js';
+import type { RadioProgramme } from './radio.js';
+import type { WildlifeAnimalAudio } from './wildlife.js';
 import type { AudioSettings } from '../state/store.js';
 
 export type FoleySound = 'blow-out' | 'graham-snap' | 'chocolate-fracture' | 'squish' | 'bite' | 'stick';
 
+/** Structural: `Vec3` from the simulation and a THREE.Vector3 both satisfy it. */
+export interface Vec3Like {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
+
+/**
+ * A line describing something the player just *heard*.
+ *
+ * Spec §12: no information travels through one channel only, so anything the
+ * radio or the wildlife layer says out loud has to be sayable in text as well.
+ * The copy comes from `describeReception` and `describeSighting` in the
+ * simulation — the bridge never invents a parallel vocabulary — and the caller
+ * decides whether the player has subtitles switched on. That keeps the audio
+ * engine free of any dependency on the store.
+ */
+export interface AudioCue {
+  readonly kind: 'radio' | 'wildlife';
+  readonly text: string;
+}
+
+/**
+ * A reader over one of the simulation's rolling event logs.
+ *
+ * `ritual.radioEvents` and `ritual.wildlifeEvents` are bounded *logs*, not
+ * queues: nothing drains them, and old entries fall off the front. Replaying
+ * the whole log every frame would fire the same call sixty times a second, so
+ * this remembers the last entry it handled and hands back only what has arrived
+ * since. If the log rolled over completely between two updates (a long stall,
+ * or a tab that was backgrounded) the anchor is gone; the reader then plays
+ * only the newest few, because dumping sixty banked one-shots into the mix at
+ * once is worse than missing some.
+ */
+class EventLogReader<T> {
+  private last: T | null = null;
+
+  constructor(private readonly burstLimit = 4) {}
+
+  take(log: readonly T[], out: T[]): T[] {
+    out.length = 0;
+    if (log.length === 0) {
+      this.last = null;
+      return out;
+    }
+    const anchor = this.last;
+    let from = 0;
+    if (anchor !== null) {
+      const index = log.lastIndexOf(anchor);
+      from = index >= 0 ? index + 1 : Math.max(0, log.length - this.burstLimit);
+    }
+    for (let i = Math.max(from, log.length - this.burstLimit); i < log.length; i += 1) {
+      const event = log[i];
+      if (event !== undefined) out.push(event);
+    }
+    this.last = log[log.length - 1] ?? null;
+    return out;
+  }
+
+  reset(): void {
+    this.last = null;
+  }
+}
+
 export class AudioBridge {
-  private engine: AudioEngine | null = null;
+  private engineValue: AudioEngine | null = null;
   private started = false;
   private pendingSettings: AudioSettings | null = null;
   private lastCompressor = 0;
   private lastFan = 0;
   private crtOn = false;
 
+  // --- radio ---------------------------------------------------------------
+  private radioOn = false;
+  private radioBand: string | null = null;
+  private radioStationId: string | null = null;
+  private radioSegmentIndex = -1;
+  private bleedStationId: string | null = null;
+  private bleedSegmentIndex = -1;
+  private readonly radioEvents = new EventLogReader<RadioEvent>();
+  private readonly radioScratch: RadioEvent[] = [];
+
+  // --- wildlife ------------------------------------------------------------
+  private readonly wildlifeEvents = new EventLogReader<WildlifeEvent>();
+  private readonly wildlifeScratch: WildlifeEvent[] = [];
+  /** Rewritten in place every frame; the wildlife kit copies out of it. */
+  private readonly animalScratch: WildlifeAnimalAudio[] = [];
+  private watchedNow = false;
+
+  /**
+   * Move the listener.
+   *
+   * Without this every emitter in the engine sits at the origin along with the
+   * listener, and nothing is anywhere: an animal behind you and an animal in
+   * front of you sound identical, which is the one thing the wildlife layer
+   * exists to avoid. `up` is assumed to be world up, which is true of this
+   * camera; `updateListener` orthonormalises whatever it is given anyway.
+   */
+  listener(position: Vec3Like, forward: Vec3Like): void {
+    this.engine?.listenerUpdate(
+      { x: position.x, y: position.y, z: position.z },
+      { x: forward.x, y: forward.y, z: forward.z },
+      { x: 0, y: 1, z: 0 },
+    );
+  }
+
+  /** Place the fixed emitters. The campsite layout lives in the scene, not here. */
+  placeEmitters(positions: {
+    fire?: readonly [number, number, number];
+    machine?: readonly [number, number, number];
+    radio?: readonly [number, number, number];
+  }): void {
+    const engine = this.engine;
+    if (!engine) return;
+    if (positions.fire) engine.setFirePosition(...positions.fire);
+    if (positions.machine) engine.setMachinePosition(...positions.machine);
+    if (positions.radio) engine.setRadioPosition(...positions.radio);
+  }
+
+  /**
+   * @param engineOptions Merged over the bridge's defaults. Exists so a test
+   * can inject a headless context; the game passes nothing.
+   */
+  constructor(private readonly engineOptions: AudioEngineOptions = {}) {}
+
+  /** The engine, once unlocked. Read-only inspection, for tests and dev tools. */
+  get engine(): AudioEngine | null {
+    return this.engineValue;
+  }
+
   /** Called from a user gesture — browsers require one before audio starts. */
   async unlock(): Promise<boolean> {
-    if (!this.engine) {
+    if (!this.engineValue) {
       try {
-        this.engine = new AudioEngine({ ambienceProfile: AMBIENCE_PRESETS.pineRidge });
+        this.engineValue = new AudioEngine({
+          ambienceProfile: AMBIENCE_PRESETS.pineRidge,
+          ...this.engineOptions,
+        });
       } catch {
         // No WebAudio at all: the product must still be fully playable, so
         // this fails silently and every later call becomes a no-op.
         return false;
       }
     }
-    const ok = await this.engine.resume();
+    const ok = await this.engineValue.resume();
     if (ok && !this.started) {
-      this.engine.startBeds();
+      this.engineValue.startBeds();
       this.started = true;
       if (this.pendingSettings) this.applySettings(this.pendingSettings);
     }
@@ -62,10 +198,17 @@ export class AudioBridge {
     this.engine.setBusVolume('voice', settings.voice);
   }
 
-  /** Called once per simulation step. */
-  update(ritual: RitualState): void {
+  /**
+   * Called once per simulation step.
+   *
+   * Returns the line describing whatever was most worth *saying* this step, or
+   * null. The caller decides what to do with it (spec §12 — subtitles); the
+   * audio engine has no idea a settings store exists.
+   */
+  update(ritual: RitualState): AudioCue | null {
     const engine = this.engine;
-    if (!engine || !this.started) return;
+    if (!engine || !this.started) return null;
+    let cue: AudioCue | null = null;
 
     // --- Fire bed ---------------------------------------------------------
     const signals = fireSignals(ritual.fire);
@@ -145,7 +288,218 @@ export class AudioBridge {
       if (ritual.marshmallow.extinguishedThisStep) foley.blowOut();
     }
 
+    // --- Radio ------------------------------------------------------------
+    const radioCue = this.updateRadio(ritual);
+    if (radioCue) cue = radioCue;
+
+    // --- Wildlife ---------------------------------------------------------
+    const wildlifeCue = this.updateWildlife(ritual);
+    // A sighting outranks a station identifying itself: it is the rarer event
+    // and the one a player is more likely to have missed.
+    if (wildlifeCue) cue = wildlifeCue;
+
     void isEmberBed;
+    return cue;
+  }
+
+  /* ----------------------------------------------------------------- radio */
+
+  /**
+   * Continuous reception, edge-triggered power and band, and one programme
+   * block per station slot.
+   *
+   * The same pattern as `compressorStart`/`compressorStop` above: the
+   * simulation exposes state, not transitions, so the transitions are found by
+   * comparing against what was last pushed into the kit.
+   */
+  private updateRadio(ritual: RitualState): AudioCue | null {
+    const kit = this.engine?.radio;
+    if (!kit) return null;
+    const radio = ritual.radio;
+
+    // Band first: changing band invalidates everything the receiver was hearing.
+    if (radio.band !== this.radioBand) {
+      if (this.radioBand !== null) kit.bandChange();
+      this.radioBand = radio.band;
+      this.radioStationId = null;
+      this.radioSegmentIndex = -1;
+      this.bleedStationId = null;
+      this.bleedSegmentIndex = -1;
+    }
+
+    if (radio.on !== this.radioOn) {
+      kit.setPower(radio.on);
+      this.radioOn = radio.on;
+      if (!radio.on) {
+        this.radioStationId = null;
+        this.radioSegmentIndex = -1;
+        this.bleedStationId = null;
+        this.bleedSegmentIndex = -1;
+        this.radioEvents.reset();
+      }
+    }
+
+    const readout = radioReadout(ritual);
+    kit.setReception({
+      clarity: readout.clarity,
+      hiss: readout.hiss,
+      bleed: readout.bleed,
+      // The SM-01's compressor is already folded into this by the simulation.
+      hum: readout.hum,
+      detune: readout.detune,
+      halfWidth: radio.bands[radio.band].halfWidth,
+      volume: radio.volume,
+      band: radio.band,
+    });
+
+    if (radio.on) {
+      this.syncStation(ritual, 'primary', readout.stationId);
+      // Only bother synthesising the neighbour when it is actually audible.
+      this.syncStation(ritual, 'bleed', readout.bleed > 0.08 ? readout.bleedFromId : null);
+    }
+
+    let cue: AudioCue | null = null;
+    for (const event of this.radioEvents.take(ritual.radioEvents, this.radioScratch)) {
+      // `locked` and `segment` are the two moments where what you are hearing
+      // changes into something else describable.
+      if (event.kind === 'locked' || event.kind === 'segment') {
+        const line = describeReception(radio);
+        if (line) cue = { kind: 'radio', text: line };
+      }
+    }
+    return cue;
+  }
+
+  /** Push a station's current block into one of the receiver's two slots. */
+  private syncStation(ritual: RitualState, slot: 'primary' | 'bleed', stationId: string | null): void {
+    const kit = this.engine?.radio;
+    if (!kit) return;
+    const currentId = slot === 'primary' ? this.radioStationId : this.bleedStationId;
+    const currentIndex = slot === 'primary' ? this.radioSegmentIndex : this.bleedSegmentIndex;
+
+    if (!stationId) {
+      if (currentId !== null) {
+        kit.playSegment(slot, null);
+        if (slot === 'primary') {
+          this.radioStationId = null;
+          this.radioSegmentIndex = -1;
+        } else {
+          this.bleedStationId = null;
+          this.bleedSegmentIndex = -1;
+        }
+      }
+      return;
+    }
+
+    const segment = currentSegment(ritual.radio, stationId);
+    if (!segment) return;
+    if (stationId === currentId && segment.index === currentIndex) return;
+
+    const programme: RadioProgramme = {
+      kind: segment.kind,
+      // Straight from the simulation: this is the whole reason it hands one over.
+      seed: segment.seed >>> 0,
+      // Stable per station, so an ident is the same sting every time it airs.
+      stationSeed: hashSeed(`station:${stationId}`),
+      intensity: segment.intensity,
+      durationSeconds: segment.durationSeconds,
+    };
+    kit.playSegment(slot, programme);
+    if (slot === 'primary') {
+      this.radioStationId = stationId;
+      this.radioSegmentIndex = segment.index;
+    } else {
+      this.bleedStationId = stationId;
+      this.bleedSegmentIndex = segment.index;
+    }
+  }
+
+  /* -------------------------------------------------------------- wildlife */
+
+  private updateWildlife(ritual: RitualState): AudioCue | null {
+    const kit = this.engine?.wildlife;
+    if (!kit) return null;
+
+    // Continuous: where everything is, and what it is doing.
+    const animals = animalsPresent(ritual);
+    this.animalScratch.length = 0;
+    for (const animal of animals) {
+      this.animalScratch.push({
+        id: animal.individual.id,
+        speciesId: animal.species.id,
+        shyness: animal.species.shyness,
+        curiosity: animal.species.curiosity,
+        x: animal.position.x,
+        y: animal.position.y,
+        z: animal.position.z,
+        distanceM: animal.distanceM,
+        phase: animal.phase,
+        alarm: animal.alarm,
+        interest: animal.interest,
+      });
+    }
+    kit.setAnimals(this.animalScratch);
+
+    const signals = wildlifeSignals(ritual.wildlife);
+    if (signals.watched !== this.watchedNow || signals.watched) {
+      const watcher = animals.find((animal) => animal.phase === 'watching' && animal.species.shyness > 0.6);
+      kit.setWatched(
+        signals.watched,
+        watcher?.position.x ?? 0,
+        watcher?.position.y ?? 0,
+        watcher?.position.z ?? -5,
+      );
+      this.watchedNow = signals.watched;
+    }
+
+    // Edge-triggered: the log is a rolling readout, so only what is new plays.
+    let cue: AudioCue | null = null;
+    for (const event of this.wildlifeEvents.take(ritual.wildlifeEvents, this.wildlifeScratch)) {
+      const animal = animals.find((candidate) => candidate.individual.id === event.individualId);
+      const x = animal?.position.x ?? event.position.x;
+      const y = animal?.position.y ?? event.position.y;
+      const z = animal?.position.z ?? event.position.z;
+      const distanceM = animal?.distanceM ?? Math.hypot(x, z);
+      const species = animal?.species;
+      const shyness = species?.shyness ?? event.rarity;
+      const curiosity = species?.curiosity ?? 0.5;
+
+      switch (event.kind) {
+        case 'appeared':
+          // Announcing itself, once, from wherever it came out of the dark.
+          kit.call({
+            id: event.individualId,
+            speciesId: event.speciesId,
+            shyness,
+            curiosity,
+            x,
+            y,
+            z,
+            distanceM,
+            alarm: animal?.alarm ?? 0,
+          });
+          cue = { kind: 'wildlife', text: describeSighting(event) };
+          break;
+        case 'startled':
+          kit.startle({ speciesId: event.speciesId, shyness, curiosity, x, y, z, distanceM });
+          break;
+        case 'took-object':
+          kit.tookObject(x, y, z, distanceM);
+          break;
+        case 'investigated':
+          kit.rustle(x, y, z, distanceM, 0.45);
+          break;
+        case 'settled':
+        case 'left-trace':
+        case 'departed':
+        default:
+          // Nothing of their own: settling is the *absence* of noise, a trace is
+          // a mark rather than a sound, and a departure is already covered by
+          // the movement the animal makes on its way out.
+          break;
+      }
+    }
+    return cue;
   }
 
   private playMachineEvent(event: MachineEvent): void {
@@ -219,8 +573,17 @@ export class AudioBridge {
   }
 
   dispose(): void {
-    void this.engine?.close();
-    this.engine = null;
+    void this.engineValue?.close();
+    this.engineValue = null;
     this.started = false;
+    this.radioOn = false;
+    this.radioBand = null;
+    this.radioStationId = null;
+    this.radioSegmentIndex = -1;
+    this.bleedStationId = null;
+    this.bleedSegmentIndex = -1;
+    this.watchedNow = false;
+    this.radioEvents.reset();
+    this.wildlifeEvents.reset();
   }
 }

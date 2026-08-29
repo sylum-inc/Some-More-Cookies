@@ -142,6 +142,12 @@ export const ApiErrorCodeValues = [
   'webhook_signature_invalid',
   'reward_already_claimed',
   'anti_abuse_rejected',
+  // live ops + the physical/digital bridge
+  'content_invalid',
+  'code_invalid',
+  'code_already_redeemed',
+  'code_revoked',
+  'service_not_configured',
   'schema_version_unsupported',
   'raw_card_data_rejected',
   'internal_error',

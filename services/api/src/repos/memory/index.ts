@@ -22,6 +22,12 @@ import {
   createMemoryProductRepository,
   createMemoryPromotionRepository,
 } from './commerce.js';
+import {
+  createMemoryCodeBatchRepository,
+  createMemoryCodeRedemptionRepository,
+  createMemoryContentDocumentRepository,
+  createMemoryContentReleaseRepository,
+} from './liveops.js';
 import { createMemoryModerationRepository } from './moderation.js';
 import { createMemoryAnalyticsRepository } from './analytics.js';
 
@@ -53,6 +59,10 @@ export function createInMemoryRepositories(seed: MemoryRepositorySeed = {}): Rep
     rewardDefinitions: createMemoryRewardDefinitionRepository(seed.rewards ?? []),
     rewardGrants: createMemoryRewardGrantRepository(),
     rewardClaims: createMemoryRewardClaimRepository(),
+    contentDocuments: createMemoryContentDocumentRepository(),
+    contentReleases: createMemoryContentReleaseRepository(),
+    codeBatches: createMemoryCodeBatchRepository(),
+    codeRedemptions: createMemoryCodeRedemptionRepository(),
     products: createMemoryProductRepository(seed.products ?? []),
     carts: createMemoryCartRepository(),
     orders: createMemoryOrderRepository(),

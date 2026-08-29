@@ -18,7 +18,7 @@ export type BusName = (typeof BUS_NAMES)[number];
 
 /** What each bus is for, surfaced in the accessibility settings UI. */
 export const BUS_DESCRIPTIONS: Readonly<Record<BusName, string>> = Object.freeze({
-  ambience: 'Wind, water, insects, birds and room tone',
+  ambience: 'Wind, water, insects, animals, the radio and room tone',
   fire: 'The campfire bed, crackles and rumble',
   machine: 'The SM-01 and other machinery',
   foley: 'Cooking, handling and footsteps',

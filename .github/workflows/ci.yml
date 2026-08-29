@@ -165,9 +165,11 @@ jobs:
           path: .
 
       - name: Simulation benchmark
-        # --expose-gc: the allocation measurements need forced major GCs, and
-        # without it the "no unbounded growth" assertion would be measuring
-        # V8's collection schedule rather than the simulation.
+        # The npm script supplies two V8 flags and both matter:
+        # --expose-gc forces the major collections the retained-heap checkpoints
+        # need, and --max-semi-space-size=64 makes the nursery large enough that
+        # no scavenge lands inside an allocation sample window. Without them the
+        # benchmark measures V8's collection schedule rather than the model.
         run: npm run perf:sim
 
       - name: Resolve the Playwright version
@@ -191,7 +193,9 @@ jobs:
       - name: Merged report
         # Always: the report's value is largely in the numbers and in the
         # statement of what a GPU-less runner cannot measure, both of which are
-        # more useful on a failure than on a pass.
+        # more useful on a failure than on a pass. It also prints the two
+        # pinned deviations from §10 next to their budgets, so a passing run
+        # still shows them.
         if: always()
         run: npm run perf:report
 

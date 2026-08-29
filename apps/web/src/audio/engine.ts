@@ -33,12 +33,16 @@ import { ImpulseCache, type SpaceType } from './impulse.js';
 import type { LayerDeps, PumpableLayer } from './layer.js';
 import type { MachineKitOptions } from './machine.js';
 import { MachineKit } from './machine.js';
+import type { RadioKitOptions } from './radio.js';
+import { RadioKit } from './radio.js';
 import type { ReverbOptions } from './reverb.js';
 import { DEFAULT_REVERB_SENDS, ReverbBus } from './reverb.js';
 import type { Rng } from './rng.js';
 import { createRng, hashSeed } from './rng.js';
 import type { SpatialOptions, SpatialQuality, Vec3 } from './spatial.js';
 import { SpatialEmitter, updateListener } from './spatial.js';
+import type { WildlifeKitOptions } from './wildlife.js';
+import { WildlifeKit } from './wildlife.js';
 
 export type EngineStatus = 'idle' | 'running' | 'suspended' | 'closed' | 'unsupported';
 
@@ -59,6 +63,8 @@ export interface AudioEngineOptions {
   ambience?: Partial<AmbienceOptions>;
   machine?: Partial<MachineKitOptions>;
   foley?: Partial<FoleyOptions>;
+  radio?: Partial<RadioKitOptions>;
+  wildlife?: Partial<WildlifeKitOptions>;
   /** Internal scheduling timer, in ms. 0 disables it so a host can drive `pump` itself. */
   pumpIntervalMs?: number;
 }
@@ -87,8 +93,11 @@ export class AudioEngine {
   private ambienceLayer: NightAmbience | null = null;
   private machineLayer: MachineKit | null = null;
   private foleyLayer: FoleyKit | null = null;
+  private radioLayer: RadioKit | null = null;
+  private wildlifeLayer: WildlifeKit | null = null;
   private fireEmitterValue: SpatialEmitter | null = null;
   private machineEmitterValue: SpatialEmitter | null = null;
+  private radioEmitterValue: SpatialEmitter | null = null;
   private readonly emitters = new Set<SpatialEmitter>();
   private readonly pumpables: PumpableLayer[] = [];
   private pumpTimer: ReturnType<typeof setInterval> | null = null;
@@ -138,6 +147,23 @@ export class AudioEngine {
     return this.foleyLayer;
   }
 
+  /**
+   * The camp radio.
+   *
+   * It shares the `ambience` bus rather than owning one: the radio is part of
+   * the campsite's soundscape, it already has a diegetic volume knob of its
+   * own (`RadioState.volume`), and one more fader in the settings screen would
+   * be a knob to explain rather than a knob anyone wants.
+   */
+  get radio(): RadioKit | null {
+    return this.radioLayer;
+  }
+
+  /** Calls, movement and the watched presence. Also on the `ambience` bus. */
+  get wildlife(): WildlifeKit | null {
+    return this.wildlifeLayer;
+  }
+
   get reverb(): ReverbBus | null {
     return this.reverbBus;
   }
@@ -157,6 +183,10 @@ export class AudioEngine {
 
   get machineEmitter(): SpatialEmitter | null {
     return this.machineEmitterValue;
+  }
+
+  get radioEmitter(): SpatialEmitter | null {
+    return this.radioEmitterValue;
   }
 
   /* -------------------------------------------------------------- lifecycle */
@@ -213,6 +243,8 @@ export class AudioEngine {
     this.ambienceLayer?.dispose();
     this.machineLayer?.dispose();
     this.foleyLayer?.dispose();
+    this.radioLayer?.dispose();
+    this.wildlifeLayer?.dispose();
     for (const emitter of this.emitters) emitter.dispose();
     this.emitters.clear();
     this.reverbBus?.dispose();
@@ -225,8 +257,11 @@ export class AudioEngine {
     this.ambienceLayer = null;
     this.machineLayer = null;
     this.foleyLayer = null;
+    this.radioLayer = null;
+    this.wildlifeLayer = null;
     this.fireEmitterValue = null;
     this.machineEmitterValue = null;
+    this.radioEmitterValue = null;
     this.reverbBus = null;
     this.busGains = {};
     this.masterGain = null;
@@ -320,6 +355,31 @@ export class AudioEngine {
     if (foleyBus) {
       this.foleyLayer = new FoleyKit(deps(foleyBus), this.options.foley);
       this.pumpables.push(this.foleyLayer);
+    }
+
+    if (ambienceBus) {
+      // The radio is an object in the world, so it is placed like one. A set
+      // this size does not carry far, hence the short maximum distance.
+      let radioDestination: AudioNode = ambienceBus;
+      if (spatialise) {
+        this.radioEmitterValue = new SpatialEmitter(ctx, ambienceBus, {
+          ...spatialOptions,
+          refDistance: 1.2,
+          maxDistance: 30,
+        });
+        this.emitters.add(this.radioEmitterValue);
+        radioDestination = this.radioEmitterValue.input;
+      }
+      this.radioLayer = new RadioKit(deps(radioDestination), this.options.radio);
+      this.pumpables.push(this.radioLayer);
+
+      // Wildlife owns its own emitters — every animal is somewhere different —
+      // so it is handed the bus directly.
+      this.wildlifeLayer = new WildlifeKit(deps(ambienceBus), {
+        panningModel: this.options.spatialQuality ?? 'auto',
+        ...this.options.wildlife,
+      });
+      this.pumpables.push(this.wildlifeLayer);
     }
 
     this.unsubscribeMixer = this.mixer.subscribe((change) => this.onMixerChange(change));
@@ -437,6 +497,7 @@ export class AudioEngine {
   startBeds(): void {
     this.fireLayer?.start();
     this.ambienceLayer?.start();
+    this.wildlifeLayer?.start();
   }
 
   stopBeds(): void {
@@ -458,6 +519,10 @@ export class AudioEngine {
 
   setMachinePosition(x: number, y: number, z: number): void {
     this.machineEmitterValue?.setPosition(x, y, z);
+  }
+
+  setRadioPosition(x: number, y: number, z: number): void {
+    this.radioEmitterValue?.setPosition(x, y, z);
   }
 
   /**

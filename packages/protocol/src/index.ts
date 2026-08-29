@@ -18,6 +18,8 @@ export * from './session.js';
 export * from './realtime.js';
 export * from './sandwich.js';
 export * from './rewards.js';
+export * from './codes.js';
+export * from './liveops.js';
 export * from './commerce.js';
 export * from './events.js';
 export * from './moderation.js';

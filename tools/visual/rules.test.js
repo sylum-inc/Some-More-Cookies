@@ -115,12 +115,24 @@ describe('budgets', () => {
     expect(ASSERT_AT.textureMegabytes).toBeLessThanOrEqual(STATIC_BUDGETS.textureMegabytes);
   });
 
-  it('records every known deviation with a budget, a ceiling and a reason', () => {
+  it('records every known deviation with a budget, a ceiling, the stages, and a reason', () => {
     for (const [name, deviation] of Object.entries(KNOWN_DEVIATIONS)) {
       expect(deviation.ceiling, `${name} ceiling`).toBeGreaterThan(deviation.budget);
       expect(deviation.measured, `${name} measured`).toBeLessThanOrEqual(deviation.ceiling);
+      expect(deviation.stages.length, `${name} must name the stages it happens in`).toBeGreaterThan(0);
       // A pinned deviation without a written reason becomes permanent.
       expect(deviation.why.length, `${name} needs an explanation`).toBeGreaterThan(80);
+      // And it must say how to get rid of it, not just why it is there.
+      expect(deviation.why, `${name} needs a route out`).toMatch(/fix|bake|delete|remove|Owned by/i);
+    }
+  });
+
+  it('never pins a ceiling more than double the budget', () => {
+    // A pin exists to stop drift, not to redefine the budget. A ceiling more
+    // than twice §10 is not a deviation any more, it is a different budget,
+    // and that decision belongs in the architecture document.
+    for (const [name, deviation] of Object.entries(KNOWN_DEVIATIONS)) {
+      expect(deviation.ceiling / deviation.budget, `${name} pin is too generous`).toBeLessThanOrEqual(2);
     }
   });
 });

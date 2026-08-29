@@ -19,7 +19,7 @@
  *    something is not expressible, and the validator rejects any attempt.
  */
 
-import type { WeatherProfile } from '@somemore/sim';
+import type { SkyEvent, WeatherKind, WeatherProfile } from '@somemore/sim';
 
 /* -------------------------------------------------------------------------- */
 /* Small shared shapes                                                        */
@@ -632,4 +632,66 @@ export interface EnvironmentManifest {
   readonly procedural: ProceduralRules;
   readonly discovery: DiscoveryRule;
   readonly performance: PerformanceHints;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Live-ops content (§14)                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Content that arrives after ship.
+ *
+ * These two shapes are deliberately *small*. An environment is a large authored
+ * thing that belongs in the build; a meteor-shower weekend is four fields and a
+ * date range, and shipping a client update for it would be absurd. Everything
+ * here is an **overlay** on the compiled catalogue: an event names environments
+ * it applies to, and adds to them. It can never remove one, because a player
+ * mid-session in an environment that vanished is not a state worth having.
+ *
+ * The activation window itself lives in the protocol's content document
+ * envelope, not here — the same window mechanism serves every kind, and the
+ * server is the only thing that gets to decide what time it is.
+ */
+
+export type SeasonalEventKind = 'sky-event' | 'weather' | 'campsite' | 'flavour' | 'station';
+
+export const SEASONAL_EVENT_KINDS: readonly SeasonalEventKind[] = [
+  'sky-event',
+  'weather',
+  'campsite',
+  'flavour',
+  'station',
+];
+
+/** `['*']` means every environment in the catalogue, present and future. */
+export const ALL_ENVIRONMENTS = '*';
+
+export interface SeasonalEventManifest {
+  readonly id: string;
+  readonly name: string;
+  /** One line, shown on the Passport page and in the arrival card. */
+  readonly tagline: string;
+  readonly kind: SeasonalEventKind;
+  /** Environment ids this applies to, or `['*']`. Never subtractive. */
+  readonly environments: readonly string[];
+  /** For `sky-event`: which one. Rare sky is a gift, never a gate (spec §5.5). */
+  readonly skyEvent?: SkyEvent;
+  /** For `weather`: which kind becomes more likely while the window is open. */
+  readonly weather?: WeatherKind;
+  /** How strongly it leans on the world. 0 is a rumour, 1 is unmistakable. */
+  readonly intensity: number;
+  /** Reward codes the event makes claimable. The rewards themselves are protocol. */
+  readonly rewardCodes: readonly string[];
+  /** Extra dial content while the event runs. */
+  readonly stations: readonly RadioStation[];
+  readonly performanceCost: PerformanceCost;
+  readonly note: string;
+}
+
+export interface StationProgrammingManifest {
+  readonly id: string;
+  readonly name: string;
+  readonly environments: readonly string[];
+  readonly stations: readonly RadioStation[];
+  readonly note: string;
 }

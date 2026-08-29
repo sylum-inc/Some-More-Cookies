@@ -61,7 +61,9 @@ is the only way the workflow's correctness is checkable here.
 timestep, in the real stage order, with player input applied every step the way
 the client applies it.
 
-Needs `--expose-gc`, which the npm script supplies.
+Needs `--expose-gc --max-semi-space-size=64`, which the npm script supplies. The first is for
+forced major collections between checkpoints; the second is what makes the
+allocation measurement possible at all (see the honest findings below).
 
 Measures three things:
 
@@ -69,23 +71,51 @@ Measures three things:
 | --- | --- |
 | **Cost per step, by ritual stage** | Stages do wildly different work — roasting runs a 32-patch thermal model, assembly runs almost nothing — so a single average would hide the only stage that can blow the budget. Each stage reports mean/p50/p95/p99/max over minutes of simulated time. |
 | **Long-session retained heap** | ~115,000 steps (half an hour of simulated play) with forced major GCs at checkpoints, and a least-squares slope of retained bytes against steps. A slope above zero is a leak that a short test cannot see. |
-| **Transient allocation** | Heap growth across GC-free windows, giving bytes allocated per step. |
+| **Transient allocation** | Heap growth across windows large enough to be meaningful and a young generation large enough that no scavenge happens inside them (`--max-semi-space-size=64`, which the npm script supplies). Reported, not precisely asserted — see below. |
 
 **Proves:** the simulation is nowhere near its 1.5 ms budget, on real compiled
-JavaScript; a long session does not leak; allocation churn is small, constant
-and bounded.
+JavaScript, and a long session does not leak — retained heap growth is flat to
+within a fraction of a byte per step across 115,000 steps.
 
 **Cannot prove:** anything about a phone's CPU except by a scaling factor. A
 mid-range mobile core is perhaps 3–5× slower than this runner's; at ~1 % of
 budget that is still ~1 %, but the multiplier is an assumption, not a
 measurement.
 
-**Honest finding.** ARCHITECTURE §10 says "zero per-frame allocation in
-simulation hot paths". It is not zero. `stepRitual` derives named RNG streams
-with `rng.split(...)` and each split constructs an `Rng`, so the measured figure
-is ~229 bytes per step. Small, constant, fully collectable, and not a problem —
-but the document says zero and the code does not, so the tool reports the number
-rather than asserting a claim that is untrue.
+**Honest findings.**
+
+ARCHITECTURE §10 says "zero per-frame allocation in simulation hot paths". It is
+not zero and cannot be: `stepRitual` derives a named RNG stream per subsystem per
+step and each one constructs an `Rng`. So there is no §10 number to check
+against, and the limit in `tools/budgets.mjs` is a guard rail chosen from
+measurement rather than from the document.
+
+**The transient figure is a weak instrument, and the tool says so.** `heapUsed`
+deltas are the only allocation signal Node exposes, and three defensible
+sampling methods gave three different answers for the *same* build:
+
+| Method | Reported | Why it is wrong |
+| --- | --- | --- |
+| Median of 7 × 4,000-step windows | 213–862 B/step, run to run | A collection landing inside a window frees memory mid-count, so dirty windows read *low*. The median lands wherever the collector happened to fall. |
+| Maximum of 40 × 250-step windows | 4,000–7,600 B/step | The largest window is whichever one contained a heap expansion or a rare bursty step, not the typical rate. |
+| Median of 5 × 20,000-step windows inside a 128 MB nursery | 57–172 B/step | The one in use. No scavenge can occur, so the delta *is* the allocation — but it sits below the theoretical floor implied by the source, which means V8 is scalar-replacing some of the churn after inlining. It is a lower bound on what the code allocates and an upper bound on what reaches the heap. |
+
+Detecting dirty windows directly does not work either: `PerformanceObserver`
+delivers `gc` entries asynchronously and the sampling loop is synchronous, so
+entries arrive after the window they belong to has been classified.
+
+The whole sequence is recorded in `ALLOCATION_HISTORY` in `tools/budgets.mjs`,
+including the superseded numbers, because a benchmark that quietly replaces its
+own history is not evidence. The figure is printed as an order of magnitude and
+a trend; the pass/fail that this benchmark actually stands behind is **retained**
+growth, which is rock solid at ~0.28 B/step over 115,000 steps.
+
+**The one thing that does exceed the 1.5 ms budget is a garbage collection.**
+The worst single step across a whole run lands between 1.5 ms and 22 ms
+depending on the run, against a p99 two to three orders of magnitude below it.
+That shape is a collector pause, not the model. It is reported and not asserted
+on: one dropped frame in a session is survivable, and the fix is to allocate
+less, which the allocation figure already tracks.
 
 ### `npm run perf:render` — renderer budget instrumentation
 
@@ -109,19 +139,32 @@ hardware.
 **Cannot prove:** frame rate, GPU pass timings, fill rate, driver stalls,
 thermal behaviour. There is no GPU here.
 
-**Honest findings.**
+**Honest findings — two budgets in ARCHITECTURE §10 are currently exceeded.**
 
-- **Dynamic lights exceed the budget.** §10 allows 6; the reveal, eating and
-  bitten stages render **10** non-ambient lights, because the finished
-  sandwich's own key/fill/rim rig (which is what fixed the "unlit silhouette"
-  defect) sits on top of the fire, the lantern and the SM-01's interior lights.
-  This is recorded in `tools/budgets.mjs` as a `KNOWN_DEVIATION` pinned at 10:
-  the check fails above ten, so it cannot quietly become twelve, and every
-  report prints the deviation next to the §10 number. Either §10 should say so
-  or the hero lighting should be baked. Owned by the render workstream.
-- **Draw calls are close to the ceiling.** The arrival frame peaks at 115 of
-  120 — 96 % of budget, five calls of headroom, before culling has anything to
-  remove. The suite warns above 85 % of any budget.
+- **Draw calls: 121 against a budget of 120,** in the arrival frame. It was 115
+  when this tool was first run and 121 after the campsite became explorable,
+  which took the arrival scene from 148 objects to 175. The arrival shot is the
+  worst case by construction — the whole campsite framed from the trail with
+  nothing yet culled — and it is also the first thing a player ever sees, so it
+  is the frame least able to afford a stall. Every stage after it sits at
+  60–94 calls, so the budget itself is not wrong; the fix is batching or
+  instancing the small scenery props. **Not accepted**, pinned at 121 so it
+  cannot drift to 130 while it is dealt with. Owned by the render/scene
+  workstream.
+- **Dynamic lights: 10 against a budget of 6,** in the reveal, eating and
+  bitten stages. The finished sandwich's own key/fill/rim rig — which is what
+  fixed the "unlit silhouette" defect — sits on top of the fire, the lantern
+  and the SM-01's interior lights. This one is deliberate, but it lands on the
+  three most important stages in the product. Either §10 should say so or the
+  hero lighting should be baked into the material. Pinned at 10.
+
+Both are recorded in `tools/budgets.mjs` as `KNOWN_DEVIATIONS`, each with the
+budget, the measured value, the stages, the reason and the route out. The check
+fails *above the pin*, so a deviation cannot grow, and every report prints it
+next to the §10 number so it cannot be forgotten. `tools/visual/rules.test.js`
+asserts that no pin may exceed double its budget and that every pin carries a
+written way to remove it — a pinning mechanism with no exit is just a lowered
+budget.
 
 ### `npm run perf` / `npm run perf:report`
 
@@ -271,9 +314,37 @@ largest offset in the engine, and it is recorded rather than rounded away.
 ### `npm run test:tools`
 
 The tests for the measuring instruments: `tools/audio/analysis.test.js` (16) and
-`tools/visual/rules.test.js` (10). These run in CI's `verify` job alongside the
+`tools/visual/rules.test.js` (11). These run in CI's `verify` job alongside the
 product's own suite, deliberately not merged into `npm test` — that script is
 the product's suite and should stay that.
+
+---
+
+## Where the reports land
+
+| Path | Written by |
+| --- | --- |
+| `artifacts/perf/sim-bench.json` | `npm run perf:sim` |
+| `artifacts/perf/render-budget.json` | `npm run perf:render` |
+| `artifacts/perf/report.json` · `report.md` | `npm run perf:report` |
+| `artifacts/visual/frame-metrics.json` | `npm run visual` |
+| `artifacts/visual/pixel-noise.json` | `npm run visual:measure` |
+| `artifacts/audio/report.json` · `report.md` | `npm run audio:analyse` |
+| `artifacts/ci/local-run.json` | `npm run ci:local` |
+| `e2e/__screenshots__/*.png` | `npm run visual:update` — **committed**, they are the baselines |
+| `artifacts/screenshots/*.png` | the acceptance suite (already gitignored) |
+
+Every CI job uploads its own directory as a build artifact. The `.md` reports
+are also appended to the GitHub job summary, so the numbers are on the run page
+rather than buried in a log.
+
+One loose end this workstream could not tidy: `.gitignore` covers
+`artifacts/screenshots/*.png` but not the new `artifacts/perf`, `artifacts/audio`,
+`artifacts/visual` or `artifacts/ci` directories, and root files other than
+`package.json` and `playwright.config.ts` were out of scope here. Adding
+`artifacts/**/*.json`, `artifacts/**/*.md` to `.gitignore` (keeping
+`e2e/__screenshots__/` tracked, since those are the baselines) would stop
+generated reports showing up as untracked noise.
 
 ---
 
@@ -285,13 +356,13 @@ most easily lost:
 | Claim | Status |
 | --- | --- |
 | **Touch feel** (S2, R7) | **Untouched by everything here.** No touch digitiser is involved anywhere in this environment. Playwright's synthetic pointer events are not a thumb on glass, and roasting is a two-axis drag whose whole risk is how it feels under one. This needs a phone. |
-| **60 FPS on real hardware** (S3, R8) | **Narrowed, not closed.** What has been removed is the possibility that the simulation or the scene composition is the bottleneck: the model uses under 1 % of its frame budget and the scene draws ~115 calls of ~5 000 triangles. What remains — GPU main pass, post, fill rate, shader compilation, thermal throttling — is entirely device-side. |
+| **60 FPS on real hardware** (S3, R8) | **Narrowed, not closed.** What has been removed is the possibility that the simulation or the scene composition is the bottleneck: the model uses under 2 % of its frame budget and the scene draws ~121 calls of ~5 200 triangles. What remains — GPU main pass, post, fill rate, shader compilation, thermal throttling — is entirely device-side. |
 | **Audio quality** (S7) | **Narrowed, not closed.** The sounds are provably well-formed. Whether they sound *good*, and whether the SM-01's sequence is paced right, still needs a person with speakers. |
 | **"Does the sandwich look delicious?"** (R3) | Untouched. Visual regression proves the picture has not *changed*; appetite is a human judgement. |
 | **Whether roasting is satisfying** (R1) | Untouched. The thermal model is provably correct and provably cheap. Neither of those is the question. |
 
 A green CI run on this repository means: it compiles, the unit suite and the
 acceptance suite pass, the simulation is fast and does not leak, the scene stays
-inside its budgets (with one pinned deviation), every stage still looks like its
-baseline and is a well-formed frame, and every sound is well-formed. It does not
-mean the product is good.
+inside its budgets except for two pinned, documented deviations, every stage
+still looks like its baseline and is a well-formed frame, and every sound is
+well-formed. It does not mean the product is good.

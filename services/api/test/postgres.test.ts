@@ -9,6 +9,8 @@ import {
   type TestHarness,
 } from './harness.js';
 import { listApplied, loadMigrations, migrate, truncateData } from '../src/db/index.js';
+import { generateCodeKeyPair } from '../src/codes/signing.js';
+import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 
 /*
  * The tests a single-threaded Map cannot fail.
@@ -496,5 +498,269 @@ describePostgres('durability', () => {
     expect(await api.app.repos.accounts.count()).toBeGreaterThan(0);
     await truncateData(database.pool);
     expect(await api.app.repos.accounts.count()).toBe(0);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* Codes and live ops: the races a Map cannot lose                             */
+/* -------------------------------------------------------------------------- */
+
+const CODE_KEYS = generateCodeKeyPair();
+const OPS_TOKEN = 'ops-token-for-tests-only';
+
+/**
+ * A harness with code signing and live-ops authoring switched on.
+ *
+ * `resetDatabase: false` because the outer `beforeEach` has already truncated
+ * and seeded; truncating again from inside a case would pull the rug out from
+ * under it.
+ */
+async function withCodeApi<T>(run: (harness: TestHarness) => Promise<T>): Promise<T> {
+  const harness = await startTestApi(
+    {
+      LIVE_OPS_TOKEN: OPS_TOKEN,
+      CODE_SIGNING_KEY_ID: 'k1',
+      CODE_SIGNING_PRIVATE_KEY: CODE_KEYS.privateKeyBase64,
+      CODE_VERIFY_PUBLIC_KEYS: `k1:${CODE_KEYS.publicKeyBase64}`,
+    },
+    { resetDatabase: false },
+  );
+  try {
+    return await run(harness);
+  } finally {
+    await harness.close();
+  }
+}
+
+async function mintRun(
+  harness: TestHarness,
+  operatorToken: string,
+  count: number,
+  overrides: Record<string, unknown> = {},
+) {
+  const headers = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+  const batch = await harness.request('/v1/live-ops/code-batches', {
+    method: 'POST',
+    token: operatorToken,
+    headers,
+    body: {
+      idempotencyKey: key('batch'),
+      label: 'Concurrency run',
+      kind: 'pkg',
+      entitlement: { type: 'reward', rewardCode: 'free_kit' },
+      plannedSize: 1000,
+      ...overrides,
+    },
+  });
+  expect(batch.status, JSON.stringify(batch.body)).toBe(201);
+  const minted = await harness.request(`/v1/live-ops/code-batches/${batch.body.id}/mint`, {
+    method: 'POST',
+    token: operatorToken,
+    headers,
+    body: { idempotencyKey: key('mint'), count },
+  });
+  expect(minted.status, JSON.stringify(minted.body)).toBe(201);
+  return { batch: batch.body, codes: minted.body.minted as Array<{ ref: string; token: string }> };
+}
+
+describePostgres('two people scanning the same wrapper', () => {
+  it('produces one grant and one refusal, decided by the unique index', async () => {
+    await withCodeApi(async (harness) => {
+      const operator = await bootstrap(harness, 'Operator');
+      const { batch, codes } = await mintRun(harness, operator.token, 2);
+      const buyer = await bootstrap(harness, 'Buyer');
+      const scraper = await bootstrap(harness, 'Scraper');
+      const token = codes[0]!.token;
+
+      // Two accounts, two idempotency keys, one code: nothing upstream of the
+      // repository can collapse these into a single operation.
+      const responses = await Promise.all([
+        harness.request('/v1/codes/redeem', {
+          method: 'POST',
+          token: buyer.token,
+          body: { idempotencyKey: key('r'), code: token },
+        }),
+        harness.request('/v1/codes/redeem', {
+          method: 'POST',
+          token: scraper.token,
+          body: { idempotencyKey: key('r'), code: token },
+        }),
+      ]);
+
+      expect(responses.filter((r) => r.status === 201)).toHaveLength(1);
+      const refused = responses.filter((r) => r.status !== 201);
+      expect(refused).toHaveLength(1);
+      expect(refused[0]?.body.error.code).toBe('code_already_redeemed');
+
+      const stored = await harness.app.repos.codeRedemptions.findByCode(batch.id, codes[0]!.ref);
+      expect(stored).not.toBeNull();
+      expect(await harness.app.repos.codeRedemptions.countForBatch(batch.id)).toBe(1);
+    });
+  });
+
+  it('holds across five simultaneous scans of one code', async () => {
+    await withCodeApi(async (harness) => {
+      const operator = await bootstrap(harness, 'Operator');
+      const { batch, codes } = await mintRun(harness, operator.token, 1);
+      const players = await Promise.all(
+        Array.from({ length: 5 }, (_, i) => bootstrap(harness, `Scanner ${i}`)),
+      );
+
+      const responses = await Promise.all(
+        players.map((player) =>
+          harness.request('/v1/codes/redeem', {
+            method: 'POST',
+            token: player.token,
+            body: { idempotencyKey: key('r'), code: codes[0]!.token },
+          }),
+        ),
+      );
+
+      expect(responses.filter((r) => r.status === 201)).toHaveLength(1);
+      for (const refused of responses.filter((r) => r.status !== 201)) {
+        expect(['code_already_redeemed', 'rate_limited']).toContain(refused.body.error.code);
+      }
+      expect(await harness.app.repos.codeRedemptions.countForBatch(batch.id)).toBe(1);
+    });
+  });
+
+  it('lets one account redeem a one-per-account run exactly once, however it races', async () => {
+    await withCodeApi(async (harness) => {
+      const operator = await bootstrap(harness, 'Operator');
+      const { batch, codes } = await mintRun(harness, operator.token, 3);
+      const player = await bootstrap(harness, 'Enthusiast');
+
+      // Three *different* codes from one run, all at once. The per-code index
+      // cannot help here; `code_redemptions_one_per_account` is what does.
+      const responses = await Promise.all(
+        codes.map((code) =>
+          harness.request('/v1/codes/redeem', {
+            method: 'POST',
+            token: player.token,
+            body: { idempotencyKey: key('r'), code: code.token },
+          }),
+        ),
+      );
+
+      expect(responses.filter((r) => r.status === 201)).toHaveLength(1);
+      expect(await harness.app.repos.codeRedemptions.countForAccountAndBatch(player.accountId, batch.id)).toBe(1);
+      const grants = await harness.request('/v1/rewards/grants', { token: player.token });
+      expect(grants.body.items.filter((g: any) => g.rewardCode === 'free_kit')).toHaveLength(1);
+    });
+  });
+});
+
+describePostgres('publishing content from two places at once', () => {
+  const PERSEID = {
+    id: 'perseid_weekend',
+    name: 'Perseid weekend',
+    tagline: 'The sky is busy tonight.',
+    kind: 'sky-event',
+    environments: ['*'],
+    skyEvent: 'meteor-shower',
+    intensity: 0.7,
+    rewardCodes: [],
+    stations: [],
+    performanceCost: 'light',
+    note: 'A gift, never a gate.',
+  };
+
+  it('leaves exactly one version of a slug live', async () => {
+    await withCodeApi(async (harness) => {
+      const operator = await bootstrap(harness, 'Operator');
+      const headers = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+
+      const staged = await Promise.all(
+        [1, 2].map(async (n) => {
+          const created = await harness.request('/v1/live-ops/documents', {
+            method: 'POST',
+            token: operator.token,
+            headers,
+            body: {
+              idempotencyKey: key('doc'),
+              kind: 'seasonal_event',
+              slug: 'perseid_weekend',
+              title: `Take ${n}`,
+              body: { ...PERSEID, tagline: `Take ${n} of the sky.` },
+            },
+          });
+          // Both drafts must succeed: two operators racing on the same slug
+          // is contention, not an error, and the service retries the version
+          // number rather than handing one of them a 409.
+          expect(created.status, JSON.stringify(created.body)).toBe(201);
+          await harness.request(`/v1/live-ops/documents/${created.body.id}/transitions`, {
+            method: 'POST',
+            token: operator.token,
+            headers,
+            body: { idempotencyKey: key('tr'), to: 'staged' },
+          });
+          return created.body.id as string;
+        }),
+      );
+
+      const published = await Promise.all(
+        staged.map((documentId) =>
+          harness.request(`/v1/live-ops/documents/${documentId}/transitions`, {
+            method: 'POST',
+            token: operator.token,
+            headers,
+            body: { idempotencyKey: key('tr'), to: 'published' },
+          }),
+        ),
+      );
+
+      // Either both serialised cleanly (the second retiring the first) or the
+      // partial unique index refused one. What must never happen is two live
+      // versions of one slug, which is what the manifest would then contain.
+      expect(published.some((r) => r.status === 200)).toBe(true);
+      const manifest = await harness.request('/v1/content/manifest');
+      expect(manifest.body.documents.filter((d: any) => d.slug === 'perseid_weekend')).toHaveLength(1);
+
+      const live = await harness.app.repos.contentDocuments.list({
+        kind: 'seasonal_event',
+        slug: 'perseid_weekend',
+        status: 'published',
+      });
+      expect(live).toHaveLength(1);
+    });
+  });
+
+  it('gives every release a distinct version number under concurrent publishes', async () => {
+    await withCodeApi(async (harness) => {
+      const operator = await bootstrap(harness, 'Operator');
+      const headers = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+
+      for (const slug of ['perseid_weekend', 'winter_dial_a', 'winter_dial_b']) {
+        const created = await harness.request('/v1/live-ops/documents', {
+          method: 'POST',
+          token: operator.token,
+          headers,
+          body: {
+            idempotencyKey: key('doc'),
+            kind: 'seasonal_event',
+            slug,
+            title: slug,
+            body: { ...PERSEID, id: slug },
+          },
+        });
+        await harness.request(`/v1/live-ops/documents/${created.body.id}/transitions`, {
+          method: 'POST',
+          token: operator.token,
+          headers,
+          body: { idempotencyKey: key('tr'), to: 'staged' },
+        });
+        await harness.request(`/v1/live-ops/documents/${created.body.id}/transitions`, {
+          method: 'POST',
+          token: operator.token,
+          headers,
+          body: { idempotencyKey: key('tr'), to: 'published' },
+        });
+      }
+
+      const releases = await harness.app.repos.contentReleases.list(50);
+      const versions = releases.map((r) => r.version);
+      expect(new Set(versions).size).toBe(versions.length);
+      expect(Math.max(...versions)).toBe(versions.length);
+    });
   });
 });

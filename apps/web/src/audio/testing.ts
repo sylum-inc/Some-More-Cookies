@@ -18,39 +18,58 @@ export interface ParamEvent {
 
 export class FakeAudioParam {
   readonly events: ParamEvent[] = [];
+  /**
+   * The last value written by a plain `param.value = x` assignment.
+   *
+   * Automation events do not touch it, so the offline renderer can recover the
+   * baseline a graph was built with even after the param has been automated.
+   * (`value` itself keeps reporting the most recently scheduled value, which is
+   * what the scheduling tests assert on.)
+   */
+  assignedValue: number;
+  private current: number;
 
-  constructor(
-    public value: number = 0,
-    readonly name = 'param',
-  ) {}
+  constructor(value: number = 0, readonly name = 'param') {
+    this.current = value;
+    this.assignedValue = value;
+  }
+
+  get value(): number {
+    return this.current;
+  }
+
+  set value(next: number) {
+    this.current = next;
+    this.assignedValue = next;
+  }
 
   setValueAtTime(value: number, time: number): this {
     this.events.push({ type: 'setValue', value, time });
-    this.value = value;
+    this.current = value;
     return this;
   }
 
   linearRampToValueAtTime(value: number, time: number): this {
     this.events.push({ type: 'linearRamp', value, time });
-    this.value = value;
+    this.current = value;
     return this;
   }
 
   exponentialRampToValueAtTime(value: number, time: number): this {
     if (value === 0) throw new RangeError('exponentialRampToValueAtTime: value must be non-zero');
     this.events.push({ type: 'exponentialRamp', value, time });
-    this.value = value;
+    this.current = value;
     return this;
   }
 
   setTargetAtTime(value: number, time: number, timeConstant: number): this {
     this.events.push({ type: 'setTarget', value, time, timeConstant });
-    this.value = value;
+    this.current = value;
     return this;
   }
 
   cancelScheduledValues(time: number): this {
-    this.events.push({ type: 'cancel', value: this.value, time });
+    this.events.push({ type: 'cancel', value: this.current, time });
     return this;
   }
 

@@ -85,6 +85,7 @@ import {
   type RadioBand,
   type RadioConditions,
   type RadioEvent,
+  type RadioReadout,
   type RadioProfileSpec,
   type RadioState,
 } from './radio.js';
@@ -229,6 +230,16 @@ export interface RitualOptions {
   walkableRadiusM?: number;
   /** Constellations this player has already picked out here. */
   knownConstellations?: readonly string[];
+  /**
+   * Epoch ms the sky is computed for. Injected, never read from a clock.
+   *
+   * Deliberately separate from `now`, which timestamps records: the world is
+   * always night, and a session at five in the afternoon must not put the sun
+   * over the campfire. Use `nightEpoch()` to get today's real date at the
+   * campsite's own two in the morning. Omitted or zero uses the curated night,
+   * which §5.5 requires to be as good as the real thing.
+   */
+  skyEpochMs?: number;
 }
 
 /**
@@ -462,7 +473,7 @@ export function createRitual(options: RitualOptions): RitualState {
     torch: createTorch(),
     fishing: createFishing(),
     stargazing: createStargazing({
-      epochMs: options.now ?? 0,
+      epochMs: options.skyEpochMs ?? 0,
       latitudeDeg: options.latitudeDeg ?? 44,
       longitudeDeg: options.longitudeDeg ?? -73,
       skyOpenness: world.skyOpenness ?? 0.6,
@@ -501,6 +512,7 @@ export function createRitual(options: RitualOptions): RitualState {
       latitudeDeg: options.latitudeDeg ?? 44,
       longitudeDeg: options.longitudeDeg ?? -73,
       walkableRadiusM,
+      skyEpochMs: options.skyEpochMs ?? 0,
       weatherProfile,
       world,
     },
@@ -1267,17 +1279,48 @@ export function setRadioVolume(ritual: RitualState, volume: number): void {
   ritual.radio.volume = clamp01(volume);
 }
 
-/** What the radio is receiving right now, weather and machine noise included. */
-export function radioReadout(ritual: RitualState) {
+/**
+ * What the radio is receiving right now, weather and machine noise included.
+ *
+ * Allocates. `stepWorld` has already computed exactly this into
+ * `ritual.radio.reception` for the current step, so a per-frame caller — the
+ * audio bridge, principally — should read that field instead of calling this
+ * (ARCHITECTURE §10: no per-frame allocation). This exists for callers asking
+ * a one-off question, and for tests.
+ */
+export function radioReadout(ritual: RitualState): RadioReadout {
   return receptionAt(ritual.radio, {
     weather: ritual.weather,
     machineNoise: machineNoise(ritual.machine),
   });
 }
 
-/** The animals in the world right now, nearest first. */
+/** The reception the current step actually used. Allocates nothing. */
+export function currentReception(ritual: RitualState): RadioReadout {
+  return ritual.radio.reception;
+}
+
+/**
+ * The animals in the world right now, nearest first.
+ *
+ * Allocates a copy and sorts it. Use {@link animalsPresentInto} on a per-frame
+ * path; `ritual.wildlife.animals` is the live array if order does not matter.
+ */
 export function animalsPresent(ritual: RitualState): readonly WildlifeAnimal[] {
   return presentAnimals(ritual.wildlife);
+}
+
+/**
+ * The same list, written into an array the caller owns.
+ *
+ * The array is reused between frames, so a caller holding it must not keep a
+ * reference to its contents past the frame.
+ */
+export function animalsPresentInto(ritual: RitualState, out: WildlifeAnimal[]): WildlifeAnimal[] {
+  out.length = 0;
+  for (const animal of ritual.wildlife.animals) out.push(animal);
+  out.sort((a, b) => a.distanceM - b.distanceM);
+  return out;
 }
 
 // --- Readouts --------------------------------------------------------------

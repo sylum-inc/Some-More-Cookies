@@ -344,6 +344,26 @@ export function skyState(
 }
 
 /**
+ * The epoch of the campsite's own night on a given date.
+ *
+ * The world is always night — the fire, the dark, the whole mood — but the
+ * player's clock is whatever it happens to be, and a session at five in the
+ * afternoon would put a blazing sun over a campfire and no stars at all in the
+ * sky. That is not a hypothetical: it is what a real clock does for most of
+ * the hours anybody plays.
+ *
+ * So the *date* is real, which is what makes real astronomy worth having —
+ * tonight's real moon phase, tonight's real meteor shower, the constellations
+ * that are genuinely up in this month — and the *hour* is the campsite's,
+ * around two in the morning. Spec §5.5 asks for real astronomy and for a
+ * fallback as good as the real thing; this is both at once.
+ */
+export function nightEpoch(date: Date, longitudeDeg: number, localHour = 2): number {
+  const utcHour = localHour - (longitudeDeg / 180) * 12;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) + utcHour * 3600_000;
+}
+
+/**
  * Fallback sky for when the player has not granted time/region access.
  *
  * Spec §5.5 requires this to be as good as the real thing, so it is a

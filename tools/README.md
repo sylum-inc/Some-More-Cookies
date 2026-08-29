@@ -379,6 +379,7 @@ most easily lost:
 
 | Claim | Status |
 | --- | --- |
+| **That the roast stages here were really roasted** | **Fixed, and now measured.** The explorable-campsite work briefly bound arrow keys to walking, and this driver roasts with those keys — so the roast stages were becoming pictures of a one-sided marshmallow while the pixel comparison passed happily against baselines captured under the same broken driver. The acceptance suite went red for it and the regression is fixed; this suite now reads back browning, char, rotation and one-sidedness on every run and warns by name if the marshmallow never turned, so the same silent degradation cannot recur. |
 | **Touch feel** (S2, R7) | **Untouched by everything here.** No touch digitiser is involved anywhere in this environment. Playwright's synthetic pointer events are not a thumb on glass, and roasting is a two-axis drag whose whole risk is how it feels under one. This needs a phone. |
 | **60 FPS on real hardware** (S3, R8) | **Narrowed, not closed.** What has been removed is the possibility that the simulation or the scene composition is the bottleneck: the model uses under 2 % of its frame budget and the scene draws ~121 calls of ~5 200 triangles. What remains — GPU main pass, post, fill rate, shader compilation, thermal throttling — is entirely device-side. |
 | **Audio quality** (S7) | **Narrowed, not closed.** The sounds are provably well-formed. Whether they sound *good*, and whether the SM-01's sequence is paced right, still needs a person with speakers. |

@@ -126,7 +126,15 @@ export interface StargazingState {
   holdingId: string | null;
   holdSeconds: number;
   meteors: Meteor[];
-  /** Tonight's sky, refreshed on a slow cadence. */
+  /**
+   * Tonight's sky, refreshed on a slow cadence.
+   *
+   * Computed with **no cloud**, deliberately: this is the reference sky — sun,
+   * moon and the wash they put over the stars — and the live `cloudCover` is
+   * applied once, here, at the moment anything is read. Folding cloud into
+   * both halves counted it twice, which made a merely hazy night unusable and
+   * was measured at a campsite the model claimed was perfectly good for it.
+   */
   sky: SkyState;
   /** 0..1 how much sky this campsite has. */
   readonly skyOpenness: number;
@@ -165,7 +173,7 @@ export function createStargazing(config: StargazingConfig): StargazingState {
     holdingId: null,
     holdSeconds: 0,
     meteors: [],
-    sky: skyState(new Date(epochMs), latitudeDeg, longitudeDeg, 0.2),
+    sky: skyState(new Date(epochMs), latitudeDeg, longitudeDeg, 0),
     skyOpenness: clamp01(config.skyOpenness ?? 0.6),
     latitudeDeg,
     longitudeDeg,
@@ -327,11 +335,12 @@ export function stepStargazing(
   state.secondsUntilSkyRefresh -= dt;
   if (state.secondsUntilSkyRefresh <= 0) {
     state.secondsUntilSkyRefresh = SKY_REFRESH_SECONDS;
+    // No cloud: the reference sky. Cloud is applied where it is read.
     state.sky = skyState(
       new Date(state.epochMs + state.elapsed * 1000),
       state.latitudeDeg,
       state.longitudeDeg,
-      clamp01(input.cloudCover),
+      0,
     );
   }
 

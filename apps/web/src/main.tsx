@@ -169,8 +169,24 @@ if (typeof window !== 'undefined') {
           from,
         );
       }),
-      sit: wrap(() => sitOnSeat(store.state.ritual)),
-      stand: wrap(() => standFromSeat(store.state.ritual)),
+      /**
+       * Sitting down.
+       *
+       * Locomotion owns `seated` and the ritual mirrors it, so both are set —
+       * exactly what the interface does when somebody reaches for the log.
+       * Setting only the ritual's would be undone on the next frame, when the
+       * client writes the player's own flag back into presence.
+       */
+      sit: wrap(() => {
+        const player = window.__someMore?.player;
+        if (player) player.seated = true;
+        sitOnSeat(store.state.ritual);
+      }),
+      stand: wrap(() => {
+        const player = window.__someMore?.player;
+        if (player) player.seated = false;
+        standFromSeat(store.state.ritual);
+      }),
       lieBack: wrap((back = true) => lieBack(store.state.ritual, back as boolean)),
       binoculars: wrap((up = true) => raiseBinoculars(store.state.ritual, up as boolean)),
       lookAtSky: wrap((azimuth = 0, altitude = 1) =>

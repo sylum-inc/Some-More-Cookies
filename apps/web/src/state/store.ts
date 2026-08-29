@@ -11,6 +11,7 @@
 import {
   activeTraces,
   createRitual,
+  nightEpoch,
   describeSighting,
   discoveredSecrets,
   residents,
@@ -297,6 +298,11 @@ export class Store {
         priorVisits: memory.residents,
         knownSecrets: memory.secrets,
         knownConstellations: memory.constellations,
+        // Tonight's real date at the campsite's own small hours. The date is
+        // real — the moon phase and any shower on are genuinely tonight's —
+        // and the hour is two in the morning, because that is when the world
+        // is (spec §5.5, and `nightEpoch`).
+        skyEpochMs: nightEpoch(new Date(now), -73),
         ...(options.walkableRadiusM ? { walkableRadiusM: options.walkableRadiusM } : {}),
       }),
       stage: 'arriving',

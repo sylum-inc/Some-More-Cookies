@@ -7,14 +7,15 @@
  */
 
 import {
-  animalsPresent,
+  animalsPresentInto,
+  currentReception,
   currentSegment,
   describeReception,
   describeSighting,
   fireSignals,
   isEmberBed,
-  radioReadout,
   wildlifeSignals,
+  type WildlifeAnimal,
   type MachineEvent,
   type RadioEvent,
   type RitualState,
@@ -116,6 +117,8 @@ export class AudioBridge {
   private readonly wildlifeScratch: WildlifeEvent[] = [];
   /** Rewritten in place every frame; the wildlife kit copies out of it. */
   private readonly animalScratch: WildlifeAnimalAudio[] = [];
+  /** Reused between frames so the per-frame sort allocates nothing. */
+  private readonly presentScratch: WildlifeAnimal[] = [];
   private watchedNow = false;
 
   /**
@@ -339,7 +342,11 @@ export class AudioBridge {
       }
     }
 
-    const readout = radioReadout(ritual);
+    // The step has already computed exactly this reception, weather and
+    // compressor noise included, so reading it costs nothing. Calling
+    // `radioReadout` here allocated a fresh readout sixty times a second
+    // against ARCHITECTURE §10.
+    const readout = currentReception(ritual);
     kit.setReception({
       clarity: readout.clarity,
       hiss: readout.hiss,
@@ -421,7 +428,7 @@ export class AudioBridge {
     if (!kit) return null;
 
     // Continuous: where everything is, and what it is doing.
-    const animals = animalsPresent(ritual);
+    const animals = animalsPresentInto(ritual, this.presentScratch);
     this.animalScratch.length = 0;
     for (const animal of animals) {
       this.animalScratch.push({

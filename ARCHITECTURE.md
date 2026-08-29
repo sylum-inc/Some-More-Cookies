@@ -112,6 +112,16 @@ Browning follows a temperature-gated sigmoid rate; char begins above a higher th
 | Affine texture instability | UVs passed with `noperspective`-equivalent behaviour: multiply UV by `w` in the vertex shader, divide by an interpolated `w` in the fragment shader, blended by a per-material `affineness` factor |
 | Pixelated textures | All procedural textures use `NearestFilter`, no mipmaps by default, small power-of-two sizes |
 | Dithering | Ordered 4×4 / 8×8 Bayer matrix applied in screen space during the post pass, with quantisation to a reduced colour depth (5:5:5 by default) |
+
+**The quantisation floor is an art-direction constraint, not a detail.** At
+5 bits per channel the smallest expressible non-zero value is about 8/255, so
+anything lit below that does not render as very dark — it renders as nothing.
+This was found by measuring: the campsite at coals sat at roughly 3/255 and
+the entire ground plane was pure black, and tripling the light levels changed
+almost nothing until they cleared the floor. Every surface the player must be
+able to see at night has to be lit above it, and `e2e/night.spec.ts` asserts
+that the night stays inside a legible band rather than merely above zero.
+
 | Fog | Exponential vertex fog with a short, per-environment draw distance |
 | Crunchy shadows | Low-resolution shadow maps with hard PCF-off comparison, plus baked-feel blob shadows for small props |
 | Restrained animation | Animation sampled at a reduced rate (10–15 Hz) and held, rather than smoothly interpolated |

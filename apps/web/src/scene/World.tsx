@@ -25,6 +25,7 @@ import {
   terrainHeight,
   isEmberBed,
   lookDirection,
+  lookAtSky,
   operateMachine,
   pointTorch,
   setPresence,
@@ -67,6 +68,8 @@ export const LAYOUT = {
   /** The log people sit on, and where the radio has been left. */
   logSeat: [-1.5, 0, 0.9] as [number, number, number],
   radio: [-1.72, 0.36, 1.14] as [number, number, number],
+  /** The torch, lying on the same log. */
+  torch: [-1.34, 0.4, 1.42] as [number, number, number],
   machine: [-2.75, 0, 1.75] as [number, number, number],
   /** Yaw so the machine's face (+Z in its local frame) looks into the clearing. */
   machineRotation: 1.03,
@@ -123,6 +126,25 @@ const placesScratch: string[] = [];
 
 /** How close to the water counts as being at the water's edge. */
 const SHORE_REACH_M = 2.2;
+
+/** How far lying back tips the head up, radians. About fifty degrees. */
+const RECLINE_LIFT = 0.9;
+
+function reclineLift(ritual: RitualState): number {
+  return ritual.stargazing.posture === 'reclined' ? RECLINE_LIFT : 0;
+}
+
+/**
+ * The player's facing as a sky azimuth.
+ *
+ * Azimuth is measured from north, and +Z is north in this scene (the same
+ * convention `Campsite.tsx` places the moon with), while a yaw of 0 looks
+ * along +X. So the two are a quarter turn apart, and this is that quarter turn
+ * written down once instead of three times.
+ */
+function skyAzimuth(facing: number): number {
+  return Math.atan2(Math.cos(facing), Math.sin(facing));
+}
 
 /**
  * The named places the player is currently standing in.
@@ -347,6 +369,13 @@ export function World({
       // treeline, and holding a lit torch perfectly still cost nothing.
       pointTorch(ritual, player.facing, player.pitch);
 
+      // And looking at the sky is looking at the sky. Lying back tips the head
+      // up — that is what lying back *is* — so the aim the stargazing model
+      // reads is the player's own facing and pitch plus the recline. Without
+      // this, "lie back and look up" left the camera staring at the fire and
+      // the constellations were unreachable except through a test hook.
+      lookAtSky(ritual, skyAzimuth(player.facing), player.pitch + reclineLift(ritual));
+
       // What the client knows and the simulation cannot see: where the player
       // is, how fast, whether they are sitting down, and which named places
       // they are standing in. The world systems read this — it is what makes
@@ -410,6 +439,16 @@ export function World({
       // person view that lags its own head is nauseating.
       eyePosition(player, eyeScratch);
       lookDirection(player, lookScratch);
+      // Lying back: the same head, tipped up. The pitch limits in locomotion
+      // are a standing neck's, so the recline is added here rather than there.
+      const lift = reclineLift(ritual);
+      if (lift > 0) {
+        const pitch = Math.min(1.45, player.pitch + lift);
+        const cosPitch = Math.cos(pitch);
+        lookScratch.x = Math.cos(player.facing) * cosPitch;
+        lookScratch.y = Math.sin(pitch);
+        lookScratch.z = Math.sin(player.facing) * cosPitch;
+      }
       camera.position.set(eyeScratch.x, eyeScratch.y, eyeScratch.z);
       targetRef.current.set(
         eyeScratch.x + lookScratch.x,
@@ -527,7 +566,12 @@ export function World({
       <NightSky ritual={ritual} />
 
       {/* The torch. One spot light, and only while it is lit. */}
-      <Torch torch={ritual.torch} player={player} settings={settings} />
+      <Torch
+        torch={ritual.torch}
+        player={player}
+        settings={settings}
+        restPosition={LAYOUT.torch}
+      />
 
       <Wildlife ritual={ritual} settings={settings} walkable={walkable} />
 

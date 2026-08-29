@@ -219,7 +219,21 @@ Per frame at the 60 FPS target tier (16.6 ms):
 | Audio scheduling (main thread) | ≤ 0.5 ms |
 | Headroom | ≥ 3.0 ms |
 
-Static budgets: ≤ 120 draw calls on the mid tier · ≤ 60k triangles visible · ≤ 24 MB texture memory · ≤ 6 dynamic lights (fire counts as one, with baked-feel falloff) · zero per-frame allocation in simulation hot paths.
+Static budgets: ≤ 120 draw calls on the mid tier · ≤ 60k triangles visible · ≤ 24 MB texture memory · zero per-frame allocation in simulation hot paths.
+
+**Dynamic lights are budgeted per stage, not globally: ≤ 6 in the explorable
+world, ≤ 10 in the anchored close-ups.** The original single figure was written
+before the hero tier existed. In the world the camera sees a campsite and six
+lights is the right ceiling; in the reveal it sees one small object against a
+nearly empty scene, and the shading cost of ten lights over a hundred visible
+triangles is not the cost of ten lights over a forest. The finished sandwich's
+key/fill/rim rig is what fixed the "renders as an unlit silhouette" defect and
+is not negotiable. The two cases cannot overlap: a lit torch would be an
+eleventh light, so the simulation stows the torch on entering a stage that
+needs both hands — you cannot hold a torch and a marshmallow — which makes the
+constraint a product rule rather than a render trick.
+
+Both figures are pinned in `tools/budgets.mjs` so neither can quietly drift.
 
 **Adaptive quality tiers** (`low`, `mid`, `high`) scale internal resolution, shadow map size, particle counts, patch grid resolution, draw distance, post-processing, and environment density. Tier is chosen by a startup probe and adjusted by a rolling frame-time monitor — never by device string sniffing.
 

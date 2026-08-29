@@ -546,6 +546,11 @@ function stream(ritual: RitualState, name: string): Rng {
   return cached;
 }
 
+/** Stages that need both hands: roasting, assembling, and the machine. */
+function isTwoHanded(stage: RitualStage): boolean {
+  return stage === 'roasting' || stage === 'assembling' || stage === 'machine' || stage === 'eating';
+}
+
 function setStage(ritual: RitualState, stage: RitualStage): void {
   if (ritual.stage === stage) return;
   ritual.stage = stage;
@@ -719,6 +724,15 @@ function stepWorld(ritual: RitualState, dt: number): void {
   stepSeat(ritual.seat, dt, ritual.wildlife.disturbance);
 
   // --- the torch -----------------------------------------------------------
+  //
+  // You cannot hold a torch and a marshmallow, and you cannot work the SM-01's
+  // latch one-handed with a light in the other. Entering a stage that has both
+  // your hands in it puts the torch back on the log, which is a real
+  // constraint rather than a render trick — the wildlife cue, the HUD and the
+  // renderer all stop seeing it at the same moment, and the shader stops
+  // carrying an eleventh dynamic light through the reveal.
+  if (ritual.torch.held && isTwoHanded(ritual.stage)) stowTorch(ritual.torch);
+
   // Its sweep is measured from the aim it was actually given, and feeds the
   // `flashlight` cue through `worldCues`.
   stepTorch(ritual.torch, dt);

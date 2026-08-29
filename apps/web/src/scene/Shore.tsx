@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
+  clamp01,
   ripplePresence,
   terrainHeight,
   waveHeight,
@@ -58,16 +59,33 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
   const lineRef = useRef<THREE.LineSegments>(null);
   const rodRef = useRef<THREE.Group>(null);
 
+  /**
+   * The surface material.
+   *
+   * Self-lit, and that is not a shortcut. There is no light out at the shore —
+   * the fire is eight metres away and falls off — so a purely lit surface
+   * rendered as pure black, which at 5-bit quantisation means *nothing at
+   * all*, not "very dark" (ARCHITECTURE §4.1). It was screenshotted looking
+   * exactly like a missing mesh.
+   *
+   * A lake at night is also, in fact, the brightest thing in a landscape,
+   * because it is a mirror pointed at the sky. So the emissive term is the sky
+   * it is reflecting, driven per frame by the stargazing model's own moon and
+   * starlight — which is why an overcast night dims the water and a full moon
+   * lights it up.
+   */
   const surfaceMaterial = useMemo(
     () =>
       createPs1Material({
         settings,
         map: getTexture('water', { size: 64, seed: water ? water.seed : 1 }),
         color: waterColour ?? '#16242c',
-        roughness: 0.22,
-        metalness: 0.32,
+        emissive: waterColour ?? '#243a4a',
+        emissiveIntensity: 1,
+        roughness: 0.24,
+        metalness: 0.3,
         transparent: true,
-        opacity: 0.94,
+        opacity: 0.96,
         flatShading: true,
       }),
     [settings, water, waterColour],
@@ -149,6 +167,18 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
   useFrame(() => {
     if (!water || !shore) return;
 
+    // --- How much sky is there to reflect ----------------------------------
+    // Moonlight plus starlight, cut by cloud. A mirror shows what is above it.
+    const sky = ritual.stargazing.sky;
+    const clear = 1 - clamp01(ritual.weather.cloudCover) * 0.82;
+    const moon = sky.moon.visible ? sky.moon.illumination * Math.max(0, Math.sin(sky.moon.altitude)) : 0;
+    // The floor is the same dark-adaptation floor the moonlight rig uses: a
+    // person who has been sitting by a fire can see the water, and a surface
+    // that renders as literal black is a defect rather than a dark night.
+    const reflected = 0.55 + (moon * 1.5 + sky.starVisibility * 0.5) * clear;
+    // Chop breaks the reflection up, so a blown lake is duller than a mirror.
+    surfaceMaterial.emissiveIntensity = reflected * (1 - water.chop * 0.45);
+
     // --- Surface ----------------------------------------------------------
     const surface = surfaceRef.current;
     if (surface) {
@@ -177,7 +207,13 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
         if (presence <= 0.01) continue;
         // A ring spreads and fades. Both follow the age, so one number does.
         const radius = 0.25 + ripple.age * 1.35;
-        dummy.position.set(ripple.x, shore.surfaceY + 0.012, ripple.z);
+        // Riding the surface, not sunk into it: at any real chop the wavelets
+        // are taller than a fixed offset and cut the rings into arcs.
+        dummy.position.set(
+          ripple.x,
+          shore.surfaceY + waveAt(water, ripple.x, ripple.z) + 0.035,
+          ripple.z,
+        );
         dummy.rotation.set(-Math.PI / 2, 0, 0);
         dummy.scale.setScalar(radius);
         dummy.updateMatrix();
@@ -219,7 +255,9 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
     const out = fishing.phase !== 'stowed' && fishing.phase !== 'ready';
     const rod = rodRef.current;
     if (rod) {
-      rod.visible = fishing.phase !== 'stowed';
+      // Always there, whether or not anybody has picked it up: a rod leaning
+      // on the bank is how you know there is fishing here at all.
+      rod.visible = water.spec.fishable;
       if (rod.visible) {
         const x = shore.x - shore.cos * 0.35;
         const z = shore.z - shore.sin * 0.35;
@@ -278,7 +316,7 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
       <mesh ref={flyingRef} geometry={stoneGeometry} material={shingleMaterial} visible={false} />
 
       {/* The rod, leaning where somebody left it */}
-      <group ref={rodRef} visible={false}>
+      <group ref={rodRef}>
         <mesh position={[0, 0.78, 0]} rotation={[0.36, 0, 0]} material={shingleMaterial}>
           <cylinderGeometry args={[0.006, 0.013, 1.7, 5]} />
         </mesh>

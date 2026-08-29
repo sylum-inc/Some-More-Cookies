@@ -1,10 +1,14 @@
 /**
  * The torch.
  *
- * A real cone of light the player aims, and — because §12 says nothing may be
- * delivered through a single channel — a visible beam volume as well, so the
- * direction it is pointing is legible even to somebody who cannot make out the
- * pool of light on the ground.
+ * A real cone of light the player aims.
+ *
+ * There is deliberately no volumetric beam. One was written and screenshotted,
+ * and because the beam is always aimed where the camera is looking it was
+ * always seen end-on: a bright disc in the middle of the frame with a stalk
+ * under it, which read as a floating object rather than as light. §12's "no
+ * information through a single channel" is met by the HUD line and the
+ * subtitle (`describeTorch`), which say what the torch is doing in words.
  *
  * The beam is one `SpotLight`, and it exists only while the torch is lit.
  * ARCHITECTURE §10 budgets six dynamic lights and the reveal already runs at
@@ -27,12 +31,20 @@ export interface TorchProps {
   torch: TorchState;
   player: PlayerState;
   settings: RenderSettings;
+  /**
+   * Where it lies when nobody has picked it up.
+   *
+   * It has to be *there* — on the log, next to the radio — or "pick the torch
+   * up off the log" is reaching for an invisible object, which is the same
+   * class of defect as an unlit sandwich: the model is right and the player
+   * cannot tell.
+   */
+  restPosition: readonly [number, number, number];
 }
 
-export function Torch({ torch, player, settings }: TorchProps): React.ReactElement {
+export function Torch({ torch, player, settings, restPosition }: TorchProps): React.ReactElement {
   const lightRef = useRef<THREE.SpotLight>(null);
   const targetRef = useRef<THREE.Object3D>(null);
-  const beamRef = useRef<THREE.Mesh>(null);
   const bodyRef = useRef<THREE.Mesh>(null);
 
   const eye = useMemo(() => ({ x: 0, y: 0, z: 0 }), []);
@@ -51,48 +63,21 @@ export function Torch({ torch, player, settings }: TorchProps): React.ReactEleme
     if (lightRef.current && targetRef.current) lightRef.current.target = targetRef.current;
   }, []);
 
-  /**
-   * The visible beam.
-   *
-   * An open cone with no cap, drawn from the lens outward, additively blended
-   * and very faint. This is dust in the air, which is the only reason a torch
-   * beam is visible at all — and at 2am at a campsite there is always dust in
-   * the air.
-   */
-  const beamGeometry = useMemo(() => {
-    const geometry = new THREE.ConeGeometry(1, 1, 12, 1, true);
-    // Cone points down by default; stand it along -Z and put the apex at 0.
-    geometry.translate(0, -0.5, 0);
-    geometry.rotateX(-Math.PI / 2);
-    return geometry;
-  }, []);
-  useEffect(() => () => beamGeometry.dispose(), [beamGeometry]);
-
-  const beamMaterial = useMemo(
-    () =>
-      new THREE.MeshBasicMaterial({
-        color: 0xfff0cf,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-        toneMapped: false,
-      }),
-    [],
-  );
-  useEffect(() => () => beamMaterial.dispose(), [beamMaterial]);
-
   useFrame(() => {
     const lit = torch.held && torch.on;
 
     const light = lightRef.current;
     const target = targetRef.current;
-    const beam = beamRef.current;
     const body = bodyRef.current;
 
-    if (body) body.visible = torch.held;
-    if (beam) beam.visible = lit;
+    if (body) {
+      body.visible = true;
+      if (!torch.held) {
+        // Lying on the log where somebody left it, pointing along it.
+        body.position.set(restPosition[0], restPosition[1], restPosition[2]);
+        body.rotation.set(0, 0.5, Math.PI / 2);
+      }
+    }
     if (light) light.visible = lit;
     if (!lit) return;
 
@@ -113,24 +98,24 @@ export function Torch({ torch, player, settings }: TorchProps): React.ReactEleme
       target.updateMatrixWorld();
       light.angle = torch.beamAngle;
       light.distance = torch.rangeM;
-      // Focused beams are brighter as well as narrower: the same lamp, less
-      // sky. Fire brightness is an accessibility control and the torch honours
-      // it too, because the torch is the second brightest thing at a campsite.
-      light.intensity = (5 + torch.focus * 9) * settings.fireBrightness;
-      light.penumbra = 0.55;
+      /*
+       * Calibrated against the fire, which is the only other light in the
+       * camp: it runs at about 11 with a decay of 1.35 and only just clears
+       * the quantisation floor at the treeline (ARCHITECTURE §4.1 — below
+       * about 8/255 a surface renders as nothing, not as very dark). A torch
+       * has to beat that comfortably or it is a light that lights nothing,
+       * which is what the first version of this was: measured at roughly two
+       * fifths of the fire's brightness at the same distance, and invisible.
+       *
+       * Focused beams are brighter as well as narrower: the same lamp, less
+       * sky. Fire brightness is an accessibility control and the torch honours
+       * it too, because the torch is the second brightest thing out here.
+       */
+      light.intensity = (30 + torch.focus * 44) * settings.fireBrightness;
+      light.penumbra = 0.5;
     }
 
-    if (beam) {
-      const length = torch.rangeM * 0.82;
-      const radius = Math.tan(torch.beamAngle) * length;
-      beam.position.set(handX, handY, handZ);
-      beam.scale.set(radius, radius, length);
-      beam.lookAt(handX + dirX, handY + dirY, handZ + dirZ);
-      // Faint, and fainter when it is focused: a narrow beam scatters less.
-      beamMaterial.opacity = (0.05 + (1 - torch.focus) * 0.05) * settings.fireBrightness;
-    }
-
-    if (body) {
+    if (body && torch.held) {
       body.position.set(handX, handY, handZ);
       body.lookAt(handX + dirX, handY + dirY, handZ + dirZ);
     }
@@ -146,10 +131,19 @@ export function Torch({ torch, player, settings }: TorchProps): React.ReactEleme
         visible={false}
       />
       <object3D ref={targetRef} />
-      <mesh ref={beamRef} geometry={beamGeometry} material={beamMaterial} visible={false} frustumCulled={false} />
       {/* The torch itself, in the hand. Small, and mostly out of frame. */}
-      <mesh ref={bodyRef} geometry={bodyGeometry} visible={false}>
-        <meshStandardMaterial color={0x2b2f33} roughness={0.7} metalness={0.3} />
+      {/* Aluminium rather than black plastic, with a floor under it.
+          A dark-grey torch on a dark log in a dark camp is an invisible
+          object, and the whole affordance is "pick the torch up off the log" —
+          the same quantisation floor that makes an unlit surface render as
+          nothing rather than as very dark (ARCHITECTURE §4.1). */}
+      <mesh ref={bodyRef} geometry={bodyGeometry} castShadow>
+        <meshStandardMaterial
+          color={0x9aa5ae}
+          emissive={0x1c2228}
+          roughness={0.42}
+          metalness={0.6}
+        />
       </mesh>
     </group>
   );

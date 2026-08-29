@@ -117,19 +117,30 @@ method, and what each tool can and cannot prove, is in
 | --- | --- | --- |
 | Simulation step ≤ 1.5 ms | worst stage (roasting) **0.0156 ms mean, 0.093 ms p99** | ~96× inside |
 | Retained heap growth | **0.264 B/step over 115,200 steps** (32 simulated minutes) | flat, no leak |
-| ≤ 120 draw calls | **121 at arrival** (60–94 everywhere else) | **over**, pinned as an unaccepted deviation |
-| ≤ 60,000 triangles | 5,246 | 9 % |
-| ≤ 24 MB textures | 1.59 MB | 7 % |
-| ≤ 6 dynamic lights | **10 in reveal/eating** | **over**, deliberate: the sandwich's hero rig |
+| ≤ 120 draw calls | **83 peak**, 78 at arrival | was 122; fixed by instancing the trees, rocks and woodpile |
+| ≤ 60,000 triangles | 10,370 | 17 % |
+| ≤ 24 MB textures | 1.61 MB | 7 % |
+| ≤ 6 dynamic lights in the world, ≤ 10 in the anchored close-ups | 10 in reveal/eating | accepted, and the budget rewritten to say so |
 | Audio: no clipping | **0 clipped samples across 25 sounds**, largest DC offset 0.0064 | pass |
 
-Two budgets are over, both pinned so they cannot drift further, both with the
-fix named. Draw calls crossed 120 the moment the campsite became explorable
-(148 → 175 objects at arrival); batching the scenery props is the fix. The
-light count is the finished sandwich's key/fill/rim rig, which exists because
-without it the most important object in the product rendered as a silhouette
-(defect #5) — it is over budget on the three stages that matter most, and that
-is a trade taken knowingly.
+Both breaches are now resolved rather than tolerated.
+
+Draw calls crossed 120 the moment the campsite became explorable (148 → 175
+objects at arrival) and reached 122 as the secondary activities landed. The
+deviation entry named the fix and the fix was done: the trees, rocks and
+woodpile are instanced, and the peak is **83**. The woodpile still picks its
+wood by `instanceId`, so reaching for a particular log still means a particular
+wood.
+
+The light count was the finished sandwich's key/fill/rim rig, which exists
+because without it the most important object in the product rendered as a
+silhouette (defect #5). Rather than bake it away, §10's single figure was
+replaced with a per-stage pair — ≤ 6 in the explorable world, ≤ 10 in the
+anchored close-ups — because ten lights over a hundred visible triangles is
+not the cost of ten lights over a forest. A lit torch would have been an
+eleventh, so the simulation now stows the torch when a stage needs both hands.
+You cannot hold a torch and a marshmallow, which makes it a product rule rather
+than a render trick.
 
 §10's claim of "zero per-frame allocation" was **not true** and is now
 narrower: `stepRitual` was constructing a named `Rng` per subsystem per step.
@@ -138,8 +149,14 @@ an order of magnitude rather than asserting on it, because three defensible
 sampling methods gave figures 30× apart for the same build. Retained growth is
 what the budget stands behind.
 
-The tools also caught both of those regressions within minutes of the work
-that caused them landing, which is the actual argument for having built them.
+The tools caught both of those regressions within minutes of the work that
+caused them landing, which is the argument for having built them. They also
+caught a third that no check would have failed on: the visual suite drives
+roasting with the arrow keys, the explorable-campsite work briefly bound arrow
+keys to walking, and three baselines were quietly becoming pictures of a
+one-sided marshmallow while the pixel comparison passed happily against
+baselines captured under the same broken driver. The suite now reads back
+browning, char, rotation and one-sidedness on every run.
 
 ---
 

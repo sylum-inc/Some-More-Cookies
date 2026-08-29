@@ -124,7 +124,9 @@ export function App({ store }: AppProps): React.ReactElement {
         { id: 'radio', x: LAYOUT.radio[0], z: LAYOUT.radio[2], reach: 0.95 },
         // The torch lives on the log with the radio. You pick it up by
         // reaching for it, the same as everything else here.
-        { id: 'torch', x: -1.34, z: 1.42, reach: 0.9 },
+        // A little more reach than the radio: the torch lies low on the log,
+        // and at 0.9 m you are standing over it and looking past it.
+        { id: 'torch', x: -1.34, z: 1.42, reach: 1.35 },
         // Everything at the water only exists where there is water.
         ...(shore && spec
           ? ([

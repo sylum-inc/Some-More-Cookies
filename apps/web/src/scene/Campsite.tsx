@@ -6,10 +6,13 @@
  * PS1 work while also being the reason the world is cheap to render.
  */
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { clamp01, curatedSky, type WaterBasin, type WeatherState } from '@somemore/sim';
+import { clamp01, curatedSky, terrainHeight, type WaterBasin, type WeatherState } from '@somemore/sim';
+
+/** Ground below this is under water, so nothing is planted in it. */
+const WATERLINE = -0.14;
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import {
@@ -120,35 +123,87 @@ export function Campsite({
       if (delta > Math.PI) delta = Math.PI * 2 - delta;
       // Widen the gap nearer the camera's start so nothing clips the lens.
       if (delta < 0.34 && distance < 13) continue;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      // Nothing grows below the waterline. Without this a full pine stands in
+      // the middle of the lake, which is the first thing anybody notices.
+      if (basin && terrainHeight(x, z, seed, 0.7, basin) < WATERLINE) continue;
       result.push({
-        x: Math.cos(angle) * distance,
-        z: Math.sin(angle) * distance,
+        x,
+        z,
         scale: 0.7 + rng() * 0.8,
         rotation: rng() * Math.PI * 2,
         geometryIndex: Math.floor(rng() * 4),
       });
     }
     return result;
-  }, [seed, treeCount]);
+  }, [seed, treeCount, basin]);
 
   const treeGeometries = useMemo(
     () => Array.from({ length: 4 }, (_, i) => createTreeGeometry(seed + i * 977, 4.2)),
     [seed],
   );
 
+  /**
+   * Four rock shapes rather than fourteen.
+   *
+   * Instancing needs shared geometry, and fourteen bespoke boulders cost
+   * fourteen draw calls for variety nobody can see at night through fog. Four
+   * shapes at varying scale and rotation are indistinguishable and cost one
+   * call each. Rocks are left where they fall, including in the shallows: a
+   * boulder half out of the water is a shoreline, where a tree in it is a
+   * mistake.
+   */
+  const rockGeometries = useMemo(
+    () => Array.from({ length: 4 }, (_, i) => createRockGeometry(seed + i * 331, 0.36)),
+    [seed],
+  );
+
   const rocks = useMemo(() => {
     const rng = mulberry(seed ^ 0x2b0c);
-    return Array.from({ length: 14 }, (_, i) => {
+    const buckets: ScatterItem[][] = [[], [], [], []];
+    for (let i = 0; i < 14; i++) {
       const angle = rng() * Math.PI * 2;
       const distance = 2.5 + rng() * 8;
-      return {
-        geometry: createRockGeometry(seed + i * 31, 0.18 + rng() * 0.5),
+      const shape = Math.floor(rng() * 4);
+      (buckets[shape] as ScatterItem[]).push({
         x: Math.cos(angle) * distance,
+        y: 0.05,
         z: Math.sin(angle) * distance,
-        rotation: rng() * Math.PI * 2,
-      };
-    });
+        rotationY: rng() * Math.PI * 2,
+        scale: 0.5 + rng() * 1.4,
+      });
+    }
+    return buckets;
   }, [seed]);
+
+  /** The trees, grouped by which of the four shapes they use. */
+  const treeBuckets = useMemo(() => {
+    const buckets: ScatterItem[][] = [[], [], [], []];
+    for (const tree of trees) {
+      (buckets[tree.geometryIndex] ?? (buckets[0] as ScatterItem[])).push({
+        x: tree.x,
+        y: 0,
+        z: tree.z,
+        rotationY: tree.rotation,
+        scale: tree.scale,
+      });
+    }
+    return buckets;
+  }, [trees]);
+
+  /** The woodpile, as one instanced stack. */
+  const woodpileItems = useMemo<ScatterItem[]>(
+    () =>
+      Array.from({ length: 8 }, (_, i) => ({
+        x: 1.7 + ((i % 3) * 0.14 - 0.14),
+        y: 0.07 + Math.floor(i / 3) * 0.13,
+        z: -0.9 + (i % 2) * 0.06,
+        rotationY: 0.1 * i,
+        scale: 1,
+      })),
+    [],
+  );
 
   const logGeometry = useMemo(() => createLogGeometry(1.9, 0.19), []);
   const woodpileGeometry = useMemo(() => createLogGeometry(0.55, 0.07), []);
@@ -324,28 +379,23 @@ export function Campsite({
       {/* Ground */}
       <mesh geometry={terrain} material={groundMaterial} receiveShadow />
 
-      {/* Trees */}
-      {trees.map((tree, i) => (
-        <mesh
-          key={i}
-          geometry={treeGeometries[tree.geometryIndex] ?? treeGeometries[0]}
+      {/* Trees — four draw calls for the whole wood, not one per trunk. */}
+      {treeBuckets.map((items, i) => (
+        <Scatter
+          key={`tree-${i}`}
+          geometry={treeGeometries[i] ?? (treeGeometries[0] as THREE.BufferGeometry)}
           material={treeMaterial}
-          position={[tree.x, 0, tree.z]}
-          rotation={[0, tree.rotation, 0]}
-          scale={tree.scale}
-          castShadow
+          items={items}
         />
       ))}
 
       {/* Rocks */}
-      {rocks.map((rock, i) => (
-        <mesh
-          key={i}
-          geometry={rock.geometry}
+      {rocks.map((items, i) => (
+        <Scatter
+          key={`rock-${i}`}
+          geometry={rockGeometries[i] ?? (rockGeometries[0] as THREE.BufferGeometry)}
           material={rockMaterial}
-          position={[rock.x, 0.05, rock.z]}
-          rotation={[0, rock.rotation, 0]}
-          castShadow
+          items={items}
           receiveShadow
         />
       ))}
@@ -361,37 +411,20 @@ export function Campsite({
       />
 
       {/* Woodpile — the fuel source the player draws from. Taking a log is a
-          matter of reaching for one, not of pressing a labelled control. */}
-      <group position={[1.7, 0, -0.9]} name="woodpile">
-        {Array.from({ length: 8 }, (_, i) => (
-          <mesh
-            key={i}
-            geometry={woodpileGeometry}
-            material={woodMaterial}
-            position={[(i % 3) * 0.14 - 0.14, 0.07 + Math.floor(i / 3) * 0.13, (i % 2) * 0.06]}
-            rotation={[0, 0.1 * i, 0]}
-            castShadow
-            onClick={
-              onTakeWood
-                ? (event) => {
-                    event.stopPropagation();
-                    // Different logs in the pile are different wood, so which
-                    // one you reach for genuinely matters to the fire.
-                    onTakeWood(fuelIds[i % fuelIds.length] ?? 'oak');
-                  }
-                : undefined
+          matter of reaching for one, not of pressing a labelled control, and
+          which log you reach for still decides which wood you get: the
+          instance the ray hit is the log in your hand. */}
+      <Scatter
+        name="woodpile"
+        geometry={woodpileGeometry}
+        material={woodMaterial}
+        items={woodpileItems}
+        {...(onTakeWood
+          ? {
+              onPick: (index: number) => onTakeWood(fuelIds[index % fuelIds.length] ?? 'oak'),
             }
-            onPointerOver={(event) => {
-              if (!onTakeWood) return;
-              event.stopPropagation();
-              if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
-            }}
-            onPointerOut={() => {
-              if (typeof document !== 'undefined') document.body.style.cursor = 'auto';
-            }}
-          />
-        ))}
-      </group>
+          : {})}
+      />
 
       {/* Precipitation */}
       <points ref={rainRef} geometry={rainGeometry} material={rainMaterial} frustumCulled={false} />
@@ -427,6 +460,88 @@ export function Campsite({
         groundColor={0x161a14}
       />
     </group>
+  );
+}
+
+/** One placed instance: where it stands, which way it faces, how big it is. */
+export interface ScatterItem {
+  x: number;
+  y: number;
+  z: number;
+  rotationY: number;
+  scale: number;
+}
+
+/**
+ * A field of one shape, drawn in a single call.
+ *
+ * The campsite used to draw every tree, rock and log in the woodpile as its
+ * own mesh, which put the arrival frame — the first thing anybody ever sees —
+ * over the 120-call budget in ARCHITECTURE §10, and was recorded as a known
+ * deviation whose stated fix was exactly this. Fifty-odd trunks become four
+ * calls; nothing about the picture changes.
+ *
+ * `onPick` still gets which instance was touched, so reaching for a particular
+ * log in the pile keeps meaning a particular wood.
+ */
+function Scatter({
+  geometry,
+  material,
+  items,
+  name,
+  receiveShadow = false,
+  onPick,
+}: {
+  geometry: THREE.BufferGeometry;
+  material: THREE.Material;
+  items: readonly ScatterItem[];
+  name?: string;
+  receiveShadow?: boolean;
+  onPick?: (index: number) => void;
+}): React.ReactElement | null {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i] as ScatterItem;
+      dummy.position.set(item.x, item.y, item.z);
+      dummy.rotation.set(0, item.rotationY, 0);
+      dummy.scale.setScalar(item.scale);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [items, dummy, geometry]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <instancedMesh
+      ref={meshRef}
+      args={[geometry, material, items.length]}
+      castShadow
+      receiveShadow={receiveShadow}
+      {...(name ? { name } : {})}
+      {...(onPick
+        ? {
+            onClick: (event: { stopPropagation: () => void; instanceId?: number }) => {
+              event.stopPropagation();
+              onPick(event.instanceId ?? 0);
+            },
+            onPointerOver: (event: { stopPropagation: () => void }) => {
+              event.stopPropagation();
+              if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
+            },
+            onPointerOut: () => {
+              if (typeof document !== 'undefined') document.body.style.cursor = 'auto';
+            },
+          }
+        : {})}
+    />
   );
 }
 

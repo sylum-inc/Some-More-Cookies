@@ -187,7 +187,15 @@ if (typeof window !== 'undefined') {
         if (player) player.seated = false;
         standFromSeat(store.state.ritual);
       }),
-      lieBack: wrap((back = true) => lieBack(store.state.ritual, back as boolean)),
+      lieBack: wrap((back = true) => {
+        // Lying back is a posture, so the player takes it too: the eye drops
+        // and the camera tips up, exactly as when somebody sits.
+        const player = window.__someMore?.player;
+        if (player) player.seated = back as boolean;
+        if (back) sitOnSeat(store.state.ritual);
+        else standFromSeat(store.state.ritual);
+        return lieBack(store.state.ritual, back as boolean);
+      }),
       binoculars: wrap((up = true) => raiseBinoculars(store.state.ritual, up as boolean)),
       lookAtSky: wrap((azimuth = 0, altitude = 1) =>
         lookAtSky(store.state.ritual, azimuth as number, altitude as number),

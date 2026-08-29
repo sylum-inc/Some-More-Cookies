@@ -30,6 +30,8 @@ import {
   takeStone,
   takeTorchFromLog,
   toggleTorch,
+  beginRoasting,
+  finishRoasting,
   skyTargets,
   waterHoldsFish,
   worldCues,
@@ -406,5 +408,44 @@ describe('determinism of the whole session', () => {
 
     expect(busy.fire.flame).toBeCloseTo(quiet.fire.flame, 10);
     expect(busy.weather.windSpeed).toBeCloseTo(quiet.weather.windSpeed, 10);
+  });
+});
+
+describe('you cannot hold a torch and a marshmallow', () => {
+  const makeRitual = (): RitualState =>
+    createRitual({ campsiteSeed: 'torch-hands', environmentId: 'pine_hollow' });
+
+  it('puts the torch back on the log when both hands are needed', () => {
+    const ritual = makeRitual();
+    takeTorchFromLog(ritual);
+    toggleTorch(ritual, true);
+    expect(ritual.torch.held).toBe(true);
+
+    beginRoasting(ritual);
+    stepRitual(ritual, SIM_DT);
+
+    // Stowed, and the wildlife stop feeling a light being swept about at the
+    // same moment the renderer stops drawing one.
+    expect(ritual.torch.held).toBe(false);
+    expect(worldCues(ritual).flashlight ?? 0).toBe(0);
+  });
+
+  it('leaves it alone while you are just standing about', () => {
+    const ritual = makeRitual();
+    takeTorchFromLog(ritual);
+    toggleTorch(ritual, true);
+    for (let i = 0; i < 120; i += 1) stepRitual(ritual, SIM_DT);
+    expect(ritual.torch.held).toBe(true);
+  });
+
+  it('does not hand it back afterwards — you put it down, so you pick it up', () => {
+    const ritual = makeRitual();
+    takeTorchFromLog(ritual);
+    toggleTorch(ritual, true);
+    beginRoasting(ritual);
+    stepRitual(ritual, SIM_DT);
+    finishRoasting(ritual);
+    for (let i = 0; i < 120; i += 1) stepRitual(ritual, SIM_DT);
+    expect(ritual.torch.held).toBe(false);
   });
 });

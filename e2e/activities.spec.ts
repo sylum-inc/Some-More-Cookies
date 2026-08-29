@@ -96,9 +96,12 @@ test.describe('the torch', () => {
     // Walk up to it and reach for it — the diegetic route, not a menu.
     await page.evaluate(() => {
       const player = window.__someMore!.player!;
-      player.position.x = -1.34;
-      player.position.z = 0.95;
+      // Standing over the log and looking down at it, which is what somebody
+      // reaching for a torch is actually doing.
+      player.position.x = -1.2;
+      player.position.z = 0.5;
       player.facing = Math.PI / 2;
+      player.pitch = -0.8;
       player.moveTarget = null;
     });
     await page.waitForTimeout(700);
@@ -126,17 +129,33 @@ test.describe('the torch', () => {
     expect(world.flashlightCue).toBeGreaterThan(0);
     const heldStill = world.flashlightCue;
 
-    // Rake it across the treeline: the same torch, far more intrusive. This
-    // is the trade — finding something with it and scaring it off with it.
-    await page.evaluate(async () => {
-      const player = window.__someMore!.player!;
-      const advance = window.__someMore!.actions['advanceSeconds']!;
-      for (let i = 0; i < 40; i += 1) {
-        player.facing += 0.09;
-        advance(1 / 60 as never);
-      }
-    });
-    await page.waitForTimeout(400);
+    /*
+     * Rake it across the treeline: the same torch, far more intrusive. This is
+     * the trade — finding something with it and scaring it off with it.
+     *
+     * Driven over *real frames* rather than through `advanceSeconds`. The
+     * fast-forward hook runs `stepRitual` directly, so it deliberately skips
+     * the per-frame client writes — where the player is looking, and therefore
+     * where the beam is pointing. Fast-forwarding a sweep would measure a
+     * torch nobody was moving. The turn rate is taken from the real clock so
+     * the software renderer's frame rate cannot change the answer.
+     */
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const player = window.__someMore!.player!;
+          const started = performance.now();
+          let last = started;
+          const tick = (): void => {
+            const now = performance.now();
+            player.facing += 2.6 * ((now - last) / 1000);
+            last = now;
+            if (now - started > 900) resolve();
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
     const swept = await readActivities(page);
     expect(swept.flashlightCue).toBeGreaterThan(heldStill);
     expect(swept.torch.sweep).toBeGreaterThan(0.5);

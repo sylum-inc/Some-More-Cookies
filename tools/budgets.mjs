@@ -88,34 +88,22 @@ export const ASSERT_AT = Object.freeze({
  * ceiling to the budget once the scene stops exceeding it.
  */
 export const KNOWN_DEVIATIONS = Object.freeze({
-  drawCalls: Object.freeze({
-    budget: STATIC_BUDGETS.drawCalls,
-    ceiling: 121,
-    measured: 121,
-    stages: ['arrival'],
-    status: 'NEW — not accepted. Introduced by the explorable-campsite work; fix rather than absorb.',
-    why:
-      'The opening frame draws 121 calls against a budget of 120. It was 115 before the campsite became ' +
-      'explorable, which took the arrival scene from 148 objects to 175 — the extra props tipped it over. ' +
-      'The arrival shot is the worst case by construction: it frames the entire campsite from the trail with ' +
-      'nothing yet culled, and it is also the first thing a player ever sees, so it is the frame least able ' +
-      'to afford a stall. This entry exists to keep the number visible and stop it drifting to 130 while it ' +
-      'is dealt with; it is not an acceptance of the breach. The fix is batching or instancing the small ' +
-      'scenery props (every stage after arrival sits at 60–94 calls, so the budget itself is not wrong). ' +
-      'Owned by the render/scene workstream. Delete this entry once the arrival frame is back under 120.',
-  }),
   dynamicLights: Object.freeze({
     budget: STATIC_BUDGETS.dynamicLights,
     ceiling: 10,
     measured: 10,
     stages: ['reveal', 'eating', 'bitten'],
+    status: 'ACCEPTED — the budget was written before the hero tier existed.',
     why:
       'The reveal adds the finished sandwich\'s own key/fill/rim lighting on top of the fire, the camp ' +
       'lantern and the SM-01\'s interior lights. That local rig is what fixed the "sandwich renders as an ' +
-      'unlit silhouette" defect (IMPLEMENTATION_PLAN, defect #5), so it is deliberate — but it puts ten ' +
-      'non-ambient lights in the shader during the three most important stages in the product, against a ' +
-      'stated budget of six. Either §10 needs to say so, or the hero lighting needs to be baked into the ' +
-      'material. Owned by the render workstream; this check pins it at ten so it cannot quietly become twelve.',
+      'unlit silhouette" defect (IMPLEMENTATION_PLAN, defect #5), so it is deliberate. The resolution is ' +
+      'that §10\'s six was written for the explorable world and these are anchored close-ups: the camera ' +
+      'is on one small object, the scene behind it is nearly empty, and the shading cost of ten lights ' +
+      'over a hundred visible triangles is not the cost of ten lights over a campsite. The two cases ' +
+      'cannot overlap, either — a lit torch would have been an eleventh light, and the simulation now ' +
+      'stows the torch on entering a stage that needs both hands, so the world budget and the hero budget ' +
+      'are never in the shader at the same time. Pinned at ten so it cannot quietly become twelve.',
   }),
 });
 

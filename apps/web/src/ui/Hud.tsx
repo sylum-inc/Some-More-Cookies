@@ -8,7 +8,7 @@
  */
 
 import type { RitualStage, RitualState } from '@somemore/sim';
-import { heatBand, isEmberBed, sampleHeat } from '@somemore/sim';
+import { describeSeat, heatBand, isEmberBed, sampleHeat } from '@somemore/sim';
 import { TOKENS, FONT_STACK } from './styles.js';
 
 export interface HudProps {
@@ -141,6 +141,11 @@ function activityLine(ritual: RitualState, grip: ThrowGrip | undefined): string 
   if (ritual.fishing.phase === 'soaking') return 'The line is out.';
   if (ritual.stargazing.binoculars) return 'Hold something in view and it will resolve.';
   if (ritual.stargazing.posture === 'reclined') return 'The sky, for tonight.';
+  // Sitting is the quietest thing here and it still gets a line, because §12
+  // says nothing may be delivered through one channel — and what sitting does
+  // is otherwise entirely invisible.
+  const seated = describeSeat(ritual.seat);
+  if (seated) return seated.replace(/^\[|\]$/g, '');
   return null;
 }
 

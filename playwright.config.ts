@@ -80,6 +80,13 @@ export default defineConfig({
     { name: 'acceptance', testMatch: /ritual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'visual', testMatch: /visual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * "Can you see anything?" is its own kind of evidence: not that the
+     * picture changed, but that there is a picture at all once the fire goes
+     * out. It measures the frame rather than comparing it, so it survives the
+     * rendering differences a visual baseline cannot.
+     */
+    { name: 'night', testMatch: /night\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     command: 'npm run preview --workspace @somemore/web',

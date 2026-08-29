@@ -130,7 +130,7 @@ export function RadioDial({ ritual, textScale, onChange, onClose }: RadioDialPro
           }}
           style={{
             position: 'relative',
-            height: px(88),
+            height: px(96),
             borderRadius: px(4),
             background: radio.on
               ? 'linear-gradient(#f6e2ac, #e2c887)'
@@ -170,7 +170,9 @@ export function RadioDial({ ritual, textScale, onChange, onClose }: RadioDialPro
                 position: 'absolute',
                 left: `${t * 100}%`,
                 top: px(8),
-                transform: 'translateX(-50%)',
+                // The end labels are pulled inboard so the scale's own
+                // extremes are readable rather than half off the glass.
+                transform: `translateX(${t === 0 ? '2px' : t === 1 ? '-100%' : '-50%'})`,
                 fontSize: px(11),
                 color: radio.on ? '#3a2a16' : '#6b6659',
               }}
@@ -179,26 +181,28 @@ export function RadioDial({ ritual, textScale, onChange, onClose }: RadioDialPro
             </div>
           ))}
 
-          {/* Station names, printed only where a set would have marked them */}
-          {radio.profile.stations
-            .filter((station) => station.band === radio.band && station.reception >= 0.45)
-            .map((station) => (
-              <div
-                key={station.id}
-                style={{
-                  position: 'absolute',
-                  left: `${clampUnit((station.dial - plan.min) / span) * 100}%`,
-                  bottom: px(6),
-                  transform: 'translateX(-50%)',
-                  fontSize: px(10),
-                  letterSpacing: '0.06em',
-                  color: radio.on ? '#7a2318' : '#5d5850',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {station.name.toUpperCase()}
-              </div>
-            ))}
+          {/* Station names, printed only where a set would have marked them.
+              Long names are shortened to the leading token — a dial face has
+              room for KHOL, not for "KHOL 88.7 Community Radio" — and the
+              printer alternates rows so two nearby stations do not overprint
+              each other into an unreadable smear. */}
+          {printedStations(radio, plan.min, span).map((printed) => (
+            <div
+              key={printed.id}
+              style={{
+                position: 'absolute',
+                left: `${printed.position * 100}%`,
+                bottom: px(printed.row === 0 ? 4 : 15),
+                transform: `translateX(${printed.position > 0.9 ? '-100%' : printed.position < 0.1 ? '0%' : '-50%'})`,
+                fontSize: px(9),
+                letterSpacing: '0.08em',
+                color: radio.on ? '#7a2318' : '#5d5850',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {printed.label}
+            </div>
+          ))}
 
           {/* Hiss, drawn as the noise it is */}
           <div
@@ -331,6 +335,55 @@ function buttonStyle(px: (n: number) => string, active: boolean): React.CSSPrope
     letterSpacing: '0.05em',
     cursor: 'pointer',
   };
+}
+
+export interface PrintedStation {
+  id: string;
+  label: string;
+  /** 0..1 along the scale. */
+  position: number;
+  /** Which of the two printed rows this one sits on. */
+  row: 0 | 1;
+}
+
+/** How much of the scale a printed name occupies, roughly. */
+const LABEL_WIDTH = 0.13;
+
+/**
+ * Decides what a dial face actually has printed on it.
+ *
+ * Exported so the smear this fixes stays fixed: three Pine Hollow stations
+ * printed their full names centred on the same few millimetres of glass and
+ * came out as `NIGHDKEERVIDEF REPEATER`.
+ */
+export function printedStations(
+  radio: RitualState['radio'],
+  min: number,
+  span: number,
+): PrintedStation[] {
+  const candidates = radio.profile.stations
+    .filter((station) => station.band === radio.band && station.reception >= 0.45)
+    .map((station) => ({
+      id: station.id,
+      // The leading token, which is what a set is actually silk-screened with.
+      label: (station.name.split(/[\s·—-]+/)[0] ?? station.name).slice(0, 9).toUpperCase(),
+      position: clampUnit((station.dial - min) / span),
+    }))
+    .sort((a, b) => a.position - b.position);
+
+  const printed: PrintedStation[] = [];
+  const lastOnRow: [number, number] = [-1, -1];
+  for (const candidate of candidates) {
+    if (candidate.label === '') continue;
+    // Row 0 unless something is already printed too close to it.
+    const row: 0 | 1 = candidate.position - lastOnRow[0] >= LABEL_WIDTH ? 0 : 1;
+    // Both rows crowded: this station simply was not printed, which is what a
+    // real dial face does too.
+    if (row === 1 && candidate.position - lastOnRow[1] < LABEL_WIDTH) continue;
+    lastOnRow[row] = candidate.position;
+    printed.push({ ...candidate, row });
+  }
+  return printed;
 }
 
 function availableBandsOf(bands: readonly RadioBand[]): RadioBand[] {

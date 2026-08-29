@@ -102,6 +102,81 @@ import {
   type DiscoveryState,
   type SecretDefinition,
 } from './discovery.js';
+import {
+  canFish,
+  canSkipStones,
+  createWater,
+  describeWater,
+  disturbWater,
+  stepWater,
+  type WaterFeatureSpec,
+  type WaterState,
+} from './water.js';
+import {
+  createSkipping,
+  drainSkipEvents,
+  pickUpStone,
+  skipEvidence,
+  stepSkipping,
+  summariseSkip,
+  throwStone as throwStoneAction,
+  type SkipEvent,
+  type SkippingState,
+  type Stone,
+  type ThrowInput,
+} from './skipping.js';
+import {
+  aimTorch as aimTorchAction,
+  createTorch,
+  focusTorch as focusTorchAction,
+  stepTorch,
+  stowTorch,
+  switchTorch,
+  takeTorch,
+  torchCue,
+  type TorchState,
+} from './torch.js';
+import {
+  createSeat,
+  settlingGain,
+  sitDown as sitDownAction,
+  standUp as standUpAction,
+  stepSeat,
+  stillnessGain,
+  type SeatState,
+} from './sitting.js';
+import {
+  aimSky as aimSkyAction,
+  createStargazing,
+  drainStargazingEvents,
+  setBinoculars as setBinocularsAction,
+  setPosture,
+  stargazingEvidence,
+  stepStargazing,
+  describeSkyMoment,
+  skySignals,
+  type SkySignals,
+  type StargazingEvent,
+  type StargazingState,
+} from './stargazing.js';
+import {
+  cast as castAction,
+  createFishing,
+  describeCatch,
+  drainFishingEvents,
+  fishingEvidence,
+  fishingSignals,
+  type FishingSignals,
+  playFish,
+  releaseFish,
+  stepFishing,
+  stowRod,
+  strike,
+  takeRod,
+  type FishingConditions,
+  type FishingEvent,
+  type FishingState,
+} from './fishing.js';
 import { createTrace, type Trace } from './significance.js';
 import { Rng, hashString, mixSeeds } from './rng.js';
 import { clamp, clamp01 } from './math.js';
@@ -141,6 +216,19 @@ export interface RitualOptions {
   knownSecrets?: readonly DiscoveryRecord[];
   /** Which part of the night the session opens in. */
   startWindow?: ActivityWindow;
+  /**
+   * Approximate latitude and longitude, for the sky.
+   *
+   * Coarse on purpose: precise location is never required (§5.5), and the
+   * defaults are the curated night's, which the spec requires to be as good
+   * as the real thing rather than a degraded fallback.
+   */
+  latitudeDeg?: number;
+  longitudeDeg?: number;
+  /** Walkable radius, so the shore can be placed inside the campsite. */
+  walkableRadiusM?: number;
+  /** Constellations this player has already picked out here. */
+  knownConstellations?: readonly string[];
 }
 
 /**
@@ -155,6 +243,16 @@ export interface RitualWorldContent {
   readonly wildlife?: readonly WildlifeSpecies[];
   readonly radio?: RadioProfileSpec;
   readonly secrets?: readonly SecretDefinition[];
+  /**
+   * The water, from `EnvironmentManifest.scene.water`.
+   *
+   * Omitted for a dry site, which is a real and common answer — a salt flat, a
+   * mesa, a rail siding. Everything downstream treats `null` water as "there
+   * is nothing here to skip a stone on", never as an error.
+   */
+  readonly water?: WaterFeatureSpec;
+  /** `EnvironmentManifest.scene.skyOpenness` — how much sky this place has. */
+  readonly skyOpenness?: number;
 }
 
 /** A campsite with nothing on the dial. Silence is a valid radio profile. */
@@ -193,6 +291,17 @@ export interface PresenceInput {
   photographed: string[];
   /** Unattended objects an animal might investigate. */
   objects: WildlifeObject[];
+  /**
+   * Whether the player is sitting down.
+   *
+   * `PlayerState.seated` lives in locomotion, which the deterministic core
+   * cannot read, so the client mirrors it here and the seat model in
+   * `sitting.ts` does the rest. Sitting is the strongest generator of
+   * stillness in the product (§7), so it has to reach the world systems.
+   */
+  seated: boolean;
+  /** Which seat, when seated. */
+  seatId: string | null;
 }
 
 function createPresence(): PresenceInput {
@@ -206,6 +315,8 @@ function createPresence(): PresenceInput {
     inspecting: null,
     photographed: [],
     objects: [],
+    seated: false,
+    seatId: null,
   };
 }
 
@@ -230,6 +341,33 @@ export interface RitualState {
   /** What this campsite is quietly willing the player to notice. */
   discovery: DiscoveryState;
   /**
+   * The water, or null at a dry site.
+   *
+   * Null is the common case and is never an error: eleven of the twelve
+   * launch environments differ on this and three have no water at all.
+   */
+  water: WaterState | null;
+  /** Stones on the shore, and one in the air. */
+  skipping: SkippingState;
+  /** The torch. Nothing until somebody picks it up off the log. */
+  torch: TorchState;
+  /** The rod, the float, and a great deal of nothing happening. */
+  fishing: FishingState;
+  /** Lying back, binoculars, and the actual sky for the actual date. */
+  stargazing: StargazingState;
+  /** Sitting down, and settling. */
+  seat: SeatState;
+  /**
+   * Whether a throw that genuinely ran has already happened tonight.
+   *
+   * Internal to the significance model, which is invisible by rule (§6.4).
+   * It is a "has this happened before" flag of exactly the kind wildlife keeps
+   * in `visits` — not a best, not a tally, and never read by any interface.
+   */
+  skippedBefore: boolean;
+  /** Seconds spent standing at the water's edge. Dwell, for the same model. */
+  shoreSeconds: number;
+  /**
    * Traces the significance model decided were worth keeping.
    *
    * The score behind each decision is never stored and never surfaced
@@ -242,6 +380,9 @@ export interface RitualState {
   wildlifeEvents: WildlifeEvent[];
   discoveryEvents: DiscoveryEvent[];
   radioEvents: RadioEvent[];
+  skipEvents: SkipEvent[];
+  fishingEvents: FishingEvent[];
+  skyEvents: StargazingEvent[];
   /** Reused observation object, so discovery allocates nothing per frame. */
   observationScratch: DiscoveryObservation;
   /** Which part of the night it is. */
@@ -263,7 +404,14 @@ export interface RitualState {
   rng: Rng;
   /** The campsite's numeric seed. `options.campsiteSeed` may be a string. */
   readonly seed: number;
-  options: Required<Omit<RitualOptions, 'weatherProfile' | 'world' | 'priorVisits' | 'knownSecrets'>> & {
+  /** Per-subsystem random streams, reseeded each step rather than rebuilt. */
+  readonly streams: Map<string, Rng>;
+  options: Required<
+    Omit<
+      RitualOptions,
+      'weatherProfile' | 'world' | 'priorVisits' | 'knownSecrets' | 'knownConstellations'
+    >
+  > & {
     weatherProfile: WeatherProfile;
     world: RitualWorldContent;
   };
@@ -281,6 +429,7 @@ export function createRitual(options: RitualOptions): RitualState {
     exposure: weatherProfile.exposure,
   });
   const world = options.world ?? {};
+  const walkableRadiusM = options.walkableRadiusM ?? 13;
 
   return {
     stage: 'arriving',
@@ -306,11 +455,30 @@ export function createRitual(options: RitualOptions): RitualState {
       visitIndex: options.visitIndex ?? 1,
       known: options.knownSecrets,
     }),
+    // A dry campsite simply has no water. Every activity that needs it checks
+    // first, and none of them treats its absence as a failure.
+    water: world.water ? createWater(world.water, { campsiteSeed: seed, walkableRadiusM }) : null,
+    skipping: createSkipping(seed),
+    torch: createTorch(),
+    fishing: createFishing(),
+    stargazing: createStargazing({
+      epochMs: options.now ?? 0,
+      latitudeDeg: options.latitudeDeg ?? 44,
+      longitudeDeg: options.longitudeDeg ?? -73,
+      skyOpenness: world.skyOpenness ?? 0.6,
+      known: options.knownConstellations ?? [],
+    }),
+    seat: createSeat(),
+    skippedBefore: false,
+    shoreSeconds: 0,
     traces: [],
     presence: createPresence(),
     wildlifeEvents: [],
     discoveryEvents: [],
     radioEvents: [],
+    skipEvents: [],
+    fishingEvents: [],
+    skyEvents: [],
     observationScratch: createObservation(),
     window: options.startWindow ?? 'early-night',
     sandwich: null,
@@ -321,6 +489,7 @@ export function createRitual(options: RitualOptions): RitualState {
     sandwichAge: 0,
     rng,
     seed,
+    streams: new Map(),
     options: {
       campsiteSeed: seed,
       environmentId: options.environmentId,
@@ -329,6 +498,9 @@ export function createRitual(options: RitualOptions): RitualState {
       now: options.now ?? 0,
       visitIndex: options.visitIndex ?? 1,
       startWindow: options.startWindow ?? 'early-night',
+      latitudeDeg: options.latitudeDeg ?? 44,
+      longitudeDeg: options.longitudeDeg ?? -73,
+      walkableRadiusM,
       weatherProfile,
       world,
     },
@@ -349,7 +521,17 @@ export function createRitual(options: RitualOptions): RitualState {
  * standing in the dark, so replay does not depend on stage order (ADR-0006).
  */
 function stream(ritual: RitualState, name: string): Rng {
-  return new Rng(mixSeeds(mixSeeds(ritual.seed, hashString(name)), ritual.tick));
+  const cached = ritual.streams.get(name);
+  const seed = mixSeeds(mixSeeds(ritual.seed, hashString(name)), ritual.tick);
+  if (cached === undefined) {
+    const created = new Rng(seed);
+    ritual.streams.set(name, created);
+    return created;
+  }
+  // Re-seeded rather than reallocated: the sequence is identical either way,
+  // and the perf harness measures `stepRitual`'s per-step allocation.
+  cached.setState(seed);
+  return cached;
 }
 
 function setStage(ritual: RitualState, stage: RitualStage): void {
@@ -415,6 +597,13 @@ const radioScratch: { weather: RadioConditions['weather']; machineNoise: number 
   weather: undefined,
   machineNoise: 0,
 };
+// Mutable so the fishing model allocates nothing per frame either.
+const fishingScratch: { -readonly [K in keyof FishingConditions]: FishingConditions[K] } = {
+  window: 'early-night',
+  calm: 0,
+  precipitation: 0,
+  disturbance: 0,
+};
 
 /** How loud the SM-01 is right now, 0..1. */
 export function machineNoise(machine: MachineState): number {
@@ -459,7 +648,12 @@ export function worldCues(ritual: RitualState, out: WildlifeCueField = {}): Wild
     Math.max(out['marshmallow-smell'] ?? 0, ritual.stage === 'assembling' ? 0.45 : 0),
   );
   out.crumbs = ritual.stage === 'eating' || ritual.stage === 'after' ? 0.6 : 0;
-  out.flashlight = clamp01(ritual.presence.lightSweep);
+  // The torch is the real source now. `presence.lightSweep` is still honoured
+  // so a caller with its own light (a headlamp, another player's torch) can
+  // contribute, but the client no longer has to invent this number — and no
+  // longer invents it from walking speed, which frightened the wildlife with a
+  // torch that was switched off.
+  out.flashlight = clamp01(Math.max(ritual.presence.lightSweep, torchCue(ritual.torch)));
   out['radio-music'] = ritual.radio.on ? clamp01(reception.clarity * ritual.radio.volume) : 0;
   out.voices = clamp01(ritual.presence.voices);
   out.footsteps = clamp01(ritual.presence.speed / 1.6);
@@ -469,14 +663,76 @@ export function worldCues(ritual: RitualState, out: WildlifeCueField = {}): Wild
   out.rain = clamp01(weather.precipitation);
   out.wind = clamp01(weather.windSpeed / 9);
   out['cold-air'] = clamp01((8 - weather.temperatureC) / 18);
-  out['open-sky'] = clamp01(1 - weather.cloudCover);
-  out.moonlight = clamp01((1 - weather.cloudCover) * 0.8);
+  out['open-sky'] = clamp01(1 - weather.cloudCover * 0.95) * (ritual.options.world.skyOpenness ?? 0.6);
+  out.moonlight = clamp01((1 - weather.cloudCover) * ritual.stargazing.sky.moon.illumination * 0.9);
+  // Water cues, for the species that live at the edge of it. Absent entirely
+  // at a dry site, which is exactly right: nothing is drawn to a water's edge
+  // that is not there.
+  const water = ritual.water;
+  out['water-edge'] = water ? 1 : 0;
+  out.splashing = water ? clamp01(splashing(ritual)) : 0;
   return out;
+}
+
+/**
+ * 0..1 how much the water is being disturbed by us right now.
+ *
+ * A stone in the air, a float going in, a fish being played. Derived from
+ * state that is actually true rather than set because an activity is open —
+ * the same discipline as the rest of `worldCues`.
+ */
+function splashing(ritual: RitualState): number {
+  const water = ritual.water;
+  if (!water) return 0;
+  let strongest = 0;
+  for (const ripple of water.ripples) {
+    const presence = clamp01(1 - ripple.age / 6) * ripple.strength;
+    if (presence > strongest) strongest = presence;
+  }
+  return strongest;
 }
 
 function stepWorld(ritual: RitualState, dt: number): void {
   const presence = ritual.presence;
   ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
+
+  if (presence.places.includes('water-edge')) ritual.shoreSeconds += dt;
+
+  // --- sitting -------------------------------------------------------------
+  // Stepped before the wildlife, because settling is an input to it. The seat
+  // follows the client's `seated` flag rather than owning it, so the one place
+  // that decides whether the player is sitting is still locomotion.
+  if (presence.seated && !ritual.seat.seated) sitDownAction(ritual.seat, presence.seatId);
+  else if (!presence.seated && ritual.seat.seated) standUpAction(ritual.seat);
+  stepSeat(ritual.seat, dt, ritual.wildlife.disturbance);
+
+  // --- the torch -----------------------------------------------------------
+  // Its sweep is measured from the aim it was actually given, and feeds the
+  // `flashlight` cue through `worldCues`.
+  stepTorch(ritual.torch, dt);
+
+  // --- the water -----------------------------------------------------------
+  if (ritual.water) stepWater(ritual.water, dt, ritual.weather);
+
+  // --- a stone in the air --------------------------------------------------
+  if (ritual.water) stepSkipping(ritual.skipping, dt, ritual.water);
+
+  // --- the sky -------------------------------------------------------------
+  stepStargazing(
+    ritual.stargazing,
+    dt,
+    { cloudCover: ritual.weather.cloudCover },
+    stream(ritual, 'stargazing'),
+  );
+
+  // --- the line in the water ----------------------------------------------
+  if (ritual.water) {
+    fishingScratch.window = ritual.window;
+    fishingScratch.calm = ritual.wildlife.calm;
+    fishingScratch.precipitation = ritual.weather.precipitation;
+    fishingScratch.disturbance = ritual.wildlife.disturbance;
+    stepFishing(ritual.fishing, dt, ritual.water, fishingScratch, stream(ritual, 'fishing'));
+  }
 
   // --- radio ---------------------------------------------------------------
   radioScratch.weather = ritual.weather;
@@ -491,6 +747,10 @@ function stepWorld(ritual: RitualState, dt: number): void {
   wildlifeScratch.window = ritual.window;
   wildlifeScratch.objects = presence.objects;
   wildlifeScratch.weather = ritual.weather;
+  // Sitting is the strongest stillness there is, and it settles the camp
+  // around you as well as settling you (spec §7).
+  wildlifeScratch.stillnessRate = stillnessGain(ritual.seat);
+  wildlifeScratch.settleRate = settlingGain(ritual.seat);
   wildlifeScratch.cues = worldCues(ritual, wildlifeScratch.cues as WildlifeCueField);
   // Broadband noise the animals hear as one thing: us, the radio, the machine.
   wildlifeScratch.noise = clamp01(
@@ -578,11 +838,81 @@ function harvestWorldEvents(ritual: RitualState): void {
 
   ritual.radioEvents.push(...drainRadioEvents(ritual.radio));
 
+  // --- a stone --------------------------------------------------------------
+  // A throw becomes a trace when it ends, and only when it ends: the skips
+  // themselves are sounds, not memories.
+  for (const event of drainSkipEvents(ritual.skipping)) {
+    ritual.skipEvents.push(event);
+    if (event.kind !== 'sunk' && event.kind !== 'shore') continue;
+    const summary = summariseSkip(ritual.skipping);
+    ritual.traces.push(
+      createTrace(
+        `skip:${ritual.skipping.throws}:${Math.round(event.at)}`,
+        skipEvidence(summary, {
+          // The first throw of the night that genuinely ran. Not a best, not a
+          // tally — the same question wildlife asks with `visits`.
+          isFirst: summary.skips >= 3 && !ritual.skippedBefore,
+          interactionCount: Math.max(1, ritual.skipping.throws),
+          duringWorldEvent: ritual.weather.skyEvent !== 'none',
+          photographed: ritual.presence.photographed.includes('water'),
+          // Time spent at the water, not time the stone was airborne — the
+          // evening is the thing, not the throw.
+          dwellSeconds: ritual.shoreSeconds,
+        }),
+        now,
+        {
+          skips: summary.skips,
+          distanceM: summary.distanceM,
+          telling: summary.telling,
+          water: ritual.water ? ritual.water.spec.label : null,
+          window: ritual.window,
+        },
+      ),
+    );
+    if (summary.skips >= 3) ritual.skippedBefore = true;
+  }
+
+  // --- the sky --------------------------------------------------------------
+  for (const event of drainStargazingEvents(ritual.stargazing)) {
+    ritual.skyEvents.push(event);
+    if (event.kind !== 'recognised' && event.kind !== 'meteor-seen') continue;
+    ritual.traces.push(
+      createTrace(
+        `sky:${event.kind}:${event.subjectId ?? Math.round(event.at * 60)}`,
+        stargazingEvidence(event, { dwellSeconds: ritual.stargazing.lookingSeconds }),
+        now,
+        { subjectId: event.subjectId, label: event.label, telling: describeSkyMoment(event) },
+      ),
+    );
+  }
+
+  // --- the line -------------------------------------------------------------
+  for (const event of drainFishingEvents(ritual.fishing)) {
+    ritual.fishingEvents.push(event);
+    if (event.kind !== 'landed') continue;
+    const caught = ritual.fishing.caught[ritual.fishing.caught.length - 1];
+    ritual.traces.push(
+      createTrace(
+        `fish:${Math.round(event.at * 60)}`,
+        fishingEvidence(event, {
+          isFirst: ritual.fishing.caught.length <= 1,
+          interactionCount: Math.max(1, ritual.fishing.casts),
+          dwellSeconds: caught ? caught.playedSeconds : 0,
+        }),
+        now,
+        { label: event.label, telling: caught ? describeCatch(caught) : event.label },
+      ),
+    );
+  }
+
   // Event logs are readouts for audio and the UI, not history: they are bound
   // so a long session cannot grow them without limit.
   trimTail(ritual.wildlifeEvents, 64);
   trimTail(ritual.discoveryEvents, 64);
   trimTail(ritual.radioEvents, 64);
+  trimTail(ritual.skipEvents, 64);
+  trimTail(ritual.fishingEvents, 64);
+  trimTail(ritual.skyEvents, 64);
 }
 
 function trimTail(list: unknown[], limit: number): void {
@@ -742,6 +1072,8 @@ export function setPresence(ritual: RitualState, update: Partial<PresenceInput>)
   if (update.places) presence.places = [...update.places];
   if (update.inspecting !== undefined) presence.inspecting = update.inspecting;
   if (update.objects) presence.objects = [...update.objects];
+  if (update.seated !== undefined) presence.seated = update.seated;
+  if (update.seatId !== undefined) presence.seatId = update.seatId;
   if (update.photographed) presence.photographed = [...presence.photographed, ...update.photographed];
 }
 
@@ -755,6 +1087,160 @@ export function photograph(ritual: RitualState, subjects: readonly string[], fla
   if (subjects.length === 0) return;
   ritual.presence.photographed = [...ritual.presence.photographed, ...subjects];
   if (flash) ritual.presence.startle = 1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Secondary activities (spec §5.2)                                           */
+/*                                                                            */
+/* Every one of these is reached by walking up to a thing and touching it —   */
+/* there is no activity menu, and none of these intents opens one. They are   */
+/* the same shape as `tendFire` and `turnRadioDial`: small, replicable player */
+/* actions (ADR-0006), and nothing here gates, scores or unlocks anything.    */
+/* -------------------------------------------------------------------------- */
+
+// --- Sitting ---------------------------------------------------------------
+
+/**
+ * Sits down.
+ *
+ * The client owns `PlayerState.seated`; this mirrors it into the world systems
+ * so the seat model can settle. Called from `setPresence` as well, so a client
+ * that only writes presence still gets the whole mechanic.
+ */
+export function sitOnSeat(ritual: RitualState, seatId: string | null = 'log-seat'): void {
+  ritual.presence.seated = true;
+  ritual.presence.seatId = seatId;
+  sitDownAction(ritual.seat, seatId);
+}
+
+export function standFromSeat(ritual: RitualState): void {
+  ritual.presence.seated = false;
+  ritual.presence.seatId = null;
+  standUpAction(ritual.seat);
+}
+
+// --- The torch -------------------------------------------------------------
+
+/** Picks the torch up off the log. It comes on with it. */
+export function takeTorchFromLog(ritual: RitualState): void {
+  takeTorch(ritual.torch);
+}
+
+/** Puts it back. */
+export function putTorchDown(ritual: RitualState): void {
+  stowTorch(ritual.torch);
+}
+
+/** The switch. Returns whether it is now lit. */
+export function toggleTorch(ritual: RitualState, on?: boolean): boolean {
+  return switchTorch(ritual.torch, on);
+}
+
+/**
+ * Points the beam. Absolute yaw/pitch in the world's frame.
+ *
+ * The client calls this once per frame with where the player is looking; the
+ * torch model measures the sweep from it, which is what the wildlife feel.
+ */
+export function pointTorch(ritual: RitualState, yaw: number, pitch: number): void {
+  aimTorchAction(ritual.torch, yaw, pitch);
+}
+
+/** Twists the head from flood to spot. */
+export function setTorchFocus(ritual: RitualState, focus: number): void {
+  focusTorchAction(ritual.torch, focus);
+}
+
+// --- Stone skipping --------------------------------------------------------
+
+/** Whether there is water here worth throwing a stone at. */
+export function stonesCanSkip(ritual: RitualState): boolean {
+  return ritual.water !== null && canSkipStones(ritual.water.spec);
+}
+
+/** Picks a stone up off the shore. Omitting the id takes the next one along. */
+export function takeStone(ritual: RitualState, stoneId?: string): Stone | null {
+  if (!stonesCanSkip(ritual)) return null;
+  return pickUpStone(ritual.skipping, stoneId);
+}
+
+/**
+ * Throws it.
+ *
+ * `from` is the hand. Returns false when there is no water, nothing in hand,
+ * or one already in the air — never because the throw was a bad one, because
+ * there is no such thing (§5.2, and the same rule as a fallen marshmallow).
+ */
+export function skipStone(ritual: RitualState, input: ThrowInput, from: Vec3): boolean {
+  const water = ritual.water;
+  if (!water || !canSkipStones(water.spec)) return false;
+  const thrown = throwStoneAction(ritual.skipping, input, from, water);
+  if (thrown) {
+    // A thrown stone is a noise at the water's edge, whatever it does next.
+    ritual.presence.startle = Math.max(ritual.presence.startle, 0.12);
+  }
+  return thrown;
+}
+
+// --- Fishing ---------------------------------------------------------------
+
+/** Whether there is anything in this water to catch. */
+export function waterHoldsFish(ritual: RitualState): boolean {
+  return ritual.water !== null && canFish(ritual.water.spec);
+}
+
+/** Picks the rod up off the log. */
+export function takeFishingRod(ritual: RitualState): void {
+  if (waterHoldsFish(ritual)) takeRod(ritual.fishing);
+}
+
+/** Leans it back. Anything on the line simply goes, at no cost. */
+export function stowFishingRod(ritual: RitualState): void {
+  stowRod(ritual.fishing);
+}
+
+/** Casts. There is no target and no accuracy requirement. */
+export function castLine(ritual: RitualState, power: number, bearing: number): boolean {
+  const water = ritual.water;
+  if (!water || !canFish(water.spec)) return false;
+  return castAction(ritual.fishing, water, power, bearing);
+}
+
+/** Strikes. Missing costs nothing at all. */
+export function strikeLine(ritual: RitualState): boolean {
+  return strike(ritual.fishing);
+}
+
+/** Winds in, or gives line. `pull` 0..1. */
+export function playLine(ritual: RitualState, pull: number, dt: number = SIM_DT): void {
+  playFish(ritual.fishing, pull, dt);
+}
+
+/** Puts it back in the water. The only thing you can do with one. */
+export function releaseCatch(ritual: RitualState): void {
+  releaseFish(ritual.fishing);
+}
+
+// --- Stargazing ------------------------------------------------------------
+
+/** Lies back, or gets up. */
+export function lieBack(ritual: RitualState, reclined = true): void {
+  setPosture(ritual.stargazing, reclined ? 'reclined' : 'standing');
+}
+
+/** Raises or lowers the binoculars. */
+export function raiseBinoculars(ritual: RitualState, up: boolean): void {
+  setBinocularsAction(ritual.stargazing, up);
+}
+
+/** Looks at a patch of sky. Azimuth from north and altitude, radians. */
+export function lookAtSky(ritual: RitualState, azimuth: number, altitude: number): void {
+  aimSkyAction(ritual.stargazing, azimuth, altitude);
+}
+
+/** Ripples the surface directly — a hand in the water, a dropped stick. */
+export function touchWater(ritual: RitualState, x: number, z: number, strength = 0.4): void {
+  if (ritual.water) disturbWater(ritual.water, x, z, strength);
 }
 
 export function toggleRadio(ritual: RitualState, on?: boolean): boolean {
@@ -809,6 +1295,16 @@ export interface RitualSignals {
   /** 0..1 what the radio is actually delivering. 0 when it is off. */
   radioClarity: number;
   radioStationName: string | null;
+  /** The sky, as far as anyone standing here can tell. */
+  sky: SkySignals;
+  /** The line in the water, or null where there is none. */
+  fishing: FishingSignals | null;
+  /** How the water is behaving, in words. Null at a dry site. */
+  waterLabel: string | null;
+  /** True while the torch is lit. */
+  torchOn: boolean;
+  /** 0..1 how settled a seated player is. Never rendered as a number. */
+  settled: number;
 }
 
 export function ritualSignals(ritual: RitualState): RitualSignals {
@@ -824,6 +1320,11 @@ export function ritualSignals(ritual: RitualState): RitualSignals {
     window: ritual.window,
     radioClarity: ritual.radio.on ? ritual.radio.reception.clarity : 0,
     radioStationName: ritual.radio.on ? ritual.radio.reception.stationName : null,
+    sky: skySignals(ritual.stargazing, ritual.weather.cloudCover),
+    fishing: ritual.water ? fishingSignals(ritual.fishing) : null,
+    waterLabel: ritual.water ? describeWater(ritual.water) : null,
+    torchOn: ritual.torch.held && ritual.torch.on,
+    settled: ritual.seat.settled,
   };
 }
 

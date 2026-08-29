@@ -9,7 +9,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { curatedSky, CONSTELLATIONS, type WeatherState } from '@somemore/sim';
+import { clamp01, curatedSky, CONSTELLATIONS, type WeatherState } from '@somemore/sim';
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import {
@@ -141,6 +141,37 @@ export function Campsite({
 
   // --- Sky ---------------------------------------------------------------
   const sky = useMemo(() => curatedSky(), []);
+
+  /**
+   * Where the moon is and how much it is giving.
+   *
+   * `curatedSky()` is the documented fallback when the player has not granted
+   * location: a real sky for a plausible place at a plausible hour, rather
+   * than a made-up one (spec §5.5).
+   */
+  const moonlight = useMemo(() => {
+    const moon = sky.moon;
+    const clear = 1 - weather.cloudCover * 0.85;
+    // Below the horizon there is no moon, and the night is starlight only.
+    const above = Math.max(0, Math.sin(moon.altitude));
+    const strength = moon.visible ? moon.illumination * above : 0;
+    const distance = 90;
+    // Azimuth is measured from north; +Z is north in this scene.
+    const horizontal = Math.cos(moon.altitude) * distance;
+    return {
+      position: [
+        Math.sin(moon.azimuth) * horizontal,
+        Math.max(12, Math.sin(moon.altitude) * distance),
+        Math.cos(moon.azimuth) * horizontal,
+      ] as [number, number, number],
+      // The floor stands for dark adaptation, which the renderer has no
+      // model of: a person who has been sitting by a fire for ten minutes can
+      // genuinely see the treeline. Without it a moonless night is a black
+      // rectangle rather than a dark wood.
+      intensity: (0.7 + strength * 2.4) * clear,
+      ambient: clamp01(sky.ambientLight * clear),
+    };
+  }, [sky, weather.cloudCover]);
 
   const starGeometry = useMemo(() => {
     const count = 420;
@@ -366,14 +397,35 @@ export function Campsite({
       {/* Precipitation */}
       <points ref={rainRef} geometry={rainGeometry} material={rainMaterial} frustumCulled={false} />
 
-      {/* A very low ambient so shadowed geometry never goes fully black —
-          important for legibility, and an accessibility contrast floor. */}
-      <ambientLight intensity={0.12} color={0x2a3b52} />
-      {/* Moonlight */}
+      {/*
+        Night light.
+
+        Measuring the running product found the campsite unnavigable once the
+        fire burned to coals: mean frame luminance around 3/255, with a tenth
+        of a percent of pixels above the visible floor. That was survivable
+        when every stage was an anchored close-up on a lit object, and stopped
+        being survivable the moment the world became something you walk around
+        in with animals in it.
+
+        The fix is not a flat lift. The moon is placed by the real astronomy
+        the simulation already computes — altitude and azimuth for the date —
+        and its strength is its illuminated fraction, attenuated by the
+        weather's own cloud cover. So a clear night under a full moon is
+        genuinely navigable, an overcast new moon is genuinely dark and the
+        fire is genuinely the only thing you have, and the difference between
+        two campsites on two nights is a real difference rather than a dial.
+      */}
+      <ambientLight intensity={0.85 + moonlight.ambient * 1.9} color={0x33445f} />
       <directionalLight
-        position={[38, 46, -70]}
-        intensity={0.22 * (1 - weather.cloudCover * 0.8)}
-        color={0x9fb4d0}
+        position={moonlight.position}
+        intensity={moonlight.intensity}
+        color={0xa8bcd8}
+      />
+      {/* The sky's own light, from above, so canopies read as canopies. */}
+      <hemisphereLight
+        intensity={0.6 + moonlight.ambient * 1.5}
+        color={0x4a5f80}
+        groundColor={0x161a14}
       />
     </group>
   );

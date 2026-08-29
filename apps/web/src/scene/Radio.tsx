@@ -212,16 +212,25 @@ function createDialFace(radio: RadioState): THREE.CanvasTexture {
     }
   }
 
-  // Station names, printed only for the ones a set would have been marked for.
+  // Station names, printed only for the ones a set would have been marked
+  // for, and only where there is room: three names centred on the same few
+  // millimetres of glass print as a smear, on a real dial and on this one.
   ctx.font = '11px monospace';
   ctx.textAlign = 'center';
-  for (const station of radio.profile.stations) {
-    if (station.band !== radio.band) continue;
-    if (station.reception < 0.45) continue; // faint ones were never printed
-    const x = 8 + ((width - 16) * (station.dial - plan.min)) / span;
-    if (x < 0 || x > width) continue;
-    ctx.fillStyle = '#7a2318';
-    ctx.fillText(station.name.slice(0, 10).toUpperCase(), x, height * 0.9);
+  ctx.fillStyle = '#7a2318';
+  let lastPrintedX = -Infinity;
+  const printed = radio.profile.stations
+    .filter((station) => station.band === radio.band && station.reception >= 0.45)
+    .map((station) => ({
+      label: (station.name.split(/[\s·—-]+/)[0] ?? station.name).slice(0, 9).toUpperCase(),
+      x: 8 + ((width - 16) * (station.dial - plan.min)) / span,
+    }))
+    .sort((a, b) => a.x - b.x);
+  for (const station of printed) {
+    if (station.x < 0 || station.x > width) continue;
+    if (station.x - lastPrintedX < 56) continue;
+    lastPrintedX = station.x;
+    ctx.fillText(station.label, station.x, height * 0.9);
   }
 
   ctx.fillStyle = '#3a2a16';
@@ -233,6 +242,10 @@ function createDialFace(radio: RadioState): THREE.CanvasTexture {
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
   texture.generateMipmaps = false;
+  // A canvas is authored in sRGB. Without this the printed cream reads as a
+  // washed-out green under the renderer's linear workflow — which is exactly
+  // how it looked before somebody put a screenshot on a screen.
+  texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 

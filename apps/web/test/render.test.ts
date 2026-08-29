@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { printedStations } from '../src/ui/RadioDial.js';
 import {
   AdaptiveQuality,
   bayer4x4,
@@ -232,5 +233,70 @@ describe('adaptive quality', () => {
     const adaptive = new AdaptiveQuality('high');
     for (let i = 0; i < 90; i++) adaptive.sample(i < 80 ? 8 : 90);
     expect(adaptive.tier).toBe('mid');
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* The radio's dial face                                                       */
+/* -------------------------------------------------------------------------- */
+
+describe('what a dial face has printed on it', () => {
+  const station = (id: string, name: string, dial: number, reception = 0.8) => ({
+    id,
+    name,
+    dial,
+    band: 'fm' as const,
+    character: 'lofi' as const,
+    reception,
+    note: '',
+  });
+
+  const radio = (stations: ReturnType<typeof station>[]) =>
+    ({
+      band: 'fm' as const,
+      profile: { stations, baseReception: 0.6, receptionNote: '', betweenStations: '' },
+    }) as unknown as Parameters<typeof printedStations>[0];
+
+  it('prints the leading token, not the whole station name', () => {
+    // Regression: Pine Hollow's three FM stations printed their full names
+    // centred on the same few millimetres of glass and came out as
+    // `NIGHDKEERVIDEF REPEATER`.
+    const printed = printedStations(radio([station('a', 'Forest Service Repeater', 91.3)]), 88, 20);
+    expect(printed[0]?.label).toBe('FOREST');
+  });
+
+  it('staggers two nearby stations onto separate rows', () => {
+    const printed = printedStations(
+      radio([station('a', 'KHOL', 88.7), station('b', 'WNGT', 89.4)]),
+      88,
+      20,
+    );
+    expect(printed).toHaveLength(2);
+    expect(printed[0]?.row).toBe(0);
+    expect(printed[1]?.row).toBe(1);
+  });
+
+  it('leaves a third crowded station off the glass entirely', () => {
+    const printed = printedStations(
+      radio([station('a', 'KHOL', 88.7), station('b', 'WNGT', 89.0), station('c', 'KRVR', 89.2)]),
+      88,
+      20,
+    );
+    expect(printed.map((p) => p.id)).toEqual(['a', 'b']);
+  });
+
+  it('does not print a station too faint to have been marked', () => {
+    const printed = printedStations(radio([station('a', 'GHOST', 96.1, 0.2)]), 88, 20);
+    expect(printed).toHaveLength(0);
+  });
+
+  it('prints a well-separated dial in full', () => {
+    const printed = printedStations(
+      radio([station('a', 'KHOL', 88.7), station('b', 'WNGT', 96.0), station('c', 'KRVR', 104.1)]),
+      88,
+      20,
+    );
+    expect(printed).toHaveLength(3);
+    expect(printed.every((p) => p.row === 0)).toBe(true);
   });
 });

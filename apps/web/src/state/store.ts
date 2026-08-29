@@ -9,10 +9,17 @@
  */
 
 import {
+  activeTraces,
   createRitual,
+  describeSighting,
+  discoveredSecrets,
+  residents,
+  type DiscoveryRecord,
   type RitualStage,
   type RitualState,
+  type RitualWorldContent,
   type SandwichRecord,
+  type Trace,
   type WeatherProfile,
 } from '@somemore/sim';
 import { DEFAULT_RENDER_SETTINGS, type QualityTier, type RenderSettings } from '../render/ps1.js';
@@ -93,6 +100,45 @@ export interface PassportEntry {
   savedAt: number;
 }
 
+/**
+ * What a campsite remembers about a player, and a player about a campsite.
+ *
+ * This is the local half of the significance model (spec §6): the world does
+ * not reset between visits, so the fourth time you come back to Pine Hollow
+ * the fox that has seen you three times before behaves like it has. Nothing
+ * here is a score or a completion state — `visits` is an ordinal, `secrets`
+ * is what you happened to notice, and `traces` carry only the disposition the
+ * significance model chose, never the value behind it (§6.4).
+ */
+export interface CampsiteMemory {
+  campsiteSeed: string;
+  environmentId: string;
+  /** How many times this player has arrived here. 1 on the first night. */
+  visits: number;
+  lastVisitAt: number;
+  /** Secrets noticed here, this visit and every earlier one. */
+  secrets: DiscoveryRecord[];
+  /** Visits each recognisable resident has been seen on, by individual id. */
+  residents: Record<string, number>;
+  /** Traces the significance model kept. Faded ones are dropped on load. */
+  traces: Trace[];
+  /** Lines worth reading back, newest first. Never a count, never a total. */
+  sightings: string[];
+}
+
+function createCampsiteMemory(campsiteSeed: string, environmentId: string): CampsiteMemory {
+  return {
+    campsiteSeed,
+    environmentId,
+    visits: 0,
+    lastVisitAt: 0,
+    secrets: [],
+    residents: {},
+    traces: [],
+    sightings: [],
+  };
+}
+
 export interface PassportState {
   /** Anonymous device identity until an account is linked. */
   playerId: string;
@@ -102,6 +148,8 @@ export interface PassportState {
   photos: PassportPhoto[];
   stamps: string[];
   visitedEnvironments: string[];
+  /** Per-campsite memory, keyed by campsite seed. */
+  campsites: Record<string, CampsiteMemory>;
   /** Total sandwiches made, all time. */
   sandwichCount: number;
   linkedProvider: 'none' | 'apple' | 'google' | 'email';
@@ -116,7 +164,7 @@ export interface AppState {
   quality: QualityTier;
   passport: PassportState;
   /** Which overlay is open, if any. */
-  overlay: 'none' | 'passport' | 'settings' | 'photo' | 'hero' | 'terminal' | 'service';
+  overlay: 'none' | 'passport' | 'settings' | 'photo' | 'hero' | 'terminal' | 'service' | 'radio';
   /** Transient subtitle line. */
   subtitle: string | null;
   /** Whether audio has been unlocked by a user gesture. */
@@ -139,6 +187,7 @@ function createPassport(): PassportState {
     photos: [],
     stamps: [],
     visitedEnvironments: [],
+    campsites: {},
     sandwichCount: 0,
     linkedProvider: 'none',
   };
@@ -192,13 +241,36 @@ export class Store {
   private listeners = new Set<Listener>();
   state: AppState;
 
-  constructor(options: { environmentId: string; campsiteSeed: string; weatherProfile?: WeatherProfile }) {
+  constructor(options: {
+    environmentId: string;
+    campsiteSeed: string;
+    weatherProfile?: WeatherProfile;
+    /** The manifest slice the world systems read. */
+    world?: RitualWorldContent;
+  }) {
     const settings = loadSettings();
     if (prefersReducedMotion()) {
       settings.render.reducedMotion = true;
       settings.render.jitter = Math.min(settings.render.jitter, 0.35);
     }
     const passport = loadPassport();
+    const now = Date.now();
+
+    // The campsite remembers. A returning player arrives at a place that has
+    // already met them, which is the whole of the significance model's
+    // outward behaviour (spec §6.2).
+    const remembered =
+      passport.campsites[options.campsiteSeed] ??
+      createCampsiteMemory(options.campsiteSeed, options.environmentId);
+    const memory: CampsiteMemory = {
+      ...remembered,
+      environmentId: options.environmentId,
+      visits: remembered.visits + 1,
+      lastVisitAt: now,
+      // Traces that have fully faded are gone; the world does not hoard.
+      traces: activeTraces(remembered.traces, now, 96),
+    };
+    passport.campsites = { ...passport.campsites, [options.campsiteSeed]: memory };
 
     this.state = {
       ritual: createRitual({
@@ -207,7 +279,11 @@ export class Store {
         weatherProfile: options.weatherProfile,
         assemblyAssist: settings.accessibility.assemblyAssist,
         autoRotate: settings.accessibility.autoRotate,
-        now: Date.now(),
+        now,
+        ...(options.world ? { world: options.world } : {}),
+        visitIndex: memory.visits,
+        priorVisits: memory.residents,
+        knownSecrets: memory.secrets,
       }),
       stage: 'arriving',
       render: settings.render,
@@ -276,6 +352,80 @@ export class Store {
 
   setOverlay(overlay: AppState['overlay']): void {
     this.set({ overlay });
+  }
+
+  /**
+   * Folds what happened tonight back into this campsite's memory.
+   *
+   * Safe to call as often as you like: everything it merges is idempotent, so
+   * the render loop can call it on a slow cadence and the unload handler can
+   * call it once more without producing duplicates.
+   */
+  rememberCampsite(): CampsiteMemory {
+    const ritual = this.state.ritual;
+    const seed = this.state.campsiteSeed;
+    const previous =
+      this.state.passport.campsites[seed] ?? createCampsiteMemory(seed, this.state.environmentId);
+
+    const residentVisits: Record<string, number> = { ...previous.residents };
+    for (const individual of residents(ritual.wildlife)) {
+      const seen = individual.visits;
+      if (seen > (residentVisits[individual.id] ?? 0)) residentVisits[individual.id] = seen;
+    }
+
+    const secrets = [...previous.secrets];
+    const knownSecretIds = new Set(secrets.map((record) => record.secretId));
+    for (const record of discoveredSecrets(ritual.discovery)) {
+      if (knownSecretIds.has(record.secretId)) continue;
+      knownSecretIds.add(record.secretId);
+      secrets.push(record);
+    }
+
+    const traces = [...previous.traces];
+    const knownTraceIds = new Set(traces.map((trace) => trace.id));
+    for (const trace of ritual.traces) {
+      // A trace the model decided should fade is real in the world tonight,
+      // but it is not something the Passport carries forward.
+      if (trace.disposition === 'fade') continue;
+      if (knownTraceIds.has(trace.id)) continue;
+      knownTraceIds.add(trace.id);
+      traces.push(trace);
+    }
+
+    const sightings = [...previous.sightings];
+    for (const event of ritual.wildlifeEvents) {
+      if (event.kind !== 'appeared') continue;
+      const line = describeSighting(event);
+      if (sightings[0] === line) continue;
+      sightings.unshift(line);
+    }
+
+    const memory: CampsiteMemory = {
+      campsiteSeed: seed,
+      environmentId: this.state.environmentId,
+      visits: Math.max(previous.visits, ritual.options.visitIndex),
+      lastVisitAt: Date.now(),
+      secrets,
+      residents: residentVisits,
+      traces: activeTraces(traces, Date.now(), 96),
+      sightings: sightings.slice(0, 40),
+    };
+
+    const passport: PassportState = {
+      ...this.state.passport,
+      campsites: { ...this.state.passport.campsites, [seed]: memory },
+    };
+    this.set({ passport });
+    this.persistPassport();
+    return memory;
+  }
+
+  /** This campsite's memory, for the Passport's campsite page. */
+  campsiteMemory(): CampsiteMemory {
+    return (
+      this.state.passport.campsites[this.state.campsiteSeed] ??
+      createCampsiteMemory(this.state.campsiteSeed, this.state.environmentId)
+    );
   }
 
   /** Saves a sandwich to the Passport, with its stamp. */

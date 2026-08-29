@@ -271,7 +271,11 @@ export function programmeSegment(
   codes: readonly RadioCode[] = [],
 ): ProgrammeSegment {
   const rng = new Rng(mixSeeds(seed, index * 0x9e37 + 1));
-  const profile = CHARACTERS[station.character];
+  // A character this build does not know about must not take the whole
+  // campsite down with it: live-ops can ship a station type before the client
+  // that understands it, and an unfamiliar station should simply sound
+  // ordinary rather than throw on the first segment.
+  const profile = CHARACTERS[station.character] ?? CHARACTERS.ambient;
 
   let kind: SegmentKind;
   if (profile.identEvery > 0 && index % profile.identEvery === 0) {

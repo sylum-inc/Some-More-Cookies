@@ -97,8 +97,51 @@ export function createPostgresAuthorityRepository(pool: PgPool): AuthorityReposi
       return table.find([sessionId, objectId]);
     },
 
+    /**
+     * Fenced write. The row only moves forward: a record whose `sequence` is
+     * not strictly greater than the stored one is refused.
+     *
+     * This is the difference between the in-memory and the durable version.
+     * In memory, two clients grabbing the same marshmallow read the same
+     * `sequence`, both compute `sequence + 1`, and the second write silently
+     * overwrites the first — both clients believe they hold the object. Here
+     * the loser's write matches no row, and it is told so; the fencing token
+     * stops being decorative and starts arbitrating.
+     */
     async put(record) {
-      return table.put(record);
+      const row = await pool.maybeOne<{ doc: AuthorityRecord }>(
+        `INSERT INTO somemore.object_authority
+           (session_id, object_id, holder_account_id, sequence, granted_at, expires_at, doc)
+         VALUES ($1, $2, $3, $4::int, $5::text::timestamptz, $6::text::timestamptz, $7::jsonb)
+         ON CONFLICT (session_id, object_id) DO UPDATE
+            SET holder_account_id = EXCLUDED.holder_account_id,
+                sequence          = EXCLUDED.sequence,
+                granted_at        = EXCLUDED.granted_at,
+                expires_at        = EXCLUDED.expires_at,
+                doc               = EXCLUDED.doc
+          WHERE object_authority.sequence < EXCLUDED.sequence
+        RETURNING doc`,
+        [
+          record.sessionId,
+          record.objectId,
+          record.holderAccountId,
+          record.sequence,
+          record.grantedAt,
+          record.expiresAt,
+          record,
+        ],
+      );
+      if (row === null) {
+        const current = await table.find([record.sessionId, record.objectId]);
+        throw new ApiError('conflict', 'Authority for that object has already moved on.', {
+          details: {
+            objectId: record.objectId,
+            expectedSequence: record.sequence - 1,
+            currentSequence: current?.sequence ?? null,
+          },
+        });
+      }
+      return row.doc;
     },
 
     async listBySession(sessionId) {

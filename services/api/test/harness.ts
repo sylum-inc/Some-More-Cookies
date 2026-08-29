@@ -141,8 +141,20 @@ export interface TestHarness {
   close(): Promise<void>;
 }
 
+export interface StartTestApiOptions {
+  /**
+   * Truncate the database before booting. On by default so every case starts
+   * from nothing, exactly as it would with a fresh set of Maps. Pass `false` to
+   * model a process restart against a database that is already populated.
+   */
+  readonly resetDatabase?: boolean;
+}
+
 /** Boot the real HTTP server on an ephemeral port and drive it with `fetch`. */
-export async function startTestApi(env: Record<string, string> = {}): Promise<TestHarness> {
+export async function startTestApi(
+  env: Record<string, string> = {},
+  options: StartTestApiOptions = {},
+): Promise<TestHarness> {
   const clock = createManualClock(TEST_START);
   const payments = createFakePaymentProvider({ clock, webhookSecret: 'whsec_test' });
   const mailer = createTestMailer();
@@ -155,8 +167,10 @@ export async function startTestApi(env: Record<string, string> = {}): Promise<Te
   let database: Database | undefined;
   if (ADMIN_DATABASE_URL !== null) {
     database = await sharedDatabase();
-    await truncateData(database.pool);
-    await database.pool.withClient((client) => seedPostgresCatalog(client, SEED));
+    if (options.resetDatabase !== false) {
+      await truncateData(database.pool);
+      await database.pool.withClient((client) => seedPostgresCatalog(client, SEED));
+    }
   }
 
   const app = createApp({

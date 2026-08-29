@@ -1,7 +1,7 @@
 {
   "tool": "e2e/perf.spec.ts",
   "what": "Live THREE.WebGLRenderer counters, read at every ritual stage.",
-  "capturedAt": "2026-08-29T20:10:45.456Z",
+  "capturedAt": "2026-08-29T20:41:09.650Z",
   "budgets": {
     "drawCalls": 120,
     "triangles": 60000,
@@ -17,20 +17,20 @@
   "peaks": {
     "drawCalls": {
       "stage": "arrival",
-      "value": 115,
+      "value": 121,
       "budget": 120
     },
     "triangles": {
       "stage": "arrival",
-      "value": 5128,
+      "value": 5246,
       "budget": 60000
     },
     "textureMegabytes": {
       "stage": "reveal",
-      "value": 1.477,
+      "value": 1.59,
       "budget": 24,
       "largest": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -45,16 +45,16 @@
   "stages": [
     {
       "stage": "arrival",
-      "drawCalls": 115,
-      "drawCallsMean": 115,
-      "drawCallsMin": 115,
-      "triangles": 5128,
-      "trianglesMean": 5128,
+      "drawCalls": 121,
+      "drawCallsMean": 121,
+      "drawCallsMin": 121,
+      "triangles": 5246,
+      "trianglesMean": 5246,
       "framesSampled": 20,
       "lines": 0,
       "points": 450,
-      "geometries": 75,
-      "textureCount": 17,
+      "geometries": 81,
+      "textureCount": 18,
       "programs": 15,
       "lights": 8,
       "dynamicLights": 4,
@@ -71,7 +71,7 @@
         },
         {
           "type": "PointLight",
-          "intensity": 10.438,
+          "intensity": 10.099,
           "castShadow": false
         },
         {
@@ -85,12 +85,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 148,
-      "visibleMeshes": 141,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 175,
+      "visibleMeshes": 167,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -98,20 +98,20 @@
       "drawingBufferWidth": 426,
       "drawingBufferHeight": 240,
       "pixelRatio": 0.3333333333333333,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "at-fire",
-      "drawCalls": 88,
-      "drawCallsMean": 88,
-      "drawCallsMin": 88,
-      "triangles": 4184,
-      "trianglesMean": 4184,
+      "drawCalls": 94,
+      "drawCallsMean": 94,
+      "drawCallsMin": 94,
+      "triangles": 4302,
+      "trianglesMean": 4302,
       "framesSampled": 20,
       "lines": 0,
       "points": 450,
-      "geometries": 75,
-      "textureCount": 17,
+      "geometries": 81,
+      "textureCount": 18,
       "programs": 15,
       "lights": 8,
       "dynamicLights": 4,
@@ -128,12 +128,12 @@
         },
         {
           "type": "PointLight",
-          "intensity": 10.29,
+          "intensity": 11.141,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.776,
+          "intensity": 1.777,
           "castShadow": false
         },
         {
@@ -142,12 +142,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 148,
-      "visibleMeshes": 141,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 175,
+      "visibleMeshes": 167,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -155,20 +155,20 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "fire-tended",
-      "drawCalls": 89,
-      "drawCallsMean": 89,
-      "drawCallsMin": 89,
-      "triangles": 4212,
-      "trianglesMean": 4212,
+      "drawCalls": 95,
+      "drawCallsMean": 95,
+      "drawCallsMin": 95,
+      "triangles": 4330,
+      "trianglesMean": 4330,
       "framesSampled": 20,
       "lines": 0,
       "points": 450,
-      "geometries": 75,
-      "textureCount": 17,
+      "geometries": 81,
+      "textureCount": 18,
       "programs": 15,
       "lights": 8,
       "dynamicLights": 4,
@@ -185,12 +185,12 @@
         },
         {
           "type": "PointLight",
-          "intensity": 10.566,
+          "intensity": 11.531,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.785,
+          "intensity": 1.786,
           "castShadow": false
         },
         {
@@ -199,12 +199,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 148,
-      "visibleMeshes": 142,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 175,
+      "visibleMeshes": 168,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -212,21 +212,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "ember-bed",
-      "drawCalls": 84,
-      "drawCallsMean": 84,
-      "drawCallsMin": 84,
-      "triangles": 4088,
-      "trianglesMean": 4088,
+      "drawCalls": 90,
+      "drawCallsMean": 90,
+      "drawCallsMin": 90,
+      "triangles": 4206,
+      "trianglesMean": 4206,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 76,
-      "textureCount": 17,
-      "programs": 16,
+      "geometries": 83,
+      "textureCount": 18,
+      "programs": 17,
       "lights": 8,
       "dynamicLights": 4,
       "lightDetail": [
@@ -237,17 +237,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.129,
+          "intensity": 2.305,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.222,
+          "intensity": 2.221,
           "castShadow": false
         },
         {
@@ -256,12 +256,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 149,
-      "visibleMeshes": 138,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 176,
+      "visibleMeshes": 164,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -269,7 +269,7 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "roasting",
@@ -281,9 +281,9 @@
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 78,
-      "textureCount": 19,
-      "programs": 24,
+      "geometries": 85,
+      "textureCount": 20,
+      "programs": 25,
       "lights": 10,
       "dynamicLights": 5,
       "lightDetail": [
@@ -294,17 +294,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.277,
+          "intensity": 2.198,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.218,
+          "intensity": 2.217,
           "castShadow": false
         },
         {
@@ -318,12 +318,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 152,
-      "visibleMeshes": 140,
-      "textureBytes": 716800,
-      "uniqueTextures": 19,
+      "meshes": 179,
+      "visibleMeshes": 166,
+      "textureBytes": 835584,
+      "uniqueTextures": 22,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -331,7 +331,7 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.684
+      "textureMegabytes": 0.797
     },
     {
       "stage": "roasted",
@@ -343,9 +343,9 @@
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 78,
-      "textureCount": 19,
-      "programs": 24,
+      "geometries": 85,
+      "textureCount": 20,
+      "programs": 25,
       "lights": 10,
       "dynamicLights": 5,
       "lightDetail": [
@@ -356,17 +356,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.314,
+          "intensity": 2.231,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.133,
+          "intensity": 2.131,
           "castShadow": false
         },
         {
@@ -380,12 +380,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 152,
-      "visibleMeshes": 140,
-      "textureBytes": 716800,
-      "uniqueTextures": 19,
+      "meshes": 179,
+      "visibleMeshes": 166,
+      "textureBytes": 835584,
+      "uniqueTextures": 22,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -393,7 +393,7 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.684
+      "textureMegabytes": 0.797
     },
     {
       "stage": "assembling",
@@ -405,9 +405,9 @@
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 87,
+      "geometries": 94,
       "textureCount": 22,
-      "programs": 31,
+      "programs": 32,
       "lights": 9,
       "dynamicLights": 5,
       "lightDetail": [
@@ -418,17 +418,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.086,
+          "intensity": 2.228,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.128,
+          "intensity": 2.126,
           "castShadow": false
         },
         {
@@ -442,12 +442,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 160,
-      "visibleMeshes": 149,
-      "textureBytes": 761856,
-      "uniqueTextures": 21,
+      "meshes": 187,
+      "visibleMeshes": 175,
+      "textureBytes": 864256,
+      "uniqueTextures": 23,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -455,21 +455,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.727
+      "textureMegabytes": 0.824
     },
     {
       "stage": "assembled",
-      "drawCalls": 61,
-      "drawCallsMean": 61,
-      "drawCallsMin": 61,
-      "triangles": 2996,
-      "trianglesMean": 2996,
+      "drawCalls": 69,
+      "drawCallsMean": 66.4,
+      "drawCallsMin": 65,
+      "triangles": 3138,
+      "trianglesMean": 3067,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 77,
-      "textureCount": 22,
-      "programs": 27,
+      "geometries": 89,
+      "textureCount": 23,
+      "programs": 29,
       "lights": 8,
       "dynamicLights": 5,
       "lightDetail": [
@@ -480,17 +480,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.013,
+          "intensity": 2.149,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.123,
+          "intensity": 2.12,
           "castShadow": false
         },
         {
@@ -504,12 +504,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 150,
-      "visibleMeshes": 139,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 177,
+      "visibleMeshes": 165,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -517,21 +517,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "machine-idle",
-      "drawCalls": 61,
-      "drawCallsMean": 61,
-      "drawCallsMin": 61,
-      "triangles": 2996,
-      "trianglesMean": 2996,
+      "drawCalls": 64,
+      "drawCallsMean": 64,
+      "drawCallsMin": 64,
+      "triangles": 3040,
+      "trianglesMean": 3040,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 77,
-      "textureCount": 22,
-      "programs": 27,
+      "geometries": 89,
+      "textureCount": 23,
+      "programs": 29,
       "lights": 8,
       "dynamicLights": 5,
       "lightDetail": [
@@ -542,17 +542,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.032,
+          "intensity": 2.239,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.116,
+          "intensity": 2.113,
           "castShadow": false
         },
         {
@@ -566,12 +566,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 150,
-      "visibleMeshes": 139,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 177,
+      "visibleMeshes": 165,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -579,21 +579,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "machine-armed",
-      "drawCalls": 61,
-      "drawCallsMean": 61,
-      "drawCallsMin": 61,
-      "triangles": 2996,
-      "trianglesMean": 2996,
+      "drawCalls": 64,
+      "drawCallsMean": 64,
+      "drawCallsMin": 64,
+      "triangles": 3040,
+      "trianglesMean": 3040,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 77,
-      "textureCount": 22,
-      "programs": 27,
+      "geometries": 89,
+      "textureCount": 23,
+      "programs": 29,
       "lights": 8,
       "dynamicLights": 4,
       "lightDetail": [
@@ -604,17 +604,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.094,
+          "intensity": 2.201,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.103,
+          "intensity": 2.098,
           "castShadow": false
         },
         {
@@ -623,12 +623,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 150,
-      "visibleMeshes": 139,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 177,
+      "visibleMeshes": 165,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -636,21 +636,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "processing",
-      "drawCalls": 60,
-      "drawCallsMean": 60,
-      "drawCallsMin": 60,
-      "triangles": 2984,
-      "trianglesMean": 2984,
+      "drawCalls": 63,
+      "drawCallsMean": 63,
+      "drawCallsMin": 63,
+      "triangles": 3028,
+      "trianglesMean": 3028,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 76,
-      "textureCount": 22,
-      "programs": 27,
+      "geometries": 88,
+      "textureCount": 23,
+      "programs": 29,
       "lights": 8,
       "dynamicLights": 6,
       "lightDetail": [
@@ -661,17 +661,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.211,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.274,
+          "intensity": 2.064,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.083,
+          "intensity": 2.078,
           "castShadow": false
         },
         {
@@ -686,16 +686,16 @@
         },
         {
           "type": "PointLight",
-          "intensity": 0.104,
+          "intensity": 0.103,
           "castShadow": false
         }
       ],
-      "meshes": 149,
-      "visibleMeshes": 138,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 176,
+      "visibleMeshes": 164,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -703,21 +703,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "freezing",
-      "drawCalls": 61,
-      "drawCallsMean": 61,
-      "drawCallsMin": 61,
-      "triangles": 2996,
-      "trianglesMean": 2996,
+      "drawCalls": 64,
+      "drawCallsMean": 64,
+      "drawCallsMin": 64,
+      "triangles": 3040,
+      "trianglesMean": 3040,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 77,
-      "textureCount": 23,
-      "programs": 28,
+      "geometries": 89,
+      "textureCount": 24,
+      "programs": 30,
       "lights": 8,
       "dynamicLights": 6,
       "lightDetail": [
@@ -728,17 +728,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.209,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.206,
+          "intensity": 2.142,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.046,
+          "intensity": 2.041,
           "castShadow": false
         },
         {
@@ -753,16 +753,16 @@
         },
         {
           "type": "PointLight",
-          "intensity": 1.342,
+          "intensity": 1.339,
           "castShadow": false
         }
       ],
-      "meshes": 149,
-      "visibleMeshes": 139,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 176,
+      "visibleMeshes": 165,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -770,21 +770,21 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "complete",
-      "drawCalls": 62,
-      "drawCallsMean": 62,
-      "drawCallsMin": 62,
-      "triangles": 3008,
-      "trianglesMean": 3008,
+      "drawCalls": 70,
+      "drawCallsMean": 70,
+      "drawCallsMin": 70,
+      "triangles": 3098,
+      "trianglesMean": 3098,
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 78,
-      "textureCount": 23,
-      "programs": 28,
+      "geometries": 90,
+      "textureCount": 24,
+      "programs": 30,
       "lights": 8,
       "dynamicLights": 6,
       "lightDetail": [
@@ -795,22 +795,22 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.181,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.127,
+          "intensity": 2.146,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2,
+          "intensity": 1.988,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.607,
+          "intensity": 1.569,
           "castShadow": false
         },
         {
@@ -824,12 +824,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 150,
-      "visibleMeshes": 140,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 177,
+      "visibleMeshes": 166,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -837,7 +837,7 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     },
     {
       "stage": "reveal",
@@ -849,9 +849,9 @@
       "framesSampled": 20,
       "lines": 0,
       "points": 460,
-      "geometries": 86,
-      "textureCount": 27,
-      "programs": 38,
+      "geometries": 98,
+      "textureCount": 28,
+      "programs": 40,
       "lights": 11,
       "dynamicLights": 10,
       "lightDetail": [
@@ -862,17 +862,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.17,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.206,
+          "intensity": 1.972,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.982,
+          "intensity": 1.969,
           "castShadow": false
         },
         {
@@ -892,7 +892,7 @@
         },
         {
           "type": "PointLight",
-          "intensity": 1.282,
+          "intensity": 1.276,
           "castShadow": false
         },
         {
@@ -911,12 +911,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 157,
-      "visibleMeshes": 148,
-      "textureBytes": 1548288,
-      "uniqueTextures": 21,
+      "meshes": 184,
+      "visibleMeshes": 174,
+      "textureBytes": 1667072,
+      "uniqueTextures": 24,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -924,7 +924,7 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 1.477
+      "textureMegabytes": 1.59
     },
     {
       "stage": "eating",
@@ -936,9 +936,9 @@
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 85,
-      "textureCount": 27,
-      "programs": 39,
+      "geometries": 97,
+      "textureCount": 28,
+      "programs": 41,
       "lights": 11,
       "dynamicLights": 10,
       "lightDetail": [
@@ -949,17 +949,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.161,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.939,
+          "intensity": 2.079,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.972,
+          "intensity": 1.959,
           "castShadow": false
         },
         {
@@ -979,7 +979,7 @@
         },
         {
           "type": "PointLight",
-          "intensity": 1.09,
+          "intensity": 1.081,
           "castShadow": false
         },
         {
@@ -998,12 +998,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 156,
-      "visibleMeshes": 147,
-      "textureBytes": 1548288,
-      "uniqueTextures": 21,
+      "meshes": 183,
+      "visibleMeshes": 173,
+      "textureBytes": 1667072,
+      "uniqueTextures": 24,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -1011,7 +1011,7 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 1.477
+      "textureMegabytes": 1.59
     },
     {
       "stage": "bitten",
@@ -1023,9 +1023,9 @@
       "framesSampled": 20,
       "lines": 0,
       "points": 420,
-      "geometries": 85,
-      "textureCount": 27,
-      "programs": 39,
+      "geometries": 97,
+      "textureCount": 28,
+      "programs": 41,
       "lights": 11,
       "dynamicLights": 10,
       "lightDetail": [
@@ -1036,17 +1036,17 @@
         },
         {
           "type": "DirectionalLight",
-          "intensity": 0.058,
+          "intensity": 0.159,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 2.028,
+          "intensity": 1.969,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.968,
+          "intensity": 1.955,
           "castShadow": false
         },
         {
@@ -1066,7 +1066,7 @@
         },
         {
           "type": "PointLight",
-          "intensity": 1.09,
+          "intensity": 1.081,
           "castShadow": false
         },
         {
@@ -1085,12 +1085,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 156,
-      "visibleMeshes": 147,
-      "textureBytes": 1548288,
-      "uniqueTextures": 21,
+      "meshes": 183,
+      "visibleMeshes": 173,
+      "textureBytes": 1667072,
+      "uniqueTextures": 24,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -1098,20 +1098,20 @@
       "drawingBufferWidth": 640,
       "drawingBufferHeight": 360,
       "pixelRatio": 0.5,
-      "textureMegabytes": 1.477
+      "textureMegabytes": 1.59
     },
     {
       "stage": "worst-case-fire",
-      "drawCalls": 110,
-      "drawCallsMean": 109.8,
-      "drawCallsMin": 109,
-      "triangles": 4980,
-      "trianglesMean": 4969,
+      "drawCalls": 116,
+      "drawCallsMean": 116,
+      "drawCallsMin": 116,
+      "triangles": 5098,
+      "trianglesMean": 5098,
       "framesSampled": 12,
       "lines": 0,
       "points": 450,
-      "geometries": 76,
-      "textureCount": 17,
+      "geometries": 82,
+      "textureCount": 18,
       "programs": 15,
       "lights": 8,
       "dynamicLights": 4,
@@ -1128,12 +1128,12 @@
         },
         {
           "type": "PointLight",
-          "intensity": 10.346,
+          "intensity": 10.35,
           "castShadow": false
         },
         {
           "type": "PointLight",
-          "intensity": 1.77,
+          "intensity": 1.772,
           "castShadow": false
         },
         {
@@ -1142,12 +1142,12 @@
           "castShadow": false
         }
       ],
-      "meshes": 148,
-      "visibleMeshes": 145,
-      "textureBytes": 696320,
-      "uniqueTextures": 17,
+      "meshes": 175,
+      "visibleMeshes": 171,
+      "textureBytes": 815104,
+      "uniqueTextures": 20,
       "largestTexture": {
-        "key": "nu",
+        "key": "Zd",
         "width": 256,
         "height": 256,
         "bytes": 262144
@@ -1155,7 +1155,7 @@
       "drawingBufferWidth": 426,
       "drawingBufferHeight": 240,
       "pixelRatio": 0.3333333333333333,
-      "textureMegabytes": 0.664
+      "textureMegabytes": 0.777
     }
   ],
   "textureMeasurementNote": "Texture bytes are computed from every texture reachable from the scene graph at width × height × 4 (every texture in this project is an RGBA8 canvas — ADR-0002), plus a third for any texture with mipmapping actually enabled. It excludes render targets and driver-side padding, so treat it as a close lower bound on GPU texture memory rather than an exact figure.",
@@ -1173,7 +1173,7 @@
     }
   },
   "warnings": [
-    "Draw calls reach 115 of 120 during \"arrival\" — 96% of budget, with 5 calls of headroom. The arrival shot draws the whole campsite before culling has anything to remove; adding props to it is the likeliest way to blow this budget.",
+    "Draw calls reach 121 of 120 during \"arrival\" — 101% of budget, with -1 calls of headroom. The arrival shot draws the whole campsite before culling has anything to remove; adding props to it is the likeliest way to blow this budget.",
     "Dynamic lights reach 10 against a §10 budget of 6 during \"reveal\". This is a KNOWN DEVIATION pinned at 10: The reveal adds the finished sandwich's own key/fill/rim lighting on top of the fire, the camp lantern and the SM-01's interior lights. That local rig is what fixed the \"sandwich renders as an unlit silhouette\" defect (IMPLEMENTATION_PLAN, defect #5), so it is deliberate — but it puts ten non-ambient lights in the shader during the three most important stages in the product, against a stated budget of six. Either §10 needs to say so, or the hero lighting needs to be baked into the material. Owned by the render workstream; this check pins it at ten so it cannot quietly become twelve."
   ],
   "measurableHere": [

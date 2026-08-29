@@ -15,7 +15,7 @@ import {
   REALTIME_BEARER_SUBPROTOCOL_PREFIX,
   REALTIME_SUBPROTOCOL,
   ServerMessageSchema,
-  type ClientMessage,
+  type ClientMessageInput,
   type ServerMessage,
   type ServerMessageType,
 } from '@somemore/protocol';
@@ -164,6 +164,12 @@ export interface RealtimeClientOptions extends RawClientOptions {
   readonly strict?: boolean;
 }
 
+/**
+ * `Omit` over a union collapses it, so distribute: every member of
+ * `ClientMessageInput` keeps its own shape, with `seq` supplied by the client.
+ */
+type Unsequenced<T> = T extends unknown ? Omit<T, 'seq'> & { seq?: number } : never;
+
 type Waiter = { match(message: ServerMessage): boolean; resolve(message: ServerMessage): void; reject(error: Error): void; timer: NodeJS.Timeout };
 
 /**
@@ -260,10 +266,9 @@ export class RealtimeClient {
   }
 
   /** Send a message, filling in the next `seq`. Returns the seq used. */
-  send(message: Omit<ClientMessage, 'seq'> & { seq?: number }): number {
+  send(message: Unsequenced<ClientMessageInput>): number {
     const seq = message.seq ?? (this.seqCounter += 1);
-    const full = { ...message, seq } as ClientMessage;
-    const validated = ClientMessageSchema.parse(full);
+    const validated = ClientMessageSchema.parse({ ...message, seq });
     this.raw.connection.send(JSON.stringify(validated));
     return seq;
   }

@@ -6,6 +6,9 @@
   "main": "./src/index.ts",
   "scripts": {
     "dev": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/main.ts",
+    "migrate": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/db/migrate.ts up",
+    "migrate:status": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/db/migrate.ts status",
+    "migrate:reset": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/db/migrate.ts reset",
     "build": "tsc -b",
     "typecheck": "tsc -b"
   },

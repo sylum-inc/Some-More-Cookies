@@ -14,8 +14,14 @@ CREATE UNIQUE INDEX identities_provider_subject_unique ON identities (provider, 
 -- One account per verified email address.
 CREATE UNIQUE INDEX identities_verified_email_unique ON identities (lower(email))
   WHERE email IS NOT NULL AND email_verified;
--- One identity per provider per account.
-CREATE UNIQUE INDEX identities_one_per_provider_per_account ON identities (account_id, provider);
+
+-- NOT one identity per provider per account, though `sql/schema.sql` says so.
+-- That index is incompatible with the merge the product actually promises: a
+-- player who roasted on their phone and again on the couch has two `anonymous`
+-- identities, one per device, and absorbing one account into the other has to
+-- carry both — "a merge is never a reset". The index would fail the merge and
+-- lose a device's history. What genuinely must be unique is (provider,
+-- subject), above, and that is what stops a device bootstrapping twice.
 
 -- Handles are unique case-insensitively; the passport claims one on write.
 CREATE UNIQUE INDEX passports_handle_unique ON passports (lower(handle)) WHERE handle IS NOT NULL;
@@ -30,9 +36,14 @@ CREATE UNIQUE INDEX sessions_one_live_per_campsite ON sessions (campsite_id)
 
 -- Reward codes address definitions; grants are claim-once per account.
 CREATE UNIQUE INDEX reward_definitions_code_unique ON reward_definitions (code);
+-- Claim-once, enforced by the database rather than by hope: two requests
+-- racing for the same one-per-player reward both read a count of zero, and the
+-- loser's INSERT is refused here. `merged_in` is excluded because a grant that
+-- arrived with an absorbed account was not claimed by this player twice — see
+-- the note on `reward_grants.merged_in` in 0001.
 CREATE UNIQUE INDEX reward_grants_one_live_per_account_reward
   ON reward_grants (account_id, reward_id)
-  WHERE status <> 'revoked';
+  WHERE status <> 'revoked' AND NOT merged_in;
 
 -- One open or succeeded claim per account per reward.
 CREATE UNIQUE INDEX reward_claims_one_open_per_account_reward

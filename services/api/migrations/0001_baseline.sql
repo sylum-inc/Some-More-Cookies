@@ -197,12 +197,17 @@ CREATE TABLE reward_definitions (
   doc  jsonb NOT NULL
 );
 
+-- `merged_in` marks a grant that arrived on this account because another
+-- account was absorbed into it, rather than because this player claimed it.
+-- Claim-once (0003) applies to claims; a merge is not a claim, and a player who
+-- earned the same stamp on two devices must not lose one by signing in.
 CREATE TABLE reward_grants (
   seq        bigserial   NOT NULL,
   id         text        PRIMARY KEY,
   account_id text        NOT NULL,
   reward_id  text        NOT NULL,
   status     text        NOT NULL,
+  merged_in  boolean     NOT NULL DEFAULT false,
   granted_at timestamptz NOT NULL,
   doc        jsonb       NOT NULL
 );

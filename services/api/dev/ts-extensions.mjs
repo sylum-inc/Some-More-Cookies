@@ -6,8 +6,9 @@
  * `--experimental-strip-types` runs the .ts files directly but does not perform
  * that rewrite, so this hook retries a failed relative `.js` specifier as `.ts`.
  *
- * Used only by `npm run dev` in this package. Tests go through vitest, and a
- * production build goes through `tsc`, so neither path loads this file.
+ * Used only by the `dev` and `migrate*` scripts in this package. Tests go
+ * through vitest, and a production build goes through `tsc`, so neither path
+ * loads this file.
  */
 import { register } from 'node:module';
 

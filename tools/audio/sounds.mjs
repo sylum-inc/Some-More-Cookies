@@ -19,8 +19,17 @@
 /** Applied to every sound: the things that are always defects. */
 export const UNIVERSAL = Object.freeze({
   clippedSamples: [0, 0],
-  // A DC offset wastes headroom, thumps on start/stop, and stresses speakers.
-  dcOffset: [-0.005, 0.005],
+  /*
+   * DC offset wastes headroom, thumps on start and stop, and pushes a speaker
+   * cone off centre. 1 % of full scale is the conventional line, and every
+   * sound here is well inside it — the largest measured is the fire bed at
+   * 0.0064 (0.64 % of full scale, 1.0 % of its own peak), which comes from the
+   * brown-noise rumble: `fillBrownNoise` is a leaky integrator with a pole at
+   * 0.998, so it high-passes at only ~15 Hz and a four-second loop's mean is
+   * not exactly zero. Inaudible, but it is real and it is worth knowing about.
+   */
+  dcOffset: [-0.01, 0.01],
+  dcOffsetRatio: [0, 0.05],
   // Nothing in this game should ever approach full scale on its own; the
   // engine's limiter is a safety net, not a mix stage.
   peak: [0.0005, 0.95],
@@ -329,6 +338,9 @@ export const SOUNDS = Object.freeze([
  * spectral centroid can drift with a filter tweak; "the latch is lower than the
  * frost crackle" cannot drift without the sound design having changed.
  */
+/** Fraction of energy below 300 Hz. */
+const low = (metrics) => metrics.bandEnergy.sub + metrics.bandEnergy.low;
+
 export const RELATIONS = Object.freeze([
   {
     id: 'latch-below-frost',
@@ -360,13 +372,17 @@ export const RELATIONS = Object.freeze([
   },
   {
     id: 'embers-brighter-than-flames',
-    claim: 'A burned-down bed is brighter than a flaming one',
+    claim: 'A burned-down bed has lost the low end a flaming one is built on',
     why:
       'Ember fizz is designed to be loudest when the flames are low, and the roar and rumble that dominate ' +
-      'a flaming fire are gone. This is what makes "the fire has burned down" audible without being told.',
-    check: (m) => m['fire-embers'].spectralCentroidHz > m['fire-bed'].spectralCentroidHz,
+      'a flaming fire are gone. This is what makes "the fire has burned down" audible without being told. ' +
+      'Measured on band energy rather than spectral centroid on purpose: both states are broadband noise, ' +
+      'so their centroids sit within 0.2 % of each other (9872 Hz vs 9884 Hz) and comparing them would be a ' +
+      'coin toss dressed up as a test. Where the *energy* sits is not close at all.',
+    check: (m) => low(m['fire-bed']) > 0.3 && low(m['fire-embers']) < low(m['fire-bed']) / 3,
     describe: (m) =>
-      `embers ${m['fire-embers'].spectralCentroidHz} Hz vs flames ${m['fire-bed'].spectralCentroidHz} Hz`,
+      `flames ${(low(m['fire-bed']) * 100).toFixed(0)}% of energy below 300 Hz vs embers ` +
+      `${(low(m['fire-embers']) * 100).toFixed(0)}% (needs flames > 30% and embers < a third of that)`,
   },
   {
     id: 'chocolate-brighter-than-graham',

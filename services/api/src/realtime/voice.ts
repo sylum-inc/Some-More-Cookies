@@ -101,7 +101,10 @@ class VoiceRegistry {
 
   join(sessionId: string, member: RoomMember): void {
     const room = this.rooms.get(sessionId) ?? new Map<string, RoomMember>();
-    room.set(member.accountId, member);
+    const existing = room.get(member.accountId);
+    // Refreshing a token must not unmute anybody: mute is a state the player
+    // set, not a property of the credential.
+    room.set(member.accountId, existing === undefined ? member : { ...existing, identity: member.identity });
     this.rooms.set(sessionId, room);
   }
 

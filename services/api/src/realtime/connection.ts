@@ -214,6 +214,13 @@ export class WsConnection {
       this.closeTimer = null;
     }
     this.closeInfo = info;
+    // An upgraded socket is half-open by default: the peer's FIN gives us
+    // `end`, never `close`, and node keeps counting it as a live connection
+    // until we tear our side down too. `destroySoon` flushes whatever is still
+    // queued — a close frame, usually — and then lets go.
+    const closable = this.socket as Duplex & { destroySoon?: () => void };
+    if (closable.destroySoon !== undefined) closable.destroySoon();
+    else this.socket.destroy();
     this.handlers.onClose?.(info);
   }
 

@@ -107,7 +107,11 @@ export class PgPool {
     const slot: Slot = { connection, idleSince: Date.now(), leased: true };
     this.slots.push(slot);
     this.startSweeper();
-    this.logger.debug('db.connection_opened', { ...redactConfig(this.config), id: connection.id });
+    this.logger.debug('db.connection_opened', {
+      ...redactConfig(this.config),
+      id: connection.id,
+      serverVersion: connection.describe().serverVersion,
+    });
     return slot;
   }
 
@@ -129,6 +133,9 @@ export class PgPool {
   private discard(slot: Slot): void {
     const index = this.slots.indexOf(slot);
     if (index !== -1) this.slots.splice(index, 1);
+    // Hanging up on a connection does not stop the query behind it; the backend
+    // keeps working until it notices the socket is gone. Ask it to stop.
+    if (slot.leased) slot.connection.cancelInFlight();
     slot.connection.end();
     // Someone waiting can now have the capacity this slot was occupying.
     const waiter = this.waiters.shift();

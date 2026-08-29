@@ -117,8 +117,21 @@ export function createPostgresRewardGrantRepository(pool: PgPool): RewardGrantRe
       return table.mutate([grantId], mutate);
     },
 
+    /**
+     * Merge support. Moved grants are stamped `merged_in`, which lifts them out
+     * of the claim-once index: the surviving account may legitimately end up
+     * holding the same stamp twice, once earned per device.
+     */
     async reassignAccount(fromAccountId, toAccountId) {
-      return table.reassign('account_id', 'accountId', fromAccountId, toAccountId);
+      const result = await pool.query(
+        `UPDATE somemore.reward_grants
+            SET account_id = $2,
+                merged_in = true,
+                doc = jsonb_set(doc, '{accountId}', to_jsonb($2::text), true)
+          WHERE account_id = $1`,
+        [fromAccountId, toAccountId],
+      );
+      return result.rowCount;
     },
   };
 }

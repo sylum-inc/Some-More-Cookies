@@ -297,7 +297,14 @@ export function correlation(a, b) {
   return denominator > 0 ? cov / denominator : 0;
 }
 
-const toDb = (amplitude) => (amplitude > 0 ? 20 * Math.log10(amplitude) : -Infinity);
+/**
+ * dBFS, floored at −200 rather than −Infinity.
+ *
+ * `JSON.stringify` turns Infinity into `null`, which would silently poison
+ * every consumer of the report; a true digital silence reads as −200 dBFS,
+ * which is unambiguous and stays a number.
+ */
+const toDb = (amplitude) => (amplitude > 0 ? Math.max(-200, 20 * Math.log10(amplitude)) : -200);
 const round = (value, digits = 4) => {
   if (!Number.isFinite(value)) return value === Infinity ? Infinity : value === -Infinity ? -Infinity : null;
   const factor = 10 ** digits;
@@ -350,6 +357,12 @@ export function analyse(channels, sampleRate) {
     rmsDbfs: round(toDb(rms), 2),
     crestFactor: round(rms > 0 ? peak / rms : 0, 3),
     dcOffset: round(dcOffset, 6),
+    /**
+     * DC as a fraction of the peak. This, not the absolute figure, is the
+     * meaningful measure: 5 mV of offset on a signal that peaks at full scale
+     * is nothing, and the same offset on a whisper is a fault.
+     */
+    dcOffsetRatio: round(peak > 0 ? Math.abs(dcOffset) / peak : 0, 6),
     clippedSamples: clipped,
     clipFraction: round(clipped / total, 8),
     spectralCentroidHz: round(spectralCentroid(magnitudes, binHz), 1),

@@ -26,6 +26,7 @@ import {
   placeComponent,
   takeSandwich as takeSandwichAction,
   tendFire,
+  toggleRadio,
   vec3,
   type Interactable,
   type MachineEvent,
@@ -39,6 +40,7 @@ import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
 import { Terminal } from './ui/Terminal.js';
+import { RadioDial } from './ui/RadioDial.js';
 import { GLOBAL_CSS, TOKENS, FONT_STACK } from './ui/styles.js';
 import { Store } from './state/store.js';
 import { AdaptiveQuality, applyRenderSettings, probeQualityTier, QUALITY, type QualityTier } from './render/ps1.js';
@@ -88,6 +90,7 @@ export function App({ store }: AppProps): React.ReactElement {
         { id: 'marshmallows', x: LAYOUT.assemblyTable[0] - 0.16, z: LAYOUT.assemblyTable[2] - 0.16, reach: 1.1 },
         { id: 'plate', x: LAYOUT.assemblyTable[0], z: LAYOUT.assemblyTable[2], reach: 1.1 },
         { id: 'log-seat', x: -1.5, z: 0.9, reach: 1.0 },
+        { id: 'radio', x: LAYOUT.radio[0], z: LAYOUT.radio[2], reach: 0.95 },
       ],
     });
   }, [state.environmentId, state.campsiteSeed]);
@@ -239,6 +242,12 @@ export function App({ store }: AppProps): React.ReactElement {
         break;
       case 'log-seat':
         intentRef.current.sit = !player.seated;
+        break;
+      case 'radio':
+        // Picking it up switches it on. Nobody crouches over a dead radio.
+        if (!ritual.radio.on) toggleRadio(ritual, true);
+        store.setOverlay('radio');
+        audioRef.current?.playFoley('stick');
         break;
       default:
         break;
@@ -634,6 +643,15 @@ export function App({ store }: AppProps): React.ReactElement {
           onRender={(partial) => store.updateRender(partial)}
           onAccessibility={(partial) => store.updateAccessibility(partial)}
           onAudio={(partial) => store.updateAudio(partial)}
+          onClose={() => store.setOverlay('none')}
+        />
+      )}
+
+      {state.overlay === 'radio' && (
+        <RadioDial
+          ritual={ritual}
+          textScale={state.accessibility.textScale}
+          onChange={() => store.touch()}
           onClose={() => store.setOverlay('none')}
         />
       )}

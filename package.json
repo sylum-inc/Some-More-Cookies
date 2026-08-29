@@ -19,7 +19,18 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "api": "npm run dev --workspace @somemore/api"
+    "api": "npm run dev --workspace @somemore/api",
+    "test:tools": "vitest run --config tools/vitest.config.mjs",
+    "e2e:acceptance": "playwright test --project=acceptance",
+    "perf": "npm run perf:sim && npm run perf:render && npm run perf:report",
+    "perf:sim": "node --expose-gc tools/perf/sim-bench.mjs",
+    "perf:render": "playwright test --project=perf",
+    "perf:report": "node tools/perf/report.mjs",
+    "visual": "playwright test --project=visual",
+    "visual:update": "playwright test --project=visual --update-snapshots",
+    "visual:measure": "node tools/visual/measure.mjs",
+    "audio:analyse": "node tools/audio/analyse.mjs",
+    "ci:local": "node tools/ci/local.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

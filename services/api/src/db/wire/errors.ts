@@ -34,18 +34,10 @@ export const FOREIGN_KEY_VIOLATION = '23503';
 export const CHECK_VIOLATION = '23514';
 export const SERIALIZATION_FAILURE = '40001';
 export const DEADLOCK_DETECTED = '40P01';
-export const UNDEFINED_TABLE = '42P01';
-export const LOCK_NOT_AVAILABLE = '55P03';
-export const QUERY_CANCELED = '57014';
 export const ADMIN_SHUTDOWN = '57P01';
 export const CRASH_SHUTDOWN = '57P02';
 export const CANNOT_CONNECT_NOW = '57P03';
 export const TOO_MANY_CONNECTIONS = '53300';
-
-export function isUniqueViolation(error: unknown, constraint?: string): boolean {
-  if (!(error instanceof PgError) || error.code !== UNIQUE_VIOLATION) return false;
-  return constraint === undefined || error.constraint === constraint;
-}
 
 /**
  * Transient in the "retrying the whole operation may well succeed" sense:

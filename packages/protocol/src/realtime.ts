@@ -601,6 +601,11 @@ export const ClientMessageSchema = z.discriminatedUnion('t', [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export type ClientMessageType = ClientMessage['t'];
+/**
+ * What a sender may write, before the schema fills in its defaults. Clients
+ * build this; the server only ever handles the parsed {@link ClientMessage}.
+ */
+export type ClientMessageInput = z.input<typeof ClientMessageSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* Server → client                                                             */

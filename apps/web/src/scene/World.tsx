@@ -12,8 +12,10 @@ import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
   advance,
+  animalsPresent,
   beginRoasting,
   bearingFromFire,
+  clamp01,
   createClock,
   createPlayer,
   createWorld,
@@ -23,6 +25,7 @@ import {
   isEmberBed,
   lookDirection,
   operateMachine,
+  setPresence,
   stepPlayer,
   stepRitual,
   tendFire,
@@ -39,6 +42,8 @@ import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
 import { AssemblyTable, RoastingStick, Sandwich } from './RitualObjects.js';
+import { Radio } from './Radio.js';
+import { Wildlife } from './Wildlife.js';
 import type { Vec3 } from '@somemore/sim';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
@@ -53,6 +58,9 @@ export const LAYOUT = {
   /** How far the player stands from the fire while roasting. */
   playerDistance: 1.5,
   assemblyTable: [1.42, 0.34, 1.32] as [number, number, number],
+  /** The log people sit on, and where the radio has been left. */
+  logSeat: [-1.5, 0, 0.9] as [number, number, number],
+  radio: [-1.72, 0.36, 1.14] as [number, number, number],
   machine: [-2.75, 0, 1.75] as [number, number, number],
   /** Yaw so the machine's face (+Z in its local frame) looks into the clearing. */
   machineRotation: 1.03,
@@ -296,6 +304,14 @@ export function World({
         ritual.roastInput.position.z = pose.position.z;
         if (state.accessibility.autoRotate <= 0) ritual.roastInput.rotation = pose.rotation;
       }
+      // What the client knows and the simulation cannot see: where the
+      // player is, how fast, and whether a torch is sweeping the trees. The
+      // world systems read this — it is what makes standing still matter.
+      setPresence(ritual, {
+        speed: player.speed,
+        position: player.position,
+        lightSweep: player.speed > 0.2 ? clamp01(player.speed / 1.6) * 0.35 : 0,
+      });
       stepRitual(ritual, dt);
       onSimStep?.(ritual);
     });
@@ -442,6 +458,16 @@ export function World({
             }
           : {})}
       />
+
+      <Radio
+        radio={ritual.radio}
+        settings={settings}
+        campsiteSeed={state.campsiteSeed}
+        position={LAYOUT.radio}
+        rotationY={-0.7}
+      />
+
+      <Wildlife ritual={ritual} settings={settings} walkable={walkable} />
 
       <Fire
         fire={ritual.fire}

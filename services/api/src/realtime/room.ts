@@ -50,7 +50,7 @@ import {
 } from '@somemore/protocol';
 import type { WsConnection } from './connection.js';
 import { ConnectionMeters, type RealtimeLimitsConfig, wireLimits } from './limits.js';
-import type { BlockDirectory, RealtimeCampsitePort, RealtimeSessionPort } from './types.js';
+import type { BlockDirectory, RealtimeSessionPort } from './types.js';
 import type { VoiceRoom } from './voice.js';
 import type { Clock } from '../clock.js';
 import type { Logger } from '../logging.js';
@@ -75,7 +75,6 @@ export interface RoomOptions {
   readonly seed: number;
   readonly environmentId: string;
   readonly sessions: RealtimeSessionPort;
-  readonly campsites: RealtimeCampsitePort;
   readonly blocks: BlockDirectory;
   readonly voice: VoiceRoom;
   readonly clock: Clock;
@@ -151,11 +150,25 @@ export class SessionRoom {
     return this.peers.get(connectionId);
   }
 
+  /** Is this account here at all — on any of its devices? */
+  private hasAccount(accountId: string): boolean {
+    for (const peer of this.peers.values()) {
+      if (peer.accountId === accountId && !peer.departed) return true;
+    }
+    return false;
+  }
+
   participants(): Participant[] {
     const nowMs = this.nowMs();
-    return [...this.peers.values()]
-      .filter((peer) => peer.joined && !peer.departed)
-      .map((peer) => this.participantFor(peer, nowMs));
+    const seen = new Set<string>();
+    const out: Participant[] = [];
+    // One entry per person, however many devices they are holding.
+    for (const peer of this.peers.values()) {
+      if (!peer.joined || peer.departed || seen.has(peer.accountId)) continue;
+      seen.add(peer.accountId);
+      out.push(this.participantFor(peer, nowMs));
+    }
+    return out;
   }
 
   private participantFor(peer: RoomPeer, nowMs: number): Participant {
@@ -295,12 +308,15 @@ export class SessionRoom {
       await this.loadBlocksFor(input.accountId);
       await this.refreshAuthority(input.accountId);
 
-      // Footsteps first: everybody already at the fire hears them coming.
-      const participant = this.participantFor(peer, nowMs);
-      this.broadcast(
-        { t: 'arrival', tick, participant, path: peer.arrival as ArrivalPath },
-        { fromAccountId: input.accountId },
-      );
+      // Footsteps first: everybody already at the fire hears them coming. A
+      // second device for someone already here is not a second arrival.
+      if (!this.hasAccount(input.accountId)) {
+        const participant = this.participantFor(peer, nowMs);
+        this.broadcast(
+          { t: 'arrival', tick, participant, path: peer.arrival as ArrivalPath },
+          { fromAccountId: input.accountId },
+        );
+      }
 
       this.peers.set(peer.connectionId, peer);
 
@@ -364,6 +380,11 @@ export class SessionRoom {
 
       const nowMs = this.nowMs();
       const tick = this.tick(nowMs);
+
+      // Somebody with a phone and a laptop is still one person at the fire:
+      // losing one socket must not take their marshmallow off them.
+      if (this.hasAccount(peer.accountId)) return;
+
       const heldBefore = [...this.authorityCache.values()]
         .filter((record) => record.holderAccountId === peer.accountId)
         .map((record) => record.objectId);

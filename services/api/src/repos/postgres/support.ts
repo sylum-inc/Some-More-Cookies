@@ -23,11 +23,6 @@ export interface DocTableSpec<T> {
   readonly project: (row: T) => Record<string, SqlParameter>;
 }
 
-/** `$1, $2, …` for `count` parameters starting at `from`. */
-export function placeholders(count: number, from = 1): string {
-  return Array.from({ length: count }, (_, i) => `$${i + from}`).join(', ');
-}
-
 /** The `key` a MemoryTable would have used, for identical error messages. */
 function displayKey(key: readonly string[]): string {
   return key.join(':');
@@ -108,10 +103,6 @@ export class DocTable<T> {
       key,
     );
     return row === null ? null : row.doc;
-  }
-
-  async one<Row>(sql: string, params: readonly SqlParameter[] = []): Promise<Row | null> {
-    return this.pool.maybeOne<Row>(sql, params);
   }
 
   /** First matching document, or null. `where` is appended after `WHERE`. */
@@ -215,9 +206,4 @@ export class DocTable<T> {
     );
     return result.rowCount;
   }
-}
-
-/** `null` for `undefined`, so optional protocol fields become SQL NULL. */
-export function orNull<T>(value: T | undefined | null): T | null {
-  return value ?? null;
 }

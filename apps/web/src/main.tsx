@@ -69,6 +69,17 @@ const store = new Store({
   environmentId,
   campsiteSeed,
   ...(environment ? { weatherProfile: environment.weather } : {}),
+  // The manifest's own types satisfy the simulation's, so the catalogue is
+  // handed straight to the world systems with no adapter in between.
+  ...(environment
+    ? {
+        world: {
+          wildlife: environment.wildlife,
+          radio: environment.radio,
+          secrets: environment.secrets,
+        },
+      }
+    : {}),
 });
 
 /**

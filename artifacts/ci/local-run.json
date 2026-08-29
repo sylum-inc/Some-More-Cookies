@@ -1,0 +1,87 @@
+{
+  "tool": "tools/ci/local.mjs",
+  "ranAt": "2026-08-29T20:38:55.623Z",
+  "passed": false,
+  "steps": [
+    {
+      "id": "typecheck",
+      "job": "verify",
+      "title": "Project-wide TypeScript",
+      "ok": false,
+      "exitCode": 2,
+      "seconds": 9.7
+    },
+    {
+      "id": "unit",
+      "job": "verify",
+      "title": "Unit and integration tests",
+      "ok": false,
+      "exitCode": 1,
+      "seconds": 14.2
+    },
+    {
+      "id": "tools",
+      "job": "verify",
+      "title": "Tests for the measuring instruments",
+      "ok": true,
+      "exitCode": 0,
+      "seconds": 1.4
+    },
+    {
+      "id": "build",
+      "job": "verify",
+      "title": "Production build",
+      "ok": false,
+      "exitCode": 1,
+      "seconds": 5.5
+    },
+    {
+      "id": "acceptance",
+      "job": "acceptance",
+      "title": "Playwright acceptance suite",
+      "ok": false,
+      "exitCode": 1,
+      "seconds": 623
+    },
+    {
+      "id": "perf-sim",
+      "job": "performance",
+      "title": "Simulation benchmark",
+      "ok": true,
+      "exitCode": 0,
+      "seconds": 2.3
+    },
+    {
+      "id": "perf-render",
+      "job": "performance",
+      "title": "Renderer budget instrumentation",
+      "ok": false,
+      "exitCode": 1,
+      "seconds": 8.8
+    },
+    {
+      "id": "perf-report",
+      "job": "performance",
+      "title": "Merged performance report",
+      "ok": true,
+      "exitCode": 0,
+      "seconds": 0.1
+    },
+    {
+      "id": "visual",
+      "job": "visual",
+      "title": "Visual regression",
+      "ok": false,
+      "exitCode": 1,
+      "seconds": 10.1
+    },
+    {
+      "id": "audio",
+      "job": "audio",
+      "title": "Offline audio analysis",
+      "ok": true,
+      "exitCode": 0,
+      "seconds": 2.1
+    }
+  ]
+}

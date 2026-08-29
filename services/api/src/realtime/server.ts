@@ -19,11 +19,9 @@ import {
   REALTIME_CLOSE,
   REALTIME_PATH,
   checkSchemaCompatibility,
-  defaultApproachPath,
   type ClientMessage,
   type MemberRole,
   type RealtimeErrorCode,
-  type Session,
 } from '@somemore/protocol';
 import { ApiError } from '../errors.js';
 import { WsConnection, type ConnectionClose } from './connection.js';
@@ -221,6 +219,9 @@ export function attachRealtime(server: Server, deps: RealtimeDeps): RealtimeHand
   async function handleMessage(connectionId: string, data: string | Buffer, isBinary: boolean): Promise<void> {
     const state = connections.get(connectionId);
     if (state === undefined || state.closed) return;
+    // Once we have decided to hang up, a flood costs us nothing more: no
+    // parsing, no metering, no handlers.
+    if (state.connection.readyState !== 'open') return;
 
     if (isBinary) {
       sendError(state, 'invalid_message', 'This protocol is JSON text; binary frames are not accepted.');
@@ -351,9 +352,8 @@ export function attachRealtime(server: Server, deps: RealtimeDeps): RealtimeHand
      * and a stranger gets the same `not_found` the HTTP API gives, so session
      * ids stay unenumerable.
      */
-    let session: Session;
     try {
-      session = await deps.sessions.get(state.accountId, message.sessionId);
+      await deps.sessions.get(state.accountId, message.sessionId);
     } catch (error) {
       if (message.join === undefined) {
         const mapped = realtimeCodeFor(error);
@@ -366,7 +366,7 @@ export function attachRealtime(server: Server, deps: RealtimeDeps): RealtimeHand
         join: message.join,
         idempotencyKey: `rt-join-${state.id}`,
       });
-      session = await deps.sessions.get(state.accountId, message.sessionId);
+      await deps.sessions.get(state.accountId, message.sessionId);
     }
 
     const joined = await deps.sessions.join(state.accountId, message.sessionId);
@@ -380,7 +380,6 @@ export function attachRealtime(server: Server, deps: RealtimeDeps): RealtimeHand
         seed: campsite.seed,
         environmentId: campsite.environmentId,
         sessions: deps.sessions,
-        campsites: deps.campsites,
         blocks: deps.blocks,
         voice,
         clock: deps.clock,
@@ -397,7 +396,7 @@ export function attachRealtime(server: Server, deps: RealtimeDeps): RealtimeHand
       connection: state.connection,
       session: joined,
       role,
-      approach: message.approach ?? defaultApproachPath(campsite.seed, state.accountId),
+      approach: message.approach,
       voiceMode: message.voice,
       sinceTick: message.sinceTick,
       meters: state.meters,

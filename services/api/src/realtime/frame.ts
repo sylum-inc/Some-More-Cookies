@@ -63,7 +63,6 @@ export function isKnownOpcode(opcode: number): boolean {
 export function applyMask(payload: Buffer, key: Buffer): Buffer {
   if (key.length !== 4) throw new WsProtocolError(1002, 'A masking key must be four bytes.');
   for (let i = 0; i < payload.length; i += 1) {
-    // eslint-disable-next-line no-bitwise
     payload[i] = (payload[i] as number) ^ (key[i & 3] as number);
   }
   return payload;

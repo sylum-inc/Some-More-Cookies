@@ -9,6 +9,10 @@ import { type WeatherState } from '@somemore/sim';
 import { type RenderSettings } from '../render/ps1.js';
 export interface CampsiteProps {
     seed: number;
+    /** Taking a log from the pile — the diegetic route to feeding the fire. */
+    onTakeWood?: (woodId: string) => void;
+    /** Which fuels this campsite offers, in order of what the pile shows. */
+    fuelIds?: readonly string[];
     weather: WeatherState;
     settings: RenderSettings;
     drawDistance: number;
@@ -22,5 +26,5 @@ export interface CampsiteProps {
     /** How many trees to scatter, derived from the manifest's canopy kits. */
     treeCount?: number;
 }
-export declare function Campsite({ seed, weather, settings, drawDistance, palette, treeCount, }: CampsiteProps): React.ReactElement;
+export declare function Campsite({ seed, weather, settings, drawDistance, palette, treeCount, onTakeWood, fuelIds, }: CampsiteProps): React.ReactElement;
 //# sourceMappingURL=Campsite.d.ts.map

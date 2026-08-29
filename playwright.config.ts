@@ -36,8 +36,14 @@ const chromiumPath = findChromium();
  */
 export default defineConfig({
   testDir: './e2e',
-  // The machine run alone is ~50 s, and roasting properly takes longer.
-  timeout: 240_000,
+  /**
+   * The ritual is not fast, and roasting is driven by real pointer input at
+   * real speed. Long simulation waits (the fire burning down, the machine
+   * run) are fast-forwarded through the real model rather than waited out —
+   * see `advanceSeconds` — but the interactions themselves are not, so the
+   * budget still has to be generous.
+   */
+  timeout: 600_000,
   expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,

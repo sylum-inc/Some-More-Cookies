@@ -243,3 +243,52 @@ describe('fire simulation', () => {
     expect(Number.isFinite(fire.flameHeight)).toBe(true);
   });
 });
+
+describe('the arrival fire', () => {
+  it('is burning brightly when the player walks in', () => {
+    // The product's opening image is a person walking through the dark toward
+    // a campfire. If the fire has already collapsed to coals, there is no
+    // image.
+    const fire = createEstablishedFire();
+    const rng = new Rng(1);
+    let peak = 0;
+    for (let i = 0; i < 60 * 30; i++) {
+      stepFire(fire, SIM_DT, rng);
+      peak = Math.max(peak, fire.flame);
+    }
+    expect(peak).toBeGreaterThan(0.75);
+  });
+
+  it('settles to an ember bed inside the ritual’s window', () => {
+    // Spec §5.1: the ritual is 5-8 minutes. Coals arriving at ~3 minutes means
+    // a player who looks around first finds the better roasting surface
+    // waiting for them; coals at 8 minutes would be a chore.
+    const fire = createEstablishedFire();
+    const rng = new Rng(1);
+    let bedAt = -1;
+    for (let i = 0; i < 60 * 600; i++) {
+      stepFire(fire, SIM_DT, rng);
+      if (bedAt < 0 && isEmberBed(fire)) bedAt = (i + 1) * SIM_DT;
+    }
+    expect(bedAt).toBeGreaterThan(60);
+    expect(bedAt).toBeLessThan(260);
+  });
+
+  it('leaves a substantial bed of coals behind, not a dying scrape', () => {
+    const fire = createEstablishedFire();
+    const rng = new Rng(1);
+    for (let i = 0; i < 60 * 300; i++) stepFire(fire, SIM_DT, rng);
+    expect(fire.emberMass).toBeGreaterThan(0.4);
+    expect(fire.emberTemp).toBeGreaterThan(500);
+  });
+
+  it('a fresh log brings the flames straight back', () => {
+    const fire = createEstablishedFire();
+    const rng = new Rng(1);
+    for (let i = 0; i < 60 * 300; i++) stepFire(fire, SIM_DT, rng);
+    expect(fire.flame).toBeLessThan(0.25);
+    addLog(fire, 'pine', 0.85);
+    for (let i = 0; i < 60 * 45; i++) stepFire(fire, SIM_DT, rng);
+    expect(fire.flame).toBeGreaterThan(0.6);
+  });
+});

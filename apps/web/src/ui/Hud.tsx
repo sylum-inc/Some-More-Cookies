@@ -34,7 +34,7 @@ function guidanceFor(ritual: RitualState, stage: RitualStage): string {
     case 'at-fire':
       return isEmberBed(ritual.fire)
         ? 'The fire has burned down to coals. Take a marshmallow when you are ready.'
-        : 'Feed the fire, or take a marshmallow from the bag.';
+        : 'Take a log from the pile, poke the coals, or reach for a marshmallow.';
     case 'roasting':
       return ritual.marshmallow.burning
         ? 'It has caught. Shake it out, or let it burn.'

@@ -12,12 +12,14 @@ import { getEnvironment, listEnvironments, selectEnvironment } from '@somemore/c
 import {
   arrive,
   beginRoasting,
+  SIM_DT,
   bite,
   finishRoasting,
   holdComponent,
   moveComponent,
   operateMachine,
   placeComponent,
+  stepRitual,
   takeSandwich,
   tendFire,
   vec3,
@@ -118,6 +120,22 @@ if (typeof window !== 'undefined') {
         return sandwich;
       }),
       bite: wrap((position = 0) => bite(store.state.ritual, position as number)),
+      /**
+       * Advances the simulation by N seconds without waiting for N seconds of
+       * frames.
+       *
+       * This runs the *real* `stepRitual` at the real fixed timestep — it is
+       * fast-forward, not a stub. It exists because the fixed-timestep clamp
+       * deliberately lets simulated time fall behind wall-clock on slow
+       * hardware (so a stalled tab resumes rather than freezing), which means
+       * a test waiting in wall-clock for the fire to burn down would be
+       * waiting on the renderer, not on the model.
+       */
+      advanceSeconds: wrap((seconds = 1) => {
+        const steps = Math.round((seconds as number) / SIM_DT);
+        for (let i = 0; i < steps; i++) stepRitual(store.state.ritual, SIM_DT);
+        return store.state.ritual.elapsed;
+      }),
     } as unknown as Record<string, (...args: never[]) => unknown>,
   };
 }

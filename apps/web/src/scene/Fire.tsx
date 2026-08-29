@@ -25,9 +25,11 @@ export interface FireProps {
   fire: FireState;
   settings: RenderSettings;
   maxParticles: number;
+  /** Raking the coals — reached by touching the bed itself. */
+  onRake?: () => void;
 }
 
-export function Fire({ fire, settings, maxParticles }: FireProps): React.ReactElement {
+export function Fire({ fire, settings, maxParticles, onRake }: FireProps): React.ReactElement {
   const flamesRef = useRef<THREE.InstancedMesh>(null);
   const embersRef = useRef<THREE.InstancedMesh>(null);
   const sparksRef = useRef<THREE.Points>(null);
@@ -267,8 +269,29 @@ export function Fire({ fire, settings, maxParticles }: FireProps): React.ReactEl
         />
       ))}
 
-      {/* Ash bed */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} receiveShadow>
+      {/* Ash bed. Also the rake target: you poke the coals by reaching into
+          them, not by pressing a control labelled "rake". */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0.005, 0]}
+        receiveShadow
+        onClick={
+          onRake
+            ? (event) => {
+                event.stopPropagation();
+                onRake();
+              }
+            : undefined
+        }
+        onPointerOver={(event) => {
+          if (!onRake) return;
+          event.stopPropagation();
+          if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
+        }}
+        onPointerOut={() => {
+          if (typeof document !== 'undefined') document.body.style.cursor = 'auto';
+        }}
+      >
         <circleGeometry args={[0.42, 12]} />
         {/* Tinted well down: raw ash albedo this close to the fire light
             blows out to white paper and swallows the coals. */}

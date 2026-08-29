@@ -224,11 +224,13 @@ export function createFire(config: Partial<FireConfig> = {}): FireState {
 export function createEstablishedFire(config: Partial<FireConfig> = {}): FireState {
   const fire = createFire(config);
   // Sized so the fire is lively on arrival and settles to a proper ember bed
-  // over the next few minutes — which is roughly when a player reaches the
-  // roasting stage, and is how the "coals are better" discovery presents
-  // itself without ever being taught.
-  fire.logs.push(createLog('oak', { mass: 0.36, moisture: 0.04, ignition: 0.95, burnedFor: 240 }));
-  fire.logs.push(createLog('pine', { mass: 0.2, moisture: 0.03, ignition: 0.9, burnedFor: 180 }));
+  // after two or three minutes — roughly when a player who has looked around
+  // reaches the roasting stage. It has to fit inside the 5-8 minute ritual:
+  // a five-minute wait for coals would be a chore. Flame brightness comes
+  // from burn *rate*, not fuel mass, so a smaller load burns just as
+  // brightly, for less long.
+  fire.logs.push(createLog('oak', { mass: 0.2, moisture: 0.04, ignition: 0.95, burnedFor: 300 }));
+  fire.logs.push(createLog('pine', { mass: 0.1, moisture: 0.03, ignition: 0.9, burnedFor: 240 }));
   fire.emberMass = 0.55;
   fire.emberTemp = 620;
   fire.oxygen = 0.72;

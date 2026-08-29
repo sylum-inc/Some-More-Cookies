@@ -13,6 +13,8 @@ export interface FireProps {
     fire: FireState;
     settings: RenderSettings;
     maxParticles: number;
+    /** Raking the coals — reached by touching the bed itself. */
+    onRake?: () => void;
 }
-export declare function Fire({ fire, settings, maxParticles }: FireProps): React.ReactElement;
+export declare function Fire({ fire, settings, maxParticles, onRake }: FireProps): React.ReactElement;
 //# sourceMappingURL=Fire.d.ts.map

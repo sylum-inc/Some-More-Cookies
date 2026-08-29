@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { act, capture, readWorld, runMachine, waitForWorld } from './helpers.js';
+import { act, advanceUntil, capture, readWorld, runMachine, waitForWorld } from './helpers.js';
 
 /**
  * The Priority 1 acceptance test.
@@ -28,7 +28,8 @@ test.describe('the ritual', () => {
     expect((await readWorld(page)).flame).toBeGreaterThan(0.4);
 
     await page.mouse.click(512, 420);
-    await waitForWorld(page, "r.stage === 'at-fire'", 'arrival');
+    // The walk in is a real animation, so this one is genuinely waited out.
+    await waitForWorld(page, "r.stage === 'at-fire'", 'arrival', 40_000);
     await capture(page, '02-at-fire');
 
     // --- Tend the fire ---------------------------------------------------
@@ -36,9 +37,18 @@ test.describe('the ritual', () => {
     await page.waitForTimeout(800);
     await capture(page, '03-fire-tended');
 
-    // Let it burn down. The ember bed is the better roasting surface, and
-    // the model has to actually reach one.
-    await waitForWorld(page, 'r.fire.flame < 0.2 && r.fire.emberMass > 0.2', 'ember bed', 300_000);
+    // Let it burn down. The ember bed is the better roasting surface, and the
+    // model has to actually reach one.
+    //
+    // Fast-forwarded rather than waited out: the fixed-timestep clamp lets
+    // simulated time fall behind wall-clock on slow hardware by design, so
+    // waiting in real time would be waiting on the software renderer, not on
+    // the fire. `advanceSeconds` runs the real model at the real timestep.
+    await advanceUntil(page, 'r.fire.flame < 0.2 && r.fire.emberMass > 0.2', 'ember bed', 900);
+    await page.waitForTimeout(700);
+    const coals = await readWorld(page);
+    expect(coals.flame, 'the fire should burn down to coals').toBeLessThan(0.2);
+    expect(coals.ember, 'and leave a substantial bed').toBeGreaterThan(0.3);
     await capture(page, '04-ember-bed');
 
     // --- Roast, with real drags -------------------------------------------
@@ -56,7 +66,7 @@ test.describe('the ritual', () => {
     }
     const startedRoast = Date.now();
     let turn = 0;
-    while (Date.now() - startedRoast < 78_000) {
+    while (Date.now() - startedRoast < 70_000) {
       turn++;
       await page.mouse.move(cx + (turn % 2 ? 150 : -150), cy - 35);
       await page.waitForTimeout(240);
@@ -72,7 +82,7 @@ test.describe('the ritual', () => {
 
     // --- Assemble ---------------------------------------------------------
     await act(page, 'finishRoasting');
-    await waitForWorld(page, "r.stage === 'assembling'", 'assembling');
+    await advanceUntil(page, "r.stage === 'assembling'", 'assembling');
     const offsets: [number, number][] = [
       [0.004, 0.002],
       [-0.005, 0.003],
@@ -88,7 +98,7 @@ test.describe('the ritual', () => {
       await page.waitForTimeout(180);
     }
     await capture(page, '09-assembled');
-    await waitForWorld(page, "r.stage === 'machine'", 'machine');
+    await advanceUntil(page, "r.stage === 'machine'", 'machine');
 
     // --- The SM-01 --------------------------------------------------------
     await page.waitForTimeout(1200);
@@ -115,7 +125,7 @@ test.describe('the ritual', () => {
 
     // --- Eat --------------------------------------------------------------
     await act(page, 'takeSandwich');
-    await waitForWorld(page, "r.stage === 'eating'", 'eating');
+    await advanceUntil(page, "r.stage === 'eating'", 'eating');
     await page.waitForTimeout(6000);
     await capture(page, '16-sandwich-in-hand');
 

@@ -17,6 +17,7 @@ import {
   isEmberBed,
   operateMachine,
   stepRitual,
+  tendFire,
   type RitualStage,
   type RitualState,
 } from '@somemore/sim';
@@ -25,6 +26,7 @@ import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
 import { AssemblyTable, RoastingStick, Sandwich } from './RitualObjects.js';
+import type { Vec3 } from '@somemore/sim';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
@@ -84,7 +86,7 @@ interface CameraPose {
   fov: number;
 }
 
-function poseFor(stage: RitualStage, arrivalProgress: number): CameraPose {
+function poseFor(stage: RitualStage, arrivalProgress: number, marshmallow?: Vec3): CameraPose {
   const bearing = LAYOUT.playerBearing;
   const px = Math.cos(bearing);
   const pz = Math.sin(bearing);
@@ -107,15 +109,21 @@ function poseFor(stage: RitualStage, arrivalProgress: number): CameraPose {
     }
     case 'at-fire':
       return { position: [px * 2.1, 1.42, pz * 2.1], target: [0, 0.32, 0], fov: 60 };
-    case 'roasting':
-      // Over the shoulder and slightly down, so both the coals and the
-      // marshmallow are in frame at once — the two things being related is
-      // the whole skill of it.
+    case 'roasting': {
+      // Leaning right in over the coals. Roasting is the tactile heart of the
+      // product, so the marshmallow has to be large enough to read its
+      // browning patch by patch — framed at arm's length, not surveyed from
+      // standing height. The camera follows it, so moving it in and out keeps
+      // both it and the coals beneath it in shot.
+      const target: [number, number, number] = marshmallow
+        ? [marshmallow.x * 0.82, marshmallow.y * 0.86, marshmallow.z * 0.82]
+        : [px * 0.22, 0.14, pz * 0.22];
       return {
-        position: [px * 1.15, 1.02, pz * 1.15],
-        target: [px * 0.2, 0.28, pz * 0.2],
-        fov: 48,
+        position: [px * 0.78, 0.54, pz * 0.78],
+        target,
+        fov: 44,
       };
+    }
     case 'assembling':
       return {
         position: [LAYOUT.assemblyTable[0] + 0.26, 0.86, LAYOUT.assemblyTable[2] + 0.34],
@@ -222,7 +230,7 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
     }
 
     // --- Camera ----------------------------------------------------------
-    const pose = poseFor(ritual.stage, arrivalRef.current);
+    const pose = poseFor(ritual.stage, arrivalRef.current, ritual.marshmallow.position);
     const perspective = camera as THREE.PerspectiveCamera;
     // Reduced motion damps the ease rather than removing it — an instant cut
     // between stages is more disorienting, not less.
@@ -274,6 +282,10 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
         // The environment's own draw distance, capped by the quality tier so
         // a generous site cannot blow the budget on a weak device.
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
+        onTakeWood={(woodId) => {
+          tendFire(ritual, { type: 'add-log', woodId, placement: 0.78 });
+          store.touch();
+        }}
         {...(environment
           ? {
               palette: {
@@ -284,6 +296,8 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
               },
               // Only canopy kits become trees. Summing *all* vegetation would
               // plant a forest on a heather moor, whose density is grass.
+              // Which wood this campsite offers, in the order the pile shows it.
+              fuelIds: environment.fuel.sources.map((source) => source.woodId),
               treeCount: Math.min(
                 88,
                 Math.round(
@@ -296,7 +310,15 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
           : {})}
       />
 
-      <Fire fire={ritual.fire} settings={settings} maxParticles={qualitySettings.maxParticles} />
+      <Fire
+        fire={ritual.fire}
+        settings={settings}
+        maxParticles={qualitySettings.maxParticles}
+        onRake={() => {
+          tendFire(ritual, { type: 'rake' });
+          store.touch();
+        }}
+      />
 
       <group position={LAYOUT.machine} rotation={[0, LAYOUT.machineRotation, 0]}>
         <Machine

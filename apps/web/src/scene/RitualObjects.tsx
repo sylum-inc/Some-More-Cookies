@@ -211,6 +211,45 @@ export function AssemblyTable({ assembly, settings, position = [0, 0, 0] }: Asse
 
   return (
     <group position={position} name="assembly-table">
+      {/* A camp lantern.
+          Assembly happens away from the fire and, by the time a player gets
+          here, the fire has usually burned down to coals — so without its own
+          light source the whole interaction renders black. A lantern on the
+          stump solves that the way a campsite would, rather than with an
+          invisible fill light. */}
+      <group position={[-0.17, 0.09, 0.13]}>
+        <mesh material={materials.plate} position={[0, 0.02, 0]} castShadow>
+          <cylinderGeometry args={[0.035, 0.042, 0.02, 8]} />
+        </mesh>
+        <mesh material={materials.plate} position={[0, 0.115, 0]} castShadow>
+          <cylinderGeometry args={[0.04, 0.033, 0.022, 8]} />
+        </mesh>
+        {/* The glass */}
+        <mesh position={[0, 0.065, 0]}>
+          <cylinderGeometry args={[0.031, 0.031, 0.075, 8, 1, true]} />
+          <meshStandardMaterial
+            color={0xffd9a0}
+            emissive={0xffb765}
+            emissiveIntensity={1.5}
+            transparent
+            opacity={0.55}
+            side={THREE.DoubleSide}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* The mantle */}
+        <mesh position={[0, 0.062, 0]}>
+          <sphereGeometry args={[0.014, 6, 5]} />
+          <meshBasicMaterial color={0xfff0cf} toneMapped={false} />
+        </mesh>
+        {/* Wire handle */}
+        <mesh position={[0, 0.145, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.03, 0.003, 4, 10, Math.PI]} />
+          <meshStandardMaterial color={0x6c6a66} roughness={0.6} metalness={0.5} />
+        </mesh>
+        <pointLight position={[0, 0.07, 0]} distance={1.6} decay={1.5} intensity={2.6} color={0xffce8c} />
+      </group>
+
       {/* Stump table */}
       <mesh material={materials.stump} position={[0, -0.16, 0]} castShadow receiveShadow>
         <cylinderGeometry args={[0.2, 0.22, 0.32, 9]} />

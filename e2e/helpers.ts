@@ -93,24 +93,61 @@ export async function capture(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
+/**
+ * Advances the simulation by a number of seconds through the real model,
+ * then lets a frame render so the screenshot shows the new state.
+ */
+export async function advanceSeconds(page: Page, seconds: number): Promise<void> {
+  await act(page, 'advanceSeconds', seconds);
+  await page.waitForTimeout(500);
+}
+
+/** Fast-forwards in small slices until a condition holds. */
+export async function advanceUntil(
+  page: Page,
+  predicate: string,
+  label: string,
+  maxSeconds = 600,
+): Promise<void> {
+  for (let advanced = 0; advanced < maxSeconds; advanced += 3) {
+    const ok = await page.evaluate((source) => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as Record<string, unknown>;
+      // eslint-disable-next-line no-new-func
+      return Boolean(new Function('r', `return ${source};`)(ritual));
+    }, predicate);
+    if (ok) {
+      await page.waitForTimeout(300);
+      return;
+    }
+    await act(page, 'advanceSeconds', 3);
+  }
+  throw new Error(`Fast-forwarded ${maxSeconds}s without reaching ${label} (${predicate})`);
+}
+
 /** Runs the SM-01 through its full ritual, one control at a time. */
 export async function runMachine(page: Page, onStage?: (name: string) => Promise<void>): Promise<void> {
-  await waitForWorld(page, 'r.machine.door > 0.9', 'door open');
+  await advanceUntil(page, 'r.machine.door > 0.9', 'door open');
   await act(page, 'machine', { type: 'load' });
   await act(page, 'machine', { type: 'close-door' });
-  await waitForWorld(page, "r.machine.stage === 'door-closed'", 'door closed');
+  await advanceUntil(page, "r.machine.stage === 'door-closed'", 'door closed');
   await act(page, 'machine', { type: 'engage-latch' });
   await act(page, 'machine', { type: 'set-program', program: 'standard' });
   await act(page, 'machine', { type: 'confirm' });
   await onStage?.('armed');
   await act(page, 'machine', { type: 'pull-lever' });
-  await waitForWorld(page, "r.machine.stage === 'processing'", 'processing');
-  await page.waitForTimeout(5000);
+
+  // The run itself is fast-forwarded through the real model. Under a software
+  // renderer the fixed-timestep clamp lets simulated time fall behind
+  // wall-clock, so waiting in real time would be measuring the renderer, not
+  // the machine. Each stage is still rendered and screenshotted at the state
+  // the model actually reaches.
+  await advanceUntil(page, "r.machine.stage === 'processing'", 'processing');
+  await advanceSeconds(page, 6);
   await onStage?.('processing');
-  await waitForWorld(page, "r.machine.stage === 'freezing'", 'freezing');
-  await page.waitForTimeout(8000);
+  await advanceUntil(page, "r.machine.stage === 'freezing'", 'freezing');
+  await advanceSeconds(page, 9);
   await onStage?.('freezing');
-  await waitForWorld(page, "r.machine.stage === 'complete'", 'complete');
+  await advanceUntil(page, "r.machine.stage === 'complete'", 'complete');
   await onStage?.('complete');
   await act(page, 'machine', { type: 'release-latch' });
   await act(page, 'machine', { type: 'open-door' });

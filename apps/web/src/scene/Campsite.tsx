@@ -21,6 +21,10 @@ import {
 
 export interface CampsiteProps {
   seed: number;
+  /** Taking a log from the pile — the diegetic route to feeding the fire. */
+  onTakeWood?: (woodId: string) => void;
+  /** Which fuels this campsite offers, in order of what the pile shows. */
+  fuelIds?: readonly string[];
   weather: WeatherState;
   settings: RenderSettings;
   drawDistance: number;
@@ -49,6 +53,8 @@ export function Campsite({
   drawDistance,
   palette = DEFAULT_PALETTE,
   treeCount = 54,
+  onTakeWood,
+  fuelIds = ['oak'],
 }: CampsiteProps): React.ReactElement {
   const fogRef = useRef<THREE.Fog>(null);
   const starsRef = useRef<THREE.Points>(null);
@@ -324,7 +330,8 @@ export function Campsite({
         receiveShadow
       />
 
-      {/* Woodpile — the fuel source the player draws from */}
+      {/* Woodpile — the fuel source the player draws from. Taking a log is a
+          matter of reaching for one, not of pressing a labelled control. */}
       <group position={[1.7, 0, -0.9]} name="woodpile">
         {Array.from({ length: 8 }, (_, i) => (
           <mesh
@@ -334,6 +341,24 @@ export function Campsite({
             position={[(i % 3) * 0.14 - 0.14, 0.07 + Math.floor(i / 3) * 0.13, (i % 2) * 0.06]}
             rotation={[0, 0.1 * i, 0]}
             castShadow
+            onClick={
+              onTakeWood
+                ? (event) => {
+                    event.stopPropagation();
+                    // Different logs in the pile are different wood, so which
+                    // one you reach for genuinely matters to the fire.
+                    onTakeWood(fuelIds[i % fuelIds.length] ?? 'oak');
+                  }
+                : undefined
+            }
+            onPointerOver={(event) => {
+              if (!onTakeWood) return;
+              event.stopPropagation();
+              if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
+            }}
+            onPointerOut={() => {
+              if (typeof document !== 'undefined') document.body.style.cursor = 'auto';
+            }}
           />
         ))}
       </group>

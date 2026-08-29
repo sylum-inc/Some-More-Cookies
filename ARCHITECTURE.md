@@ -112,6 +112,9 @@ Browning follows a temperature-gated sigmoid rate; char begins above a higher th
 | Affine texture instability | UVs passed with `noperspective`-equivalent behaviour: multiply UV by `w` in the vertex shader, divide by an interpolated `w` in the fragment shader, blended by a per-material `affineness` factor |
 | Pixelated textures | All procedural textures use `NearestFilter`, no mipmaps by default, small power-of-two sizes |
 | Dithering | Ordered 4×4 / 8×8 Bayer matrix applied in screen space during the post pass, with quantisation to a reduced colour depth (5:5:5 by default) |
+| Fog | Exponential vertex fog with a short, per-environment draw distance |
+| Crunchy shadows | Low-resolution shadow maps with hard PCF-off comparison, plus baked-feel blob shadows for small props |
+| Restrained animation | Animation sampled at a reduced rate (10–15 Hz) and held, rather than smoothly interpolated |
 
 **The quantisation floor is an art-direction constraint, not a detail.** At
 5 bits per channel the smallest expressible non-zero value is about 8/255, so
@@ -122,9 +125,6 @@ almost nothing until they cleared the floor. Every surface the player must be
 able to see at night has to be lit above it, and `e2e/night.spec.ts` asserts
 that the night stays inside a legible band rather than merely above zero.
 
-| Fog | Exponential vertex fog with a short, per-environment draw distance |
-| Crunchy shadows | Low-resolution shadow maps with hard PCF-off comparison, plus baked-feel blob shadows for small props |
-| Restrained animation | Animation sampled at a reduced rate (10–15 Hz) and held, rather than smoothly interpolated |
 
 ### 4.2 The fidelity bump
 
@@ -199,6 +199,10 @@ Node 22 + TypeScript on `node:http` with a small typed router (ADR-0005). Domain
 **Designed for:** Blender → glTF/GLB with modular kits, atlases, KTX2/Draco compression, LODs, and versioned metadata schemas. Because scene composition already reads from a manifest, swapping a procedural prop for an authored GLB is a manifest edit.
 
 **Live ops** reads the same schemas, so scheduling, preview, rollback, and audit apply to identical content shapes.
+
+Concretely (ADR-0007): live content is an **overlay**, never a replacement. The client boots from the catalogue compiled into it and fetches `GET /v1/content/manifest` afterwards, behind an ETag; a failed, slow or absent fetch leaves a fully working campsite. Documents move `draft → staged → published → retired` and are validated **at publish time by `packages/content`'s own validator** — the same one the compiled catalogue passes — so a malformed environment is an operator's 422 rather than a player's broken world. Every publish, retirement and rollback appends an immutable numbered release; a rollback republishes an earlier release's bodies as new versions rather than rewinding, so the audit trail never loses a step. Activation windows are evaluated server-side against the injected clock, never a client's.
+
+**Physical ↔ digital** (ADR-0008): one signed code format serves package codes, event activations and the multiplayer QR join path. Codes are Ed25519-signed, offline-verifiable, and carry no identity, no capability and no value — the entitlement lives on the print run, server-side. Claim-once is a unique index rather than application logic, and one compromised run is retirable without invalidating every code ever printed.
 
 ---
 

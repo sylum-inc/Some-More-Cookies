@@ -14,14 +14,28 @@ import {
   beginRoasting,
   SIM_DT,
   bite,
+  castLine,
   finishRoasting,
   holdComponent,
+  lieBack,
+  lookAtSky,
   moveComponent,
   operateMachine,
   placeComponent,
+  raiseBinoculars,
+  setTorchFocus,
+  sitOnSeat,
+  skipStone,
+  standFromSeat,
   stepRitual,
+  strikeLine,
+  takeFishingRod,
   takeSandwich,
+  skyTargets,
+  takeStone,
+  takeTorchFromLog,
   tendFire,
+  toggleTorch,
   vec3,
 } from '@somemore/sim';
 import { App } from './App.js';
@@ -77,7 +91,12 @@ const store = new Store({
           wildlife: environment.wildlife,
           radio: environment.radio,
           secrets: environment.secrets,
+          // Several campsites have no water at all, and `scene.water` is
+          // omitted for those — which every activity that needs water checks.
+          ...(environment.scene.water ? { water: environment.scene.water } : {}),
+          skyOpenness: environment.scene.skyOpenness,
         },
+        walkableRadiusM: environment.scene.walkableRadiusM,
       }
     : {}),
 });
@@ -120,6 +139,58 @@ if (typeof window !== 'undefined') {
         tendFire(store.state.ritual, { type: 'add-log', woodId: woodId as string, placement: 0.8 }),
       ),
       rake: wrap(() => tendFire(store.state.ritual, { type: 'rake' })),
+      // --- Secondary activities (spec §5.2) --------------------------------
+      // The same entry points the interface calls when a player walks up to
+      // the log, the shore or the water and touches something.
+      takeTorch: wrap(() => takeTorchFromLog(store.state.ritual)),
+      toggleTorch: wrap((on?: unknown) =>
+        toggleTorch(store.state.ritual, on as boolean | undefined),
+      ),
+      focusTorch: wrap((focus = 0.5) => setTorchFocus(store.state.ritual, focus as number)),
+      takeStone: wrap((id?: unknown) => takeStone(store.state.ritual, id as string | undefined)),
+      skipStone: wrap((power = 0.9, elevation = 0.08, tilt = 0.32, spin = 0.85, bearing = 0) => {
+        const ritual = store.state.ritual;
+        const water = ritual.water;
+        if (!water) return false;
+        const from = vec3(
+          Math.cos(water.shore.bearing) * (water.shore.distanceM - 0.6),
+          1.2,
+          Math.sin(water.shore.bearing) * (water.shore.distanceM - 0.6),
+        );
+        return skipStone(
+          ritual,
+          {
+            power: power as number,
+            elevation: elevation as number,
+            tilt: tilt as number,
+            spin: spin as number,
+            bearing: (bearing as number) || water.shore.bearing,
+          },
+          from,
+        );
+      }),
+      sit: wrap(() => sitOnSeat(store.state.ritual)),
+      stand: wrap(() => standFromSeat(store.state.ritual)),
+      lieBack: wrap((back = true) => lieBack(store.state.ritual, back as boolean)),
+      binoculars: wrap((up = true) => raiseBinoculars(store.state.ritual, up as boolean)),
+      lookAtSky: wrap((azimuth = 0, altitude = 1) =>
+        lookAtSky(store.state.ritual, azimuth as number, altitude as number),
+      ),
+      takeRod: wrap(() => takeFishingRod(store.state.ritual)),
+      cast: wrap((power = 0.6) => {
+        const ritual = store.state.ritual;
+        return castLine(ritual, power as number, ritual.water ? ritual.water.shore.bearing : 0);
+      }),
+      strike: wrap(() => strikeLine(store.state.ritual)),
+      /**
+       * Tonight's constellations, where they actually are.
+       *
+       * The same readout `NightSky.tsx` draws from, exposed so a test can aim
+       * at something real rather than at a hard-coded direction — the sky
+       * turns, so any fixed bearing would be a coin flip.
+       */
+      skyTargets: () =>
+        skyTargets(store.state.ritual.stargazing, store.state.ritual.weather.cloudCover),
       beginRoasting: wrap(() => beginRoasting(store.state.ritual)),
       finishRoasting: wrap(() => finishRoasting(store.state.ritual)),
       holdComponent: wrap(() => holdComponent(store.state.ritual)),

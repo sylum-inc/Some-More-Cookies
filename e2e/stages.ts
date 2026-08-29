@@ -46,6 +46,43 @@ export type StageId = (typeof STAGE_IDS)[number];
 /** Called once the world has settled into each stage. */
 export type StageVisitor = (stage: StageId, page: Page) => Promise<void>;
 
+/**
+ * What the roast actually achieved.
+ *
+ * Read and reported by the suites that use this driver, because a roasting
+ * stage that quietly stops roasting is the exact way a visual baseline and a
+ * performance sample become pictures of nothing while still passing. Browning
+ * is the outcome; `rotation` is the input that produces an even one.
+ */
+export interface RoastOutcome {
+  stage: string;
+  rotation: number;
+  brown: number;
+  char: number;
+  /** Highest minus lowest patch browning: a turned marshmallow evens out. */
+  spread: number;
+}
+
+export async function readRoast(page: Page): Promise<RoastOutcome> {
+  return page.evaluate(() => {
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const r = (window as any).__someMore.store.state.ritual;
+    const patches: { brown: number; char: number }[] = r.marshmallow.patches;
+    const mean = (pick: (p: { brown: number; char: number }) => number) =>
+      patches.reduce((total, p) => total + pick(p), 0) / patches.length;
+    const browns = patches.map((p) => p.brown);
+    const round = (v: number) => Math.round(v * 10000) / 10000;
+    return {
+      stage: r.stage,
+      rotation: round(r.roastInput.rotation),
+      brown: round(mean((p) => p.brown)),
+      char: round(mean((p) => p.char)),
+      spread: round(Math.max(...browns) - Math.min(...browns)),
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+  });
+}
+
 /** Loads the world with a pinned campsite and environment and waits for WebGL. */
 export async function openWorld(page: Page, camp: string, env = 'pine_hollow'): Promise<void> {
   await page.goto(`/?camp=${camp}&env=${env}`);
@@ -62,7 +99,12 @@ export async function openWorld(page: Page, camp: string, env = 'pine_hollow'): 
  * screenshot or a `renderer.info` read sees a fully composed frame rather than
  * the first frame after a state change.
  */
-export async function driveRitual(page: Page, visit: StageVisitor, settleMs = 900): Promise<void> {
+export async function driveRitual(
+  page: Page,
+  visit: StageVisitor,
+  settleMs = 900,
+  onRoast?: (outcome: RoastOutcome) => void,
+): Promise<void> {
   const at = async (stage: StageId): Promise<void> => {
     await page.waitForTimeout(settleMs);
     await visit(stage, page);
@@ -96,6 +138,10 @@ export async function driveRitual(page: Page, visit: StageVisitor, settleMs = 90
     await page.keyboard.press('ArrowRight');
     await act(page, 'advanceSeconds', 1.6);
   }
+  // Measured, not assumed. See `RoastOutcome`: the suites that use this driver
+  // report the result so a roasting stage that has stopped roasting shows up as
+  // a number rather than as a slightly different picture nobody looks at.
+  onRoast?.(await readRoast(page));
   await at('roasted');
 
   // --- Assembly ----------------------------------------------------------

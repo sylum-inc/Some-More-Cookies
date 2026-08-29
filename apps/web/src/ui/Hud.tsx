@@ -15,6 +15,10 @@ export interface HudProps {
   ritual: RitualState;
   /** What is within arm's reach right now, if anything. */
   reach: { id: string } | null;
+  /** How the stone is being held, while there is one. */
+  grip?: ThrowGrip;
+  /** Whether the player is sitting down, so the log can offer the opposite. */
+  seated?: boolean;
   onUse: () => void;
   exploring: boolean;
   stage: RitualStage;
@@ -39,10 +43,57 @@ const REACH_LABELS: Record<string, string> = {
   machine: 'The SM-01',
   plate: 'The plate',
   'log-seat': 'Sit down',
+  radio: 'The radio',
+  torch: 'Take the torch',
+  stones: 'Pick up a stone',
+  'water-edge': 'The water',
+  rod: 'Take the rod',
 };
 
-export function reachLabel(id: string): string {
+/**
+ * What a reachable thing offers *right now*.
+ *
+ * Contextual, because the world offers rather than menus: the log says "stand
+ * up" once you are on it, the torch says "switch it off" once it is in your
+ * hand, and the water says "throw it" once there is a stone in the other one.
+ */
+export function reachLabel(id: string, ritual?: RitualState, seated = false): string {
+  if (ritual) {
+    if (id === 'log-seat') return seated ? 'Stand up' : 'Sit down';
+    if (id === 'torch') return ritual.torch.held ? (ritual.torch.on ? 'Switch it off' : 'Switch it on') : 'Take the torch';
+    if (id === 'water-edge') return ritual.skipping.held ? 'Throw it' : 'Pick up a stone';
+    if (id === 'stones') return ritual.skipping.held ? 'Try another' : 'Pick up a stone';
+    if (id === 'rod') {
+      switch (ritual.fishing.phase) {
+        case 'stowed':
+          return 'Take the rod';
+        case 'nibble':
+          return 'Strike';
+        case 'landed':
+          return 'Put it back';
+        case 'ready':
+        case 'soaking':
+          return 'Cast';
+        default:
+          return 'The rod';
+      }
+    }
+  }
   return REACH_LABELS[id] ?? 'Use';
+}
+
+/**
+ * How the stone is sitting in your hand, in words.
+ *
+ * Never a number and never a rating: these are descriptions of a grip, and a
+ * grip that produces one skip is described exactly as plainly as one that
+ * produces nine (spec §5.2, §5.3).
+ */
+export function describeGrip(power: number, tilt: number, spin: number): string {
+  const wind = power < 0.3 ? 'loose' : power < 0.65 ? 'wound back' : 'wound right back';
+  const face = tilt < 0.18 ? 'edge-on' : tilt < 0.45 ? 'face just open' : tilt < 0.72 ? 'face well open' : 'face flat to the sky';
+  const wrist = spin < 0.2 ? 'no wrist in it' : spin < 0.6 ? 'some wrist' : 'a hard flick';
+  return `${wind}, ${face}, ${wrist}`;
 }
 
 function guidanceFor(ritual: RitualState, stage: RitualStage): string {
@@ -73,6 +124,31 @@ function guidanceFor(ritual: RitualState, stage: RitualStage): string {
     default:
       return '';
   }
+}
+
+/**
+ * A quiet line for whatever the player has picked up.
+ *
+ * Only ever shown while something is actually in hand, and it says what the
+ * thing does rather than what to achieve with it. There is no objective here
+ * and there is nothing to complete.
+ */
+function activityLine(ritual: RitualState, grip: ThrowGrip | undefined): string | null {
+  if (ritual.skipping.phase === 'flying') return null;
+  if (ritual.skipping.held && grip) return describeGrip(grip.power, grip.tilt, grip.spin);
+  if (ritual.fishing.phase === 'nibble') return 'The float goes under.';
+  if (ritual.fishing.phase === 'playing') return 'Something is on.';
+  if (ritual.fishing.phase === 'soaking') return 'The line is out.';
+  if (ritual.stargazing.binoculars) return 'Hold something in view and it will resolve.';
+  if (ritual.stargazing.posture === 'reclined') return 'The sky, for tonight.';
+  return null;
+}
+
+/** The three numbers the throwing gesture writes. Read-only here. */
+export interface ThrowGrip {
+  power: number;
+  tilt: number;
+  spin: number;
 }
 
 export function Hud(props: HudProps): React.ReactElement {
@@ -174,7 +250,7 @@ export function Hud(props: HudProps): React.ReactElement {
               borderRadius: 2,
             }}
           >
-            {reachLabel(props.reach.id)}
+            {reachLabel(props.reach.id, ritual, props.seated ?? false)}
           </button>
         </div>
       )}
@@ -258,6 +334,70 @@ export function Hud(props: HudProps): React.ReactElement {
           {guidanceFor(ritual, stage)}
         </span>
       </div>
+
+      {/* What is in hand, and what it is doing. Placed where the roasting
+          heat readout goes, because it is the same kind of thing: a
+          non-numeric reading of a physical state, in both channels (§12). */}
+      {props.exploring && activityLine(ritual, props.grip) && (
+        <div
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: '13%',
+            transform: 'translateX(-50%)',
+            background: panelBg,
+            padding: `${scale(7)} ${scale(14)}`,
+            borderRadius: 2,
+            textAlign: 'center',
+            maxWidth: '70vw',
+          }}
+        >
+          <div style={{ fontSize: scale(11), letterSpacing: '0.1em', opacity: 0.82 }}>
+            {activityLine(ritual, props.grip)}
+          </div>
+          {ritual.skipping.held && props.grip && (
+            <div
+              style={{
+                height: 4,
+                background: 'rgba(255,255,255,0.16)',
+                marginTop: 6,
+                borderRadius: 2,
+                overflow: 'hidden',
+              }}
+            >
+              <div
+                style={{
+                  height: '100%',
+                  width: `${props.grip.power * 100}%`,
+                  background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
+                }}
+              />
+            </div>
+          )}
+          {ritual.fishing.phase === 'nibble' && (
+            <div style={{ fontSize: scale(11), marginTop: 5, color: TOKENS.ember, fontWeight: 600 }}>now</div>
+          )}
+        </div>
+      )}
+
+      {/* Binoculars. A real optical frame rather than a zoom slider: the field
+          narrows and everything outside it is simply not in the eyepieces. */}
+      {ritual.stargazing.binoculars && (
+        <div
+          aria-hidden
+          data-testid="binoculars"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            pointerEvents: 'none',
+            // One wide field rather than two circles: modern binoculars merge
+            // into a single oval, and two stacked CSS gradients would simply
+            // paint one eyepiece over the other.
+            background:
+              'radial-gradient(ellipse 41% 52% at 50% 50%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.99) 82%)',
+          }}
+        />
+      )}
 
       {/* Subtitles */}
       {props.subtitlesEnabled && props.subtitle && (

@@ -12,10 +12,12 @@ import {
   BITE_POSITIONS,
   patchColor,
   sandwichLayers,
+  terrainHeight,
   type BiteState,
   type MarshmallowState,
   type Patch,
   type SandwichRecord,
+  type WaterBasin,
 } from '@somemore/sim';
 
 // --- Marshmallow -----------------------------------------------------------
@@ -423,26 +425,31 @@ function mulberry(seed: number): () => number {
  * ground was coarse, and a coarse grid is also what makes vertex jitter read
  * as authentic rather than as noise.
  */
-export function createTerrainGeometry(size = 40, segments = 24, seed = 1, amplitude = 0.6): THREE.BufferGeometry {
+export function createTerrainGeometry(
+  size = 40,
+  segments = 24,
+  seed = 1,
+  amplitude = 0.6,
+  basin?: WaterBasin,
+): THREE.BufferGeometry {
   const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
   geometry.rotateX(-Math.PI / 2);
-  const rng = mulberry(seed);
   const position = geometry.getAttribute('position') as THREE.BufferAttribute;
-  const heights: number[] = [];
-  for (let i = 0; i < position.count; i++) heights.push(rng());
 
+  // Heights come from `terrainHeight`, the same analytic function the
+  // simulation walks on.
+  //
+  // This used to be a separate formula with per-vertex `mulberry` randomness,
+  // which meant the drawn ground and the walked ground disagreed — measured at
+  // up to 0.40 m on the shipping campsite, which is a floating or sunken
+  // camera as soon as anybody walks off the flat. `locomotion.ts` already
+  // says analytic terrain is why the two can never disagree; it was only true
+  // of one of them.
   for (let i = 0; i < position.count; i++) {
-    const x = position.getX(i);
-    const z = position.getZ(i);
-    const distance = Math.hypot(x, z);
-    // Flatten the clearing so the fire, the machine and the player stand on
-    // level ground; undulate only further out.
-    const flatten = Math.min(1, Math.max(0, (distance - 3.5) / 6));
-    const h =
-      (Math.sin(x * 0.35) * Math.cos(z * 0.28) * 0.5 + ((heights[i] as number) - 0.5) * 0.6) *
-      amplitude *
-      flatten;
-    position.setY(i, h);
+    position.setY(
+      i,
+      terrainHeight(position.getX(i), position.getZ(i), seed, amplitude, basin),
+    );
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();

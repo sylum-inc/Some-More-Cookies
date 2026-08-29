@@ -9,7 +9,7 @@
 import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { clamp01, curatedSky, CONSTELLATIONS, type WeatherState } from '@somemore/sim';
+import { clamp01, curatedSky, type WaterBasin, type WeatherState } from '@somemore/sim';
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import {
@@ -37,6 +37,14 @@ export interface CampsiteProps {
   };
   /** How many trees to scatter, derived from the manifest's canopy kits. */
   treeCount?: number;
+  /**
+   * The ground going down to the water, where this campsite has any.
+   *
+   * Passed straight through to `createTerrainGeometry`, which reads the same
+   * `terrainHeight` the player walks on — so the shore the renderer draws and
+   * the shore the player wades into are the same shore.
+   */
+  basin?: WaterBasin;
 }
 
 const DEFAULT_PALETTE = {
@@ -55,12 +63,18 @@ export function Campsite({
   treeCount = 54,
   onTakeWood,
   fuelIds = ['oak'],
+  basin,
 }: CampsiteProps): React.ReactElement {
   const fogRef = useRef<THREE.Fog>(null);
   const starsRef = useRef<THREE.Points>(null);
   const rainRef = useRef<THREE.Points>(null);
 
-  const terrain = useMemo(() => createTerrainGeometry(46, 26, seed, 0.7), [seed]);
+  // A finer grid where there is water: a two-metre creek channel is invisible
+  // at 1.8 m per segment, and the shore is the one edge that has to read.
+  const terrain = useMemo(
+    () => createTerrainGeometry(46, basin ? 44 : 26, seed, 0.7, basin),
+    [seed, basin],
+  );
 
   const groundMaterial = useMemo(
     () =>
@@ -181,7 +195,7 @@ export function Campsite({
     let index = 0;
 
     // Field stars.
-    for (let i = 0; i < count - 30; i++) {
+    for (let i = 0; i < count; i++) {
       // Upper hemisphere only.
       const theta = rng() * Math.PI * 2;
       const phi = Math.acos(rng() * 0.95);
@@ -197,26 +211,11 @@ export function Campsite({
       index++;
     }
 
-    // Recognisable constellations, placed around the dome.
-    for (const constellation of CONSTELLATIONS) {
-      const baseTheta = (constellation.raHours / 24) * Math.PI * 2;
-      const basePhi = Math.acos(Math.max(-0.9, Math.min(0.9, constellation.decDeg / 90))) * 0.6;
-      for (const star of constellation.stars) {
-        if (index >= count) break;
-        const theta = baseTheta + star[0] * 0.16;
-        const phi = basePhi + star[1] * 0.16;
-        const r = 120;
-        positions[index * 3] = Math.sin(phi) * Math.cos(theta) * r;
-        positions[index * 3 + 1] = Math.abs(Math.cos(phi)) * r + 25;
-        positions[index * 3 + 2] = Math.sin(phi) * Math.sin(theta) * r;
-        // Brighter magnitudes are lower numbers.
-        const brightness = Math.max(0.4, 1.15 - star[2] * 0.28);
-        colors[index * 3] = brightness;
-        colors[index * 3 + 1] = brightness;
-        colors[index * 3 + 2] = brightness;
-        index++;
-      }
-    }
+    // The named constellations are *not* here. They used to be scattered
+    // around the dome by a decorative formula that had nothing to do with
+    // where they are, which meant they could not be found and so could not be
+    // looked for. `NightSky.tsx` draws them at the real altitude and azimuth
+    // the astronomy model computes; these are the anonymous ones.
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));

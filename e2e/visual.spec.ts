@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { expect, test } from '@playwright/test';
 
 import { sampleFrame, type FrameMetrics } from './instrument.js';
-import { driveRitual, openWorld, type StageId } from './stages.js';
+import { driveRitual, openWorld, type RoastOutcome, type StageId } from './stages.js';
 import { HEALTH, TOLERANCE, checkFrameHealth } from '../tools/visual/rules.mjs';
 
 /**
@@ -60,6 +60,8 @@ test.describe('visual regression', () => {
     const metrics: FrameMetrics[] = [];
     const failures: string[] = [];
     const noise: { stage: string; ratio: number }[] = [];
+    let roast: RoastOutcome | null = null;
+    const warnings: string[] = [];
 
     await openWorld(page, 'camp-visual');
 
@@ -98,7 +100,43 @@ test.describe('visual regression', () => {
       // Longer settle than the perf suite: a screenshot of a half-composed
       // frame is a false positive nobody can debug.
       1400,
+      (outcome) => {
+        roast = outcome;
+      },
     );
+
+    /*
+     * Did the roasting stages actually roast?
+     *
+     * This is not a pixel question and it is not a performance question, but it
+     * decides whether the `roasting`, `roasted` and every downstream baseline is
+     * a picture of the thing it is named after — the finished sandwich's
+     * appearance is derived from this roast. A driver whose input silently stops
+     * reaching the simulation still produces sixteen plausible screenshots.
+     *
+     * Reported rather than failed, because the roasting *interaction* is the
+     * acceptance suite's job (`ritual.spec.ts` asserts it directly and is the
+     * right place for it to go red). What would be wrong is for this suite to
+     * keep quietly blessing baselines of an unroasted marshmallow.
+     */
+    if (roast) {
+      const r = roast as RoastOutcome;
+      if (r.rotation === 0) {
+        warnings.push(
+          `The marshmallow never turned: roastInput.rotation is ${r.rotation} after 24 ArrowRight presses. ` +
+            'Arrow keys now also drive walking, so the roast stages here are one-sided and every baseline ' +
+            'downstream of them shows a marshmallow browned on one face only. The keyboard-only roasting ' +
+            'path is the accessibility alternative to the drag (spec §12); ritual.spec.ts asserts it and is ' +
+            'the test that should be red for it.',
+        );
+      }
+      if (r.brown < 0.02) {
+        warnings.push(
+          `The marshmallow barely browned (mean ${r.brown}). These baselines are of a raw marshmallow, ` +
+            'which makes the roasting, assembly and reveal stages far weaker evidence than they look.',
+        );
+      }
+    }
 
     if (MEASURING) {
       const tolerance = (stage: string) =>
@@ -149,6 +187,8 @@ test.describe('visual regression', () => {
           thresholds: HEALTH,
           pixelTolerances: TOLERANCE,
           amberToBlue: { processingWarmth: processing.warmth, freezingWarmth: freezing.warmth },
+          roast,
+          warnings,
           stages: metrics,
           proves:
             'That every ritual stage renders a lit, non-uniform, coloured picture that matches a reviewed ' +
@@ -173,7 +213,12 @@ test.describe('visual regression', () => {
         ),
         '',
         `  amber→blue: processing warmth ${processing.warmth.toFixed(3)} > freezing warmth ${freezing.warmth.toFixed(3)}`,
+        roast
+          ? `  roast reached: brown ${(roast as RoastOutcome).brown}, char ${(roast as RoastOutcome).char}, ` +
+            `rotation ${(roast as RoastOutcome).rotation}, one-sidedness ${(roast as RoastOutcome).spread}`
+          : '  roast: not measured',
         '',
+        ...warnings.flatMap((warning) => ['  WARNING: ' + warning, '']),
       ].join('\n'),
     );
 

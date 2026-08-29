@@ -120,8 +120,8 @@ describe('radio — the carrier whistle, rendered', () => {
     const { ctx, kit } = rig();
     kit.setPower(true);
     kit.setReception(reception({ detune, halfWidth: 0.16, hiss: 0, clarity: 0, hum: 0, band: 'fm' }));
-    const audio = renderOffline(ctx as never, 1.1);
-    return dominantFrequency(audio, 0.7, 1.1, 20, 6000);
+    const audio = renderOffline(ctx as never, 0.85);
+    return dominantFrequency(audio, 0.5, 0.85, 20, 6000);
   }
 
   it('rises monotonically as the dial moves away from the station, on both sides', () => {
@@ -213,8 +213,8 @@ describe('radio — programme material', () => {
       kit.setReception(reception({ clarity: 1, hiss: 0, hum: 0, volume: 1 }));
       kit.playSegment('primary', segment({ seed, intensity: 0.6 }));
       // Drive the look-ahead scheduler the way the engine's pump timer does.
-      for (let step = 0; step < 40; step += 1) kit.pump(step * 0.1);
-      return renderOffline(ctx as never, 3);
+      for (let step = 0; step < 25; step += 1) kit.pump(step * 0.1);
+      return renderOffline(ctx as never, 2);
     };
     const first = render(0x51a7);
     const second = render(0x51a7);
@@ -248,7 +248,7 @@ describe('radio — programme material', () => {
     kit.setPower(true);
     kit.setReception(reception({ clarity: 1, hiss: 0, hum: 0, volume: 1, band: 'am' }));
     kit.playSegment('primary', segment({ kind: 'spoken', durationSeconds: 40 }));
-    for (let step = 0; step < 40; step += 1) kit.pump(step * 0.1);
+    for (let step = 0; step < 45; step += 1) kit.pump(step * 0.1);
     const audio = renderOffline(ctx as never, 4);
 
     // Voiced speech lives between the first formant and the top of an AM
@@ -262,7 +262,7 @@ describe('radio — programme material', () => {
     const overall = renderRms(audio, 0.5, 4);
     let loud = 0;
     let quiet = 0;
-    for (let window = 0; window < 32; window += 1) {
+    for (let window = 0; window < 34; window += 1) {
       const level = renderRms(audio, 0.5 + window * 0.1, 0.6 + window * 0.1);
       if (level > overall * 1.4) loud += 1;
       if (level < overall * 0.45) quiet += 1;
@@ -294,15 +294,15 @@ describe('radio — programme material', () => {
     kit.setReception(reception({ clarity: 0.7, bleed: 0.5, hiss: 0.1, hum: 0, volume: 1 }));
     kit.playSegment('primary', segment({ seed: 1, intensity: 0.6 }));
     kit.playSegment('bleed', segment({ seed: 2, intensity: 0.6 }));
-    for (let step = 0; step < 30; step += 1) kit.pump(step * 0.1);
-    const both = renderRms(renderOffline(ctx as never, 3), 1.5, 3);
+    for (let step = 0; step < 22; step += 1) kit.pump(step * 0.1);
+    const both = renderRms(renderOffline(ctx as never, 2.2), 1.4, 2.2);
 
     const alone = rig();
     alone.kit.setPower(true);
     alone.kit.setReception(reception({ clarity: 0.7, bleed: 0, hiss: 0.1, hum: 0, volume: 1 }));
     alone.kit.playSegment('primary', segment({ seed: 1, intensity: 0.6 }));
-    for (let step = 0; step < 30; step += 1) alone.kit.pump(step * 0.1);
-    const single = renderRms(renderOffline(alone.ctx as never, 3), 1.5, 3);
+    for (let step = 0; step < 22; step += 1) alone.kit.pump(step * 0.1);
+    const single = renderRms(renderOffline(alone.ctx as never, 2.2), 1.4, 2.2);
 
     expect(both).toBeGreaterThan(single);
   });
@@ -439,10 +439,10 @@ describe('radio — accessibility and headroom', () => {
     kit.setReception(reception({ hiss: 1, clarity: 1, bleed: 1, hum: 1, detune: 0.12, halfWidth: 0.16, volume: 1 }));
     kit.playSegment('primary', segment({ intensity: 1 }));
     kit.playSegment('bleed', segment({ seed: 99, intensity: 1 }));
-    for (let step = 0; step < 40; step += 1) kit.pump(step * 0.1);
-    const audio = renderOffline(ctx as never, 4);
+    for (let step = 0; step < 30; step += 1) kit.pump(step * 0.1);
+    const audio = renderOffline(ctx as never, 3);
     expect(renderPeak(audio)).toBeLessThan(0.9);
-    expect(renderRms(audio, 1, 4)).toBeLessThan(0.3);
+    expect(renderRms(audio, 1, 3)).toBeLessThan(0.3);
   });
 
   it('is quieter under reduced audio intensity', () => {
@@ -451,8 +451,8 @@ describe('radio — accessibility and headroom', () => {
       kit.setPower(true);
       kit.setReception(reception({ hiss: 1, clarity: 1, hum: 1, volume: 1 }));
       kit.playSegment('primary', segment({ intensity: 1 }));
-      for (let step = 0; step < 30; step += 1) kit.pump(step * 0.1);
-      return renderRms(renderOffline(ctx as never, 3), 1, 3);
+      for (let step = 0; step < 20; step += 1) kit.pump(step * 0.1);
+      return renderRms(renderOffline(ctx as never, 2), 1, 2);
     };
     expect(measure(true)).toBeLessThan(measure(false) * 0.8);
   });

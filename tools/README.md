@@ -239,6 +239,30 @@ Those are human judgements, and a baseline is only ever as good as the person
 who approved it. Risk R3 ("the sandwich may not look delicious") is not
 addressed by any of this.
 
+#### The roast check, and why it exists
+
+The suite also measures what the roasting stages actually achieved — mean
+browning, char, `roastInput.rotation`, and the spread between the lightest and
+darkest patch — and prints it next to the frame metrics.
+
+This is not a pixel question, but it decides whether `roasting`, `roasted` and
+every baseline downstream of them (the finished sandwich's appearance is derived
+from the roast) is a picture of the thing it is named after. A driver whose
+input silently stops reaching the simulation still produces sixteen perfectly
+plausible screenshots, and a pixel comparison against baselines captured under
+the same broken driver will happily pass forever.
+
+**It caught exactly that.** `ArrowLeft`/`ArrowRight` no longer turn the
+marshmallow: the explorable-campsite work bound the arrow keys to walking, and
+`movementControl`'s `normaliseKey` consumes them first, so
+`roastInput.rotation` stays at `0` through 24 presses. The stages still roast —
+walking around the fire changes the bearing — but one-sidedly (spread 0.16), and
+the keyboard-only roasting path that spec §12 offers as the accessibility
+alternative to the drag is currently broken. The acceptance suite asserts that
+path directly and is correctly red for it; this suite reports it as a warning
+rather than failing, because its job is baselines, not interaction — but it
+refuses to bless them silently.
+
 ### `npm run audio:analyse` — offline audio analysis
 
 `tools/audio/`. The answer to "nobody has heard it" — as far as a machine can

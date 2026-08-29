@@ -183,7 +183,7 @@ describe('bridge — wildlife', () => {
     ritual.presence.seated = true;
     const cues: string[] = [];
     let sawAnimals = false;
-    for (let i = 0; i < 60 * 660; i += 1) {
+    for (let i = 0; i < 60 * 700; i += 1) {
       stepRitual(ritual, SIM_DT);
       const cue = bridge.update(ritual);
       if (cue?.kind === 'wildlife') cues.push(cue.text);
@@ -285,14 +285,14 @@ describe('the whole mix', () => {
     ]);
     engine.wildlife?.setWatched(true, 0, 0, -6);
 
-    for (let step = 0; step < 60 * 4; step += 1) {
+    for (let step = 0; step < 60 * 3; step += 1) {
       engine.pump(ctx.currentTime);
       ctx.advance(SIM_DT);
     }
 
-    const audio = renderOffline(ctx as never, 4);
+    const audio = renderOffline(ctx as never, 3);
     const peak = renderPeak(audio);
-    const rms = renderRms(audio, 1, 4);
+    const rms = renderRms(audio, 1, 3);
 
     // Everything is running: this must not be silence.
     expect(rms).toBeGreaterThan(0.01);

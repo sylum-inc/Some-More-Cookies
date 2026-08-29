@@ -406,6 +406,7 @@ silence is information too.
 | `phase` | Rustle rate (`PHASE_MOVEMENT_RATE`: 3.2/s fleeing → 0.12/s watching → 0 absent) and call rate (`PHASE_CALL_RATE`). A watching animal is nearly silent, because stillness is the mechanic. |
 | `distanceM` | Air and undergrowth take the top off (`distanceCutoffHz`); beyond 26 m there is nothing to hear over the fire. Level is the panner's job. |
 | `alarm` | Shortens the call ×0.72, lifts it ×1.18 and adds a repeat above 0.6. |
+| `interest` | Call rate ×0.7→×1.35. |
 
 ### Machine
 `fanRamp(speed)` → level `0.34·s^1.15`, cutoff 260→5200 Hz (log), blade tone
@@ -428,7 +429,14 @@ silence is information too.
 * **Nothing depends on hearing.** The engine is a redundant channel: it never
   carries information that is not also available visually, and every mapping is
   a pure function the UI can read (`mapFireState`, `insectActivity`,
-  `fanCurve`, `frostTickRate`) to drive an equivalent visual or haptic cue. When
+  `fanCurve`, `frostTickRate`, `mapRadioState`, `speciesVoice`, `movementRate`)
+  to drive an equivalent visual or haptic cue. The two layers that carry the
+  most information — the dial and the animals — also produce **subtitle lines**:
+  `AudioBridge.update` returns an `AudioCue` whenever a station identifies
+  itself, a segment changes, or something appears out of the dark. The copy is
+  `describeReception` and `describeSighting` from the simulation, never a
+  parallel vocabulary invented in the audio layer, and the caller decides
+  whether the player has subtitles switched on. When
   WebAudio is unavailable, `resume()` returns `false`, every method becomes a
   no-op, and the game is unaffected.
 

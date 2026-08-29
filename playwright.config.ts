@@ -78,6 +78,12 @@ export default defineConfig({
    */
   projects: [
     { name: 'acceptance', testMatch: /ritual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * The secondary activities (spec §5.2). Separate from `acceptance` because
+     * they fail on a different thing: not "the ritual stopped working" but
+     * "you can no longer do anything at this campsite except make a s'more".
+     */
+    { name: 'activities', testMatch: /activities\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'visual', testMatch: /visual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*

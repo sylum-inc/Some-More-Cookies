@@ -237,29 +237,34 @@ describe('wildlife — one-shots', () => {
     expect(renderPeak(audio)).toBeLessThan(0.35);
   });
 
-  it('schedules movement from the tracked animals and stops when they leave', () => {
+  it('schedules movement from the tracked animals and stops when they leave', { timeout: 30_000 }, () => {
     const { ctx, kit } = rig();
     kit.setAnimals([animal({ phase: 'approaching', distanceM: 6, x: 3, z: -4 })]);
     let scheduled = 0;
-    for (let step = 0; step < 200; step += 1) {
+    for (let step = 0; step < 600; step += 1) {
       scheduled += kit.pump(step * 0.1);
       ctx.advance(0.1);
     }
-    // An approaching animal disturbs the undergrowth about once a second, so
-    // twenty seconds of it is a stream of events, not a handful.
-    expect(scheduled).toBeGreaterThan(8);
-    const audio = renderOffline(ctx as never, 20);
-    expect(renderRms(audio, 0, 20)).toBeGreaterThan(0.0005);
+    // `movementRate('approaching', 0.55, 6)` is 1.05 events a second, so a
+    // minute of it should be somewhere around sixty. The bounds are wide
+    // because it is a Poisson process, but they are bounds on the *rate*, not
+    // merely on "something happened".
+    expect(scheduled).toBeGreaterThan(30);
+    expect(scheduled).toBeLessThan(110);
+    // Rendering the first six seconds is enough to prove it is audible; the
+    // rest is only there to give the scheduler room to run.
+    const audio = renderOffline(ctx as never, 6);
+    expect(renderRms(audio, 0, 6)).toBeGreaterThan(0.0005);
 
     const quiet = rig();
     quiet.kit.setAnimals([]);
     let none = 0;
-    for (let step = 0; step < 200; step += 1) {
+    for (let step = 0; step < 600; step += 1) {
       none += quiet.kit.pump(step * 0.1);
       quiet.ctx.advance(0.1);
     }
     expect(none).toBe(0);
-    expect(renderPeak(renderOffline(quiet.ctx as never, 20))).toBe(0);
+    expect(renderPeak(renderOffline(quiet.ctx as never, 6))).toBe(0);
   });
 });
 
@@ -332,11 +337,11 @@ describe('wildlife — accessibility and headroom', () => {
     for (const each of crowd) kit.call(each, 0.1);
     kit.startle(crowd[0] as WildlifeAnimalAudio, 0.2);
     kit.tookObject(1, 0, -1, 1.4, 0.3);
-    for (let step = 0; step < 40; step += 1) {
+    for (let step = 0; step < 28; step += 1) {
       kit.pump(step * 0.1);
       ctx.advance(0.1);
     }
-    const audio = renderOffline(ctx as never, 4);
+    const audio = renderOffline(ctx as never, 3);
     expect(renderPeak(audio)).toBeLessThan(0.8);
   });
 

@@ -76,6 +76,7 @@ export interface WildlifeAnimalAudio {
   distanceM: number;
   phase: WildlifeAudioPhase;
   alarm: number;
+  /** 0..1 how taken with the camp it currently is. Scales how much it says. */
   interest: number;
 }
 
@@ -460,7 +461,8 @@ export class WildlifeKit implements PumpableLayer {
       const animal = animals[i];
       if (!animal) continue;
       const rate = movementRate(animal.phase, animal.shyness, animal.distanceM);
-      const voice = callRate(animal.phase, animal.curiosity, animal.distanceM);
+      // An animal that is taken with the camp has more to say about it.
+      const voice = callRate(animal.phase, animal.curiosity, animal.distanceM) * lerp(0.7, 1.35, clamp01(animal.interest));
       let tracked = this.animals[this.animalCount];
       if (!tracked) {
         tracked = {

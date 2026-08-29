@@ -82,10 +82,22 @@ describe('hard limits', () => {
     client.send(joinMessage(session.id));
     await client.waitFor('welcome');
 
+    // Served normally first, rather than punished from the off. Waiting for
+    // the last of these acks is also what makes the rest of this test
+    // deterministic: firing the flood without synchronising here races the
+    // close against the acks still in flight, and the client can observe zero
+    // of them.
+    for (let i = 0; i < 6; i += 1) {
+      client.sendRaw({ seq: i + 100, t: 'chat', text: 'hello' });
+    }
+    await client.waitFor('ack', (message) => message.seq === 105);
+    const servedNormally = client.all('ack').length;
+    expect(servedNormally).toBeGreaterThanOrEqual(6);
+
     // The manual clock does not advance, so nothing refills: this is a client
     // that has been told to slow down and has not.
     for (let i = 0; i < 400; i += 1) {
-      client.sendRaw({ seq: i + 100, t: 'chat', text: 'more' });
+      client.sendRaw({ seq: i + 200, t: 'chat', text: 'more' });
     }
 
     const closed = await client.waitForClose();
@@ -96,8 +108,6 @@ describe('hard limits', () => {
     const limited = client.all('error').filter((m) => m.code === 'rate_limited');
     expect(limited.length).toBeGreaterThan(0);
     expect(limited.length).toBeLessThanOrEqual(rig.realtime.limits.rateLimitStrikes + 1);
-    // ...and it was served normally first, rather than punished from the off.
-    expect(client.all('ack').length).toBeGreaterThan(5);
     expect(client.all('ack').length + limited.length).toBeLessThan(400);
   });
 

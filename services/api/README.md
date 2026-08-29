@@ -115,7 +115,10 @@ every test case starts from a truncated schema — the closest a real database
 gets to `new Map()`. `services/api/test/postgres.test.ts` adds the cases that
 only a real database can fail: two requests racing on one idempotency key, two
 simultaneous claims of a one-per-player reward, contended authority hand-off,
-concurrent read-modify-write on one aggregate, and migration re-run idempotency.
+concurrent read-modify-write on one aggregate, migration re-run idempotency,
+two people scanning the same wrapper at the same instant, one account racing
+three codes from a one-per-account run, and two operators publishing different
+versions of the same content slug.
 Those are skipped, loudly, without `DATABASE_URL`.
 
 ### Tests
@@ -757,6 +760,16 @@ semantics, and the migrations say so where they diverge:
 | `identities_one_per_provider_per_account` | Not created. | A player who roasted on their phone and again on the couch has two `anonymous` identities, one per device. Absorbing one account into the other must carry both — "a merge is never a reset". The index fails the merge and loses a device's history. `(provider, subject)` stays unique, and that is what stops a device bootstrapping twice. |
 | `reward_claims_nonce_unique` | A plain index. | The rewards domain does something more useful with a replayed nonce than refusing the insert: it records the second claim, raises `duplicate_client_nonce`, and points `antiAbuse.duplicateOfClaimId` at the original. A unique index makes that evidence unstorable. |
 | Cross-aggregate foreign keys | Not created. | Repository interfaces are per-aggregate and promise no write ordering between them — an analytics event may legitimately name an account that never existed. An FK there is an invariant the domain does not hold. |
+
+The same is true of the two systems added since:
+`content_documents_one_published` is a partial unique index, so two versions of
+one slug can never both be live and the manifest can never contain a state no
+release recorded; `code_redemptions_one_per_code` and
+`code_redemptions_one_per_account` are what make "one grant, one refusal" true
+when two phones scan the same photographed wrapper in the same millisecond.
+`code_redemptions.per_account_key` exists because a partial unique index cannot
+consult another table — it is the batch's one-per-account rule projected onto the
+row that has to obey it.
 
 Claim-once *is* enforced by the database:
 `reward_grants_one_live_per_account_reward` is a partial unique index, and it is

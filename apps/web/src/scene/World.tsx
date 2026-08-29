@@ -19,12 +19,14 @@ import {
   createClock,
   createPlayer,
   createWorld,
+  distanceFromFire,
   eyePosition,
   focused,
   terrainHeight,
   isEmberBed,
   lookDirection,
   operateMachine,
+  pointTorch,
   setPresence,
   stepPlayer,
   stepRitual,
@@ -33,6 +35,7 @@ import {
   type Interactable,
   type MoveIntent,
   type PlayerState,
+  type PresenceInput,
   type RitualStage,
   type RitualState,
   type WalkableWorld,
@@ -44,6 +47,9 @@ import { Machine } from './Machine.js';
 import { AssemblyTable, RoastingStick, Sandwich } from './RitualObjects.js';
 import { Radio } from './Radio.js';
 import { Wildlife } from './Wildlife.js';
+import { Shore } from './Shore.js';
+import { Torch } from './Torch.js';
+import { NightSky } from './NightSky.js';
 import type { Vec3 } from '@somemore/sim';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
@@ -105,6 +111,36 @@ const EXPLORE_FOV = 68;
 
 /** A player who is mid-interaction takes no movement input. */
 const EMPTY_INTENT: MoveIntent = {};
+
+/**
+ * Reused presence and places buffers.
+ *
+ * `setPresence` copies out of these, so nothing here allocates per frame —
+ * ARCHITECTURE §10's "zero per-frame allocation in simulation hot paths".
+ */
+const presenceScratch: Partial<PresenceInput> = {};
+const placesScratch: string[] = [];
+
+/** How close to the water counts as being at the water's edge. */
+const SHORE_REACH_M = 2.2;
+
+/**
+ * The named places the player is currently standing in.
+ *
+ * Only two so far — the fireside and the water's edge — but they are what the
+ * discovery model's `at-place` conditions read, and what tells the significance
+ * model how long somebody spent by the water.
+ */
+function placesAt(player: PlayerState, walkable: WalkableWorld, out: string[]): string[] {
+  out.length = 0;
+  if (distanceFromFire(player) < 2.6) out.push('fireside');
+  const basin = walkable.basin;
+  if (basin) {
+    const along = player.position.x * Math.cos(basin.bearing) + player.position.z * Math.sin(basin.bearing);
+    if (along > basin.distanceM - SHORE_REACH_M) out.push('water-edge');
+  }
+  return out;
+}
 
 /** Camera pose per ritual stage. */
 interface CameraPose {
@@ -304,14 +340,23 @@ export function World({
         ritual.roastInput.position.z = pose.position.z;
         if (state.accessibility.autoRotate <= 0) ritual.roastInput.rotation = pose.rotation;
       }
-      // What the client knows and the simulation cannot see: where the
-      // player is, how fast, and whether a torch is sweeping the trees. The
-      // world systems read this — it is what makes standing still matter.
-      setPresence(ritual, {
-        speed: player.speed,
-        position: player.position,
-        lightSweep: player.speed > 0.2 ? clamp01(player.speed / 1.6) * 0.35 : 0,
-      });
+      // The torch is aimed where the player is looking. This is the *real*
+      // light sweep: the model measures how fast the beam is moving and the
+      // wildlife feel that. `lightSweep` used to be invented here from walking
+      // speed, which meant walking about with no torch at all emptied the
+      // treeline, and holding a lit torch perfectly still cost nothing.
+      pointTorch(ritual, player.facing, player.pitch);
+
+      // What the client knows and the simulation cannot see: where the player
+      // is, how fast, whether they are sitting down, and which named places
+      // they are standing in. The world systems read this — it is what makes
+      // standing still matter, and what makes sitting down matter more.
+      presenceScratch.speed = player.speed;
+      presenceScratch.position = player.position;
+      presenceScratch.seated = player.seated;
+      presenceScratch.seatId = player.seated ? 'log-seat' : null;
+      presenceScratch.places = placesAt(player, walkable, placesScratch);
+      setPresence(ritual, presenceScratch);
       stepRitual(ritual, dt);
       onSimStep?.(ritual);
     });
@@ -435,6 +480,7 @@ export function World({
           tendFire(ritual, { type: 'add-log', woodId, placement: 0.78 });
           store.touch();
         }}
+        {...(walkable.basin ? { basin: walkable.basin } : {})}
         {...(environment
           ? {
               palette: {
@@ -466,6 +512,22 @@ export function World({
         position={LAYOUT.radio}
         rotationY={-0.7}
       />
+
+      {/* The water, where the manifest actually has any. Absent entirely at a
+          salt flat, a mesa or a rail siding. */}
+      <Shore
+        ritual={ritual}
+        settings={settings}
+        walkable={walkable}
+        waterColour={environment?.scene.nightPalette.water ?? null}
+      />
+
+      {/* The named constellations, at the real altitude and azimuth for the
+          session's date, and whatever is streaking across them. */}
+      <NightSky ritual={ritual} />
+
+      {/* The torch. One spot light, and only while it is lit. */}
+      <Torch torch={ritual.torch} player={player} settings={settings} />
 
       <Wildlife ritual={ritual} settings={settings} walkable={walkable} />
 

@@ -124,6 +124,14 @@ export interface CampsiteMemory {
   traces: Trace[];
   /** Lines worth reading back, newest first. Never a count, never a total. */
   sightings: string[];
+  /**
+   * Constellations this player has picked out from here.
+   *
+   * Not a set to complete: there is no total anywhere, and a player who never
+   * looks up loses nothing. It is remembered for the same reason a resident
+   * fox's visits are — so the world behaves as though it has met you.
+   */
+  constellations: string[];
 }
 
 function createCampsiteMemory(campsiteSeed: string, environmentId: string): CampsiteMemory {
@@ -136,6 +144,7 @@ function createCampsiteMemory(campsiteSeed: string, environmentId: string): Camp
     residents: {},
     traces: [],
     sightings: [],
+    constellations: [],
   };
 }
 
@@ -247,6 +256,8 @@ export class Store {
     weatherProfile?: WeatherProfile;
     /** The manifest slice the world systems read. */
     world?: RitualWorldContent;
+    /** From the scene manifest, so the shore lands inside the campsite. */
+    walkableRadiusM?: number;
   }) {
     const settings = loadSettings();
     if (prefersReducedMotion()) {
@@ -263,6 +274,7 @@ export class Store {
       passport.campsites[options.campsiteSeed] ??
       createCampsiteMemory(options.campsiteSeed, options.environmentId);
     const memory: CampsiteMemory = {
+      ...createCampsiteMemory(options.campsiteSeed, options.environmentId),
       ...remembered,
       environmentId: options.environmentId,
       visits: remembered.visits + 1,
@@ -284,6 +296,8 @@ export class Store {
         visitIndex: memory.visits,
         priorVisits: memory.residents,
         knownSecrets: memory.secrets,
+        knownConstellations: memory.constellations,
+        ...(options.walkableRadiusM ? { walkableRadiusM: options.walkableRadiusM } : {}),
       }),
       stage: 'arriving',
       render: settings.render,
@@ -405,6 +419,12 @@ export class Store {
       sightings.unshift(line);
     }
 
+    // Anything picked out of the sky tonight, folded in without duplicates.
+    const constellations = [...(previous.constellations ?? [])];
+    for (const id of ritual.stargazing.recognised) {
+      if (!constellations.includes(id)) constellations.push(id);
+    }
+
     const memory: CampsiteMemory = {
       campsiteSeed: seed,
       environmentId: this.state.environmentId,
@@ -414,6 +434,7 @@ export class Store {
       residents: residentVisits,
       traces: activeTraces(traces, Date.now(), 96),
       sightings: sightings.slice(0, 40),
+      constellations,
     };
 
     const passport: PassportState = {

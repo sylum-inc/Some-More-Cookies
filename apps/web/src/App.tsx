@@ -11,13 +11,30 @@ import type * as THREE from 'three';
 import { Vector3 as ThreeVector3 } from 'three';
 import {
   approachPoint,
+  basinFor,
   bearingFromFire,
+  castLine,
+  clamp01,
   createPlayer,
+  describeTorch,
   eyePosition,
+  lieBack,
   lookDirection,
   createWorld,
   focused,
+  raiseBinoculars,
+  releaseCatch,
+  setTorchFocus,
+  shoreFor,
+  sitOnSeat,
+  skipStone,
+  standFromSeat,
+  strikeLine,
+  takeFishingRod,
+  takeStone,
+  takeTorchFromLog,
   terrainHeight,
+  toggleTorch,
   bite as takeBiteAction,
   blowOutMarshmallow,
   finishRoasting,
@@ -75,9 +92,21 @@ export function App({ store }: AppProps): React.ReactElement {
   const walkable = useMemo(() => {
     const environment = getEnvironment(state.environmentId);
     const seed = hashSeed(state.campsiteSeed);
+    const radius = Math.max(8, Math.min(16, environment?.scene.walkableRadiusM ?? 13));
+    // Where the water is, if this campsite has any. Everything at the water —
+    // the shore you walk to, the stones you reach down for, the rod leaning on
+    // the bank — hangs off this one point, and it is derived from the seed so
+    // it is in the same place on every visit.
+    const spec = environment?.scene.water;
+    const shore = spec ? shoreFor(seed, radius) : null;
+    const basin = spec && shore ? basinFor(spec, shore) : null;
+    const shoreX = shore ? Math.cos(shore.bearing) * (shore.distanceM - 0.7) : 0;
+    const shoreZ = shore ? Math.sin(shore.bearing) * (shore.distanceM - 0.7) : 0;
+
     return createWorld({
       seed,
-      radius: Math.max(8, Math.min(16, environment?.scene.walkableRadiusM ?? 13)),
+      radius,
+      ...(basin ? { basin } : {}),
       obstacles: [
         { id: 'fire', x: 0, z: 0, radius: 0.62, soft: true },
         { id: 'machine', x: LAYOUT.machine[0], z: LAYOUT.machine[2], radius: 0.62 },
@@ -93,6 +122,35 @@ export function App({ store }: AppProps): React.ReactElement {
         { id: 'plate', x: LAYOUT.assemblyTable[0], z: LAYOUT.assemblyTable[2], reach: 1.1 },
         { id: 'log-seat', x: -1.5, z: 0.9, reach: 1.0 },
         { id: 'radio', x: LAYOUT.radio[0], z: LAYOUT.radio[2], reach: 0.95 },
+        // The torch lives on the log with the radio. You pick it up by
+        // reaching for it, the same as everything else here.
+        { id: 'torch', x: -1.34, z: 1.42, reach: 0.9 },
+        // Everything at the water only exists where there is water.
+        ...(shore && spec
+          ? ([
+              { id: 'water-edge', x: shoreX, z: shoreZ, reach: 1.9 },
+              ...(spec.skippable
+                ? [
+                    {
+                      id: 'stones',
+                      x: shoreX - Math.sin(shore.bearing) * 0.6,
+                      z: shoreZ + Math.cos(shore.bearing) * 0.6,
+                      reach: 1.2,
+                    },
+                  ]
+                : []),
+              ...(spec.fishable
+                ? [
+                    {
+                      id: 'rod',
+                      x: shoreX + Math.sin(shore.bearing) * 0.7,
+                      z: shoreZ - Math.cos(shore.bearing) * 0.7,
+                      reach: 1.2,
+                    },
+                  ]
+                : []),
+            ] as Interactable[])
+          : []),
       ],
     });
   }, [state.environmentId, state.campsiteSeed]);
@@ -108,6 +166,25 @@ export function App({ store }: AppProps): React.ReactElement {
   }, [walkable]);
 
   const [reach, setReach] = useState<Interactable | null>(null);
+
+  /**
+   * How the stone is being held, 0..1 on each axis.
+   *
+   * Not a menu and not a slider panel: the drag at the water's edge writes
+   * `power`, `tilt` and `spin`, the camera's own pitch supplies the elevation,
+   * and the arrow keys nudge the same numbers for the keyboard path (§12).
+   * `skipping.ts` turns them into a speed, an angle and a wrist.
+   */
+  const throwRef = useRef({ power: 0.72, tilt: 0.36, spin: 0.6 });
+  /** The live throwing gesture, or null. */
+  const throwGesture = useRef<{
+    x0: number;
+    y0: number;
+    lastX: number;
+    lastAt: number;
+    flick: number;
+  } | null>(null);
+
   const arrivalRef = useRef(0);
   const arrivingRef = useRef(false);
   /**
@@ -253,6 +330,36 @@ export function App({ store }: AppProps): React.ReactElement {
     requestAnimationFrame(tick);
   }, [ritual, store]);
 
+  /**
+   * Throws the stone in hand.
+   *
+   * The hand is where the player is standing, at chest height, and the bearing
+   * is where they are facing — so you throw at the water you are looking at,
+   * not at a designated spot.
+   */
+  const throwHeldStone = useCallback(() => {
+    const water = ritual.water;
+    if (!water) return;
+    const eye = eyePosition(player);
+    const held = throwRef.current;
+    const thrown = skipStone(
+      ritual,
+      {
+        power: held.power,
+        // Elevation comes from where the player is actually looking. Down at
+        // the water is a flat throw; up over it is a lob, and the physics
+        // punishes a lob exactly as it should.
+        elevation: clamp01((player.pitch + 0.24) / 0.62),
+        tilt: held.tilt,
+        spin: held.spin,
+        bearing: player.facing,
+      },
+      vec3(eye.x, eye.y - 0.22, eye.z),
+    );
+    if (thrown) audioRef.current?.playFoley('stick');
+    store.touch();
+  }, [ritual, player, store]);
+
   /** Acts on whatever is within reach. The world offers; it never menus. */
   const handleUse = useCallback(() => {
     const target = focused(player, walkable);
@@ -275,7 +382,48 @@ export function App({ store }: AppProps): React.ReactElement {
         if (ritual.stage === 'at-fire' || ritual.stage === 'after') store.setSubtitle('[the SM-01 is idle]');
         break;
       case 'log-seat':
+        // Sitting down is the least flashy thing here and possibly the most
+        // important: it is the strongest generator of stillness in the
+        // product, which is what the wildlife and the discovery models read.
         intentRef.current.sit = !player.seated;
+        if (player.seated) standFromSeat(ritual);
+        else sitOnSeat(ritual, 'log-seat');
+        break;
+      case 'torch':
+        if (ritual.torch.held) {
+          toggleTorch(ritual);
+          store.setSubtitle(describeTorch(ritual.torch));
+        } else {
+          takeTorchFromLog(ritual);
+          store.setSubtitle('[you pick the torch up off the log]');
+        }
+        audioRef.current?.playFoley('stick');
+        break;
+      case 'stones': {
+        const stone = takeStone(ritual);
+        if (stone) store.setSubtitle(`[${stone.note}]`);
+        break;
+      }
+      case 'water-edge':
+        // Standing at the water with a stone in hand, the thing to do is throw
+        // it. With nothing in hand, you reach down for one.
+        if (ritual.skipping.held) throwHeldStone();
+        else {
+          const stone = takeStone(ritual);
+          if (stone) store.setSubtitle(`[${stone.note}]`);
+        }
+        break;
+      case 'rod':
+        if (ritual.fishing.phase === 'stowed') {
+          takeFishingRod(ritual);
+          store.setSubtitle('[you pick up the rod]');
+        } else if (ritual.fishing.phase === 'nibble') {
+          strikeLine(ritual);
+        } else if (ritual.fishing.phase === 'landed') {
+          releaseCatch(ritual);
+        } else {
+          castLine(ritual, throwRef.current.power, bearingFromFire(player) + Math.PI);
+        }
         break;
       case 'radio':
         // Picking it up switches it on. Nobody crouches over a dead radio.
@@ -287,7 +435,7 @@ export function App({ store }: AppProps): React.ReactElement {
         break;
     }
     store.touch();
-  }, [player, walkable, ritual, state.environmentId, store]);
+  }, [player, walkable, ritual, state.environmentId, store, throwHeldStone]);
 
   // --- Pointer handling --------------------------------------------------
   const dragging = useRef(false);
@@ -300,6 +448,21 @@ export function App({ store }: AppProps): React.ReactElement {
 
       if (ritual.stage === 'arriving') {
         beginArrival();
+        return;
+      }
+
+      // A stone in hand at the water's edge: the drag *is* the throw. It
+      // takes priority over looking and walking, the same way the roasting
+      // drag takes priority once there is a marshmallow on the stick.
+      if (!isAnchored(ritual.stage) && ritual.skipping.held && atTheWater(reach)) {
+        throwGesture.current = {
+          x0: event.clientX,
+          y0: event.clientY,
+          lastX: event.clientX,
+          lastAt: performance.now(),
+          flick: 0,
+        };
+        (event.target as Element).setPointerCapture?.(event.pointerId);
         return;
       }
 
@@ -328,11 +491,28 @@ export function App({ store }: AppProps): React.ReactElement {
         (event.target as Element).setPointerCapture?.(event.pointerId);
       }
     },
-    [state.overlay, ritual, roastControl, blowDetector, beginArrival, unlockAudio, store],
+    [state.overlay, ritual, roastControl, blowDetector, beginArrival, unlockAudio, store, reach],
   );
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent) => {
+      const gesture = throwGesture.current;
+      if (gesture) {
+        // Pull back for power, across for how the stone is cocked in the hand.
+        const held = throwRef.current;
+        held.power = clamp01((event.clientY - gesture.y0) / 190);
+        held.tilt = clamp01(0.36 + (event.clientX - gesture.x0) / 420);
+        // Spin is a flick, so it is measured from speed rather than distance —
+        // which is what it is in a real hand.
+        const now = performance.now();
+        const dt = Math.max(1, now - gesture.lastAt);
+        const speed = Math.abs(event.clientX - gesture.lastX) / dt;
+        gesture.flick = Math.max(gesture.flick * 0.86, speed);
+        gesture.lastX = event.clientX;
+        gesture.lastAt = now;
+        held.spin = clamp01(gesture.flick / 1.6);
+        return;
+      }
       if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
         const look = movement.move(event.clientX, event.clientY);
         if (look) intentRef.current.look = look;
@@ -364,6 +544,11 @@ export function App({ store }: AppProps): React.ReactElement {
   );
 
   const onPointerUp = useCallback(() => {
+    if (throwGesture.current) {
+      throwGesture.current = null;
+      throwHeldStone();
+      return;
+    }
     if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
       const wasJoystick = movement.gesture === 'joystick';
       const tap = movement.end(performance.now());
@@ -379,7 +564,7 @@ export function App({ store }: AppProps): React.ReactElement {
       audioRef.current?.playFoley(ritual.assembly.placedThisStep === 'graham-top' ? 'squish' : 'graham-snap');
       store.touch();
     }
-  }, [ritual, roastControl, store]);
+  }, [ritual, roastControl, store, throwHeldStone]);
 
   // --- Keyboard ----------------------------------------------------------
   useEffect(() => {
@@ -398,6 +583,56 @@ export function App({ store }: AppProps): React.ReactElement {
         keyboard.down(event.key);
         if (keyboard.active || before) intentRef.current.move = keyboard.intent();
         if (event.key === 'e' || event.key === 'Enter' || event.key === ' ') handleUse();
+      }
+      // Keyboard alternatives for the secondary activities (spec §12). Every
+      // one of them reaches the same intent the gesture does; none of them
+      // opens a menu.
+      if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
+        if (event.key === 'f') {
+          if (ritual.torch.held) toggleTorch(ritual);
+          else takeTorchFromLog(ritual);
+          store.setSubtitle(describeTorch(ritual.torch));
+          store.touch();
+        }
+        if (event.key === 'g' && ritual.torch.held) {
+          // Twisting the head, in two steps. Flood for close in, spot for the
+          // treeline — and the spot is what scares things off from further away.
+          setTorchFocus(ritual, ritual.torch.focus > 0.5 ? 0.15 : 0.9);
+          store.setSubtitle(describeTorch(ritual.torch));
+          store.touch();
+        }
+        if (event.key === 'c') {
+          // Lying back. The camera stays the player's own eyes; what changes
+          // is that the sky is steady enough to actually look at.
+          const reclined = ritual.stargazing.posture !== 'reclined';
+          lieBack(ritual, reclined);
+          if (reclined) intentRef.current.sit = true;
+          store.touch();
+        }
+        if (event.key === 'v') {
+          raiseBinoculars(ritual, !ritual.stargazing.binoculars);
+          store.touch();
+        }
+        // Winding the stone up on the keyboard: the same three numbers the
+        // drag writes.
+        if (ritual.skipping.held) {
+          const held = throwRef.current;
+          if (event.key === 'ArrowUp') held.power = clamp01(held.power + 0.08);
+          if (event.key === 'ArrowDown') held.power = clamp01(held.power - 0.08);
+          if (event.key === 'ArrowLeft') held.tilt = clamp01(held.tilt - 0.05);
+          if (event.key === 'ArrowRight') held.tilt = clamp01(held.tilt + 0.05);
+          if (event.key === '[') held.spin = clamp01(held.spin - 0.12);
+          if (event.key === ']') held.spin = clamp01(held.spin + 0.12);
+          if (event.key === 't') throwHeldStone();
+        }
+        if (event.key === 'r' && ritual.fishing.phase !== 'stowed') {
+          // One key for the whole rod: cast, strike, put it back. There is
+          // nothing else you can do with a fishing rod.
+          if (ritual.fishing.phase === 'nibble') strikeLine(ritual);
+          else if (ritual.fishing.phase === 'landed') releaseCatch(ritual);
+          else castLine(ritual, throwRef.current.power, player.facing);
+          store.touch();
+        }
       }
       // Keyboard alternative to the roasting drag (spec §12).
       if (ritual.stage === 'roasting') {
@@ -426,7 +661,18 @@ export function App({ store }: AppProps): React.ReactElement {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [state.overlay, ritual, roastControl, beginArrival, store, keyboard, movement, handleUse]);
+  }, [
+    state.overlay,
+    ritual,
+    roastControl,
+    beginArrival,
+    store,
+    keyboard,
+    movement,
+    handleUse,
+    player,
+    throwHeldStone,
+  ]);
 
   // --- Simulation-driven audio and subtitles ------------------------------
   const lastSubtitle = useRef<{ text: string; at: number } | null>(null);
@@ -628,6 +874,8 @@ export function App({ store }: AppProps): React.ReactElement {
       <Hud
         ritual={ritual}
         reach={reach}
+        grip={throwRef.current}
+        seated={player.seated}
         onUse={handleUse}
         exploring={!isAnchored(state.stage) && state.stage !== 'arriving'}
         stage={state.stage}
@@ -868,6 +1116,11 @@ function groundPointAt(
     return { x: hit.x * scale, y: hit.y, z: hit.z * scale };
   }
   return hit;
+}
+
+/** True when the thing in reach is the water or the stones beside it. */
+function atTheWater(reach: Interactable | null): boolean {
+  return reach !== null && (reach.id === 'water-edge' || reach.id === 'stones');
 }
 
 function easeInOut(t: number): number {

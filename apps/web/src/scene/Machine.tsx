@@ -174,7 +174,9 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
     // --- Frost ------------------------------------------------------------
     if (frostRef.current) {
       const material = frostRef.current.material as THREE.MeshStandardMaterial;
-      material.opacity = machine.frost * 0.85;
+      // Capped: a full-strength frost sheet over the whole shell washes the
+      // machine out to a white slab and buries the chamber behind it.
+      material.opacity = Math.min(0.5, machine.frost * 0.62);
       frostRef.current.visible = machine.frost > 0.01;
     }
 
@@ -428,9 +430,9 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           are legible standing in a dark campsite. */}
       <pointLight
         position={[0, 0.62, BODY.depth / 2 - 0.16]}
-        distance={1.5}
-        decay={1.7}
-        intensity={machine.door * 1.9}
+        distance={1.1}
+        decay={2}
+        intensity={machine.door * 0.9}
         color={0xfff4e2}
       />
 

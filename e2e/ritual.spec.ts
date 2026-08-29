@@ -142,21 +142,27 @@ test.describe('the ritual', () => {
     await capture(page, '18-passport');
     // The photo really was developed and saved.
     await expect(page.locator('.sm-panel img')).toHaveCount(1);
-    await expect(page.getByText(/Record of sandwiches/i)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Record of sandwiches/i })).toBeVisible();
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Make this real' }).click();
     await page.waitForTimeout(2400);
     await capture(page, '19-terminal');
-    await expect(page.getByText(/MAKE THIS REAL/)).toBeVisible();
+    // Scoped to the terminal: the HUD affordance shares the same name, and
+    // accessible-name matching is case-insensitive.
+    const terminal = page.getByRole('dialog', { name: /order terminal/i });
+    await expect(terminal.getByRole('button', { name: 'MAKE THIS REAL' })).toBeVisible();
+    await expect(terminal).toContainText('SM-01');
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     await page.getByRole('button', { name: 'Settings' }).click();
     await page.waitForTimeout(500);
     await capture(page, '20-settings');
-    await expect(page.getByText('Assists')).toBeVisible();
+    // Role-scoped: the word also appears in the section's explanatory copy.
+    await expect(page.getByRole('heading', { name: 'Assists' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Picture' })).toBeVisible();
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([]);
   });

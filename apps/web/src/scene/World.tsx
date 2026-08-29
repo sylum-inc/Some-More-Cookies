@@ -143,16 +143,19 @@ function poseFor(stage: RitualStage, arrivalProgress: number, marshmallow?: Vec3
         fov: 50,
       };
     case 'reveal': {
-      // Closer, lower, framed on the open chamber.
-      const chamber = machineToWorld([0, 0.44, 0.2]);
+      // Framed on the open chamber from far enough back that the machine's
+      // face, the swung door and the tray are all in shot. Standing closer
+      // put the camera inside the open door's sweep and filled the frame with
+      // frosted enamel — a whiteout at the one moment that has to land.
+      const chamber = machineToWorld([0, 0.46, 0.14]);
       return {
         position: [
-          LAYOUT.machine[0] + MACHINE_FRONT[0] * 0.92,
-          0.82,
-          LAYOUT.machine[2] + MACHINE_FRONT[1] * 0.92,
+          LAYOUT.machine[0] + MACHINE_FRONT[0] * 1.62,
+          0.78,
+          LAYOUT.machine[2] + MACHINE_FRONT[1] * 1.62,
         ],
         target: chamber,
-        fov: 42,
+        fov: 34,
       };
     }
     case 'eating':

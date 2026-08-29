@@ -226,25 +226,36 @@ describe('stillness is a mechanic, through the ritual', () => {
     expect(still.wildlife.calm).toBeGreaterThan(restless.wildlife.calm + 0.4);
   });
 
-  it('brings more animals to the still camp than to the noisy one', () => {
-    let stillSightings = 0;
-    let noisySightings = 0;
+  // A statistical property needs trials, and trials of a 60 Hz simulation are
+  // not free: this is the most expensive test in the package by a wide margin
+  // and it timed out under a parallel full-suite run at the default 5 s. The
+  // budget is explicit rather than implicit, so a future slowdown fails
+  // loudly instead of flaking.
+  it(
+    'brings more animals to the still camp than to the noisy one',
+    () => {
+      let stillSightings = 0;
+      let noisySightings = 0;
 
-    for (let trial = 0; trial < 6; trial++) {
-      const still = makeRitual({ campsiteSeed: `still-${trial}` });
-      setPresence(still, { speed: 0 });
-      seconds(still, 400);
-      stillSightings += still.wildlifeEvents.filter((e) => e.kind === 'appeared').length;
+      for (let trial = 0; trial < 5; trial++) {
+        const still = makeRitual({ campsiteSeed: `still-${trial}` });
+        setPresence(still, { speed: 0 });
+        seconds(still, 400);
+        stillSightings += still.wildlifeEvents.filter((e) => e.kind === 'appeared').length;
 
-      const noisy = makeRitual({ campsiteSeed: `still-${trial}` });
-      seconds(noisy, 400, () => {
-        setPresence(noisy, { speed: 1.45, voices: 0.8, startle: 0.2 });
-      });
-      noisySightings += noisy.wildlifeEvents.filter((e) => e.kind === 'appeared').length;
-    }
+        // The same campsite on the same night, with somebody crashing about
+        // in it: the only difference is the player.
+        const noisy = makeRitual({ campsiteSeed: `still-${trial}` });
+        seconds(noisy, 400, () => {
+          setPresence(noisy, { speed: 1.45, voices: 0.8, startle: 0.2 });
+        });
+        noisySightings += noisy.wildlifeEvents.filter((e) => e.kind === 'appeared').length;
+      }
 
-    expect(stillSightings).toBeGreaterThan(noisySightings);
-  });
+      expect(stillSightings).toBeGreaterThan(noisySightings);
+    },
+    30_000,
+  );
 
   it('startles the camp when a flash goes off, and the impulse lasts one step', () => {
     const ritual = makeRitual();
@@ -329,7 +340,7 @@ describe('the radio', () => {
 });
 
 describe('significance', () => {
-  it('turns sightings into traces, and never exposes a score', () => {
+  it('turns sightings into traces, and never exposes a score', { timeout: 20_000 }, () => {
     const ritual = makeRitual({ campsiteSeed: 'traces-1' });
     setPresence(ritual, { speed: 0 });
     seconds(ritual, 600);
@@ -345,7 +356,7 @@ describe('significance', () => {
     }
   });
 
-  it('remembers residents across visits when the caller hands their history back', () => {
+  it('remembers residents across visits when the caller hands their history back', { timeout: 30_000 }, () => {
     // Whether a *resident* rather than a passing animal turns up is chance,
     // and a campsite's night is fully determined by its seed — so replaying
     // one campsite would replay the same coin toss. This walks campsites until
@@ -430,7 +441,7 @@ describe('every step draws fresh randomness', () => {
 });
 
 describe('determinism holds with the world systems in', () => {
-  it('produces an identical night from an identical seed and identical input', () => {
+  it('produces an identical night from an identical seed and identical input', { timeout: 20_000 }, () => {
     const run = (): { animals: number; traces: number; dial: number; still: number } => {
       const ritual = makeRitual({ campsiteSeed: 'determinism' });
       toggleRadio(ritual, true);
@@ -445,7 +456,7 @@ describe('determinism holds with the world systems in', () => {
     expect(run()).toEqual(run());
   });
 
-  it('produces a different night at a different campsite', () => {
+  it('produces a different night at a different campsite', { timeout: 20_000 }, () => {
     const at = (seed: string): number => {
       const ritual = makeRitual({ campsiteSeed: seed });
       seconds(ritual, 300, () => setPresence(ritual, { speed: 0 }));

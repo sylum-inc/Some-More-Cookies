@@ -26,6 +26,8 @@ npm run test:e2e     # drives the whole ritual in Chromium, capturing screenshot
 npm run api          # the backend service
 ```
 
+Testing it with a person: [`docs/HUMAN_TEST.md`](./docs/HUMAN_TEST.md).
+
 `?camp=<seed>` pins a campsite (and therefore its SM-01's serial number and
 wear). `?env=<id>` pins an environment — see
 [`packages/content/CONCEPTS.md`](./packages/content/CONCEPTS.md) for the

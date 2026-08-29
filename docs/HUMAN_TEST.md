@@ -1,0 +1,249 @@
+# Some More — human test script
+
+**Who this is for:** a person with a phone, a laptop, headphones, and forty
+minutes. Preferably at night, preferably not in a bright room.
+
+**Why it exists:** the build has over a thousand automated tests and eight
+categories of measured evidence, and none of them can answer the questions
+that decide whether this product works. Those questions are all of the form
+*"how did that feel?"*, and the only instrument for them is a person.
+
+This script is deliberately not a QA checklist. Nothing here asks you to
+verify that a button works. It asks you what you felt, and it asks in an
+order designed to catch the feeling before you start rationalising it.
+
+---
+
+## 0. Before you start
+
+### Running it
+
+```bash
+npm install
+npm run build
+npm run preview --workspace @somemore/web   # http://127.0.0.1:4173
+```
+
+On a phone, run the preview with `--host` and open the LAN address it prints:
+
+```bash
+npm run preview --workspace @somemore/web -- --host
+```
+
+Optionally, with the service running (`npm run api` in another terminal) the
+Passport syncs and the order terminal reaches a real backend. Without it,
+everything still works — the world is local-first and never waits on the
+network. **Do the first run without the service.** If anything about the
+campsite feels like it is waiting for something, that is a finding.
+
+### Useful URLs
+
+| URL | What it does |
+| --- | --- |
+| `/` | A campsite chosen for you |
+| `/?camp=anything` | Pins a campsite — same seed, same SM-01, same residents, every time |
+| `/?env=pine_hollow` | Pins an environment. The catalogue is in [`packages/content/CONCEPTS.md`](../packages/content/CONCEPTS.md) |
+
+Use a **fresh** `?camp=` seed for your first run. Then use the *same* one for
+run three, which is the visit that is supposed to feel like coming back.
+
+### Ground rules
+
+1. **Do not read the spec first.** If you know what is supposed to happen, you
+   cannot tell us whether it happened.
+2. **Write down the first word you think, not the considered one.** "Fiddly"
+   written at the moment is worth more than a paragraph written afterwards.
+3. **If you get stuck, stay stuck for a minute before looking for the answer.**
+   Where you got stuck and for how long is the finding.
+4. **Headphones.** The SM-01's whole narrative is carried by sound and nobody
+   has listened to it yet.
+
+---
+
+## 1. Arrival (2 minutes)
+
+Open it and do nothing for thirty seconds. Just look.
+
+- What did you think this was, before you touched anything?
+- Did you want to walk toward the fire, or did you have to be told?
+- Is it cosy? Is it eerie? Is it *both*? Write down which came first.
+- **It must never read as horror.** If you felt threatened rather than alone,
+  stop and write down exactly what did it. That is the most important finding
+  in this document.
+
+Now walk in.
+
+- Did the walk feel like arriving somewhere, or like a loading screen?
+
+---
+
+## 2. The fire (5 minutes)
+
+Walk around. Look at things. Go to the woodpile, take a log, put it on the
+fire. Rake the coals.
+
+- Could you see well enough to move around? **Once the fire burns down to
+  coals the campsite is lit only by the moon, and how dark that should be is
+  a judgement nobody has made yet with human eyes.** Too dark to walk? Too
+  bright to be night? Say which.
+- Did the fire respond in a way that made sense, or did you feel like you were
+  poking at something with rules you could not see?
+- Did you *want* to sit down?
+
+Then sit still, doing nothing, for two full minutes. This is not a trick.
+
+- Was that boring, or was it pleasant? Both are useful answers.
+- Did anything happen? Did you notice an animal? Did you hear one you never
+  saw?
+
+---
+
+## 3. Roasting — the single biggest risk (10 minutes)
+
+**Do this on a phone if you possibly can.** Roasting is a two-axis drag and
+has never once been done with a thumb on real glass. This is risk R7 and R1
+together, and they are the two most likely reasons this product fails.
+
+Roast a marshmallow. Then roast another one and try to burn it. Then roast a
+third and try to get it perfect.
+
+For each one:
+
+- Did you feel in control of the distance? Of the rotation? Of both at once?
+- Was the difference between "over the flames" and "over the coals" something
+  you could *feel*, or something you had to be told?
+- When it browned unevenly, did you understand why?
+- When it caught fire, was that a disaster or a story? **It is supposed to be
+  a story.** If it felt like failing, that is a defect.
+- Did you ever want a timer, a meter, or a "done" indicator? If yes: at what
+  moment exactly?
+
+Then, honestly: **did you want to eat it?**
+
+---
+
+## 4. Assembly (3 minutes)
+
+Build the s'more by hand. Place the pieces badly on purpose at least once.
+
+- Did the pieces feel like objects with weight, or like icons snapping to a
+  grid?
+- Did the assist help or did it fight you?
+- When you placed something crooked, did it stay crooked? Did you *like* that?
+
+---
+
+## 5. The SM-01 (10 minutes)
+
+Operate the machine. Read its panel. Look at its wear, its stickers, its
+serial number. Try a different program on your second run.
+
+- Does it read as a real appliance, or as a game object?
+- Late-90s industrial refrigeration meets early-Y2K plastic meets restrained
+  Rams minimalism — did any of that come across? What did it actually remind
+  you of?
+- **Watch the run with your eyes on the machine, not on a progress bar.**
+  Amber for the hot phase, blue for the cold one. Did the transition land?
+- **Time it.** A standard run is about fifty seconds. Was that too long? Too
+  short? At what second did your attention start to wander?
+- With headphones on: did the compressor, the relays, the latch and the frost
+  crackle tell you what was happening without any text? **Nobody has heard
+  this.** Anything that sounds wrong, thin, harsh, or like a video game rather
+  than a machine is a finding.
+- Did you ever feel like you were watching a loading screen? If yes, at what
+  second?
+
+---
+
+## 6. The reveal (2 minutes)
+
+- What did you say out loud, if anything?
+- **Does the sandwich look like something you would eat?** This is risk R3 and
+  it is the weakest-evidenced claim in the whole build. Be brutal.
+- Does it look like *your* sandwich — like the thing you just made — or like a
+  generic object that appeared?
+
+Photograph it. Look at the photo.
+
+- Is the photo something you would send to someone?
+
+---
+
+## 7. Eating, and the offer (3 minutes)
+
+Take a bite. Take several. Finish it.
+
+- Did biting feel like biting?
+- Then — and only then — the terminal offers to make you a real one.
+- **Did that offer feel like a natural end to the ritual, or like an
+  advertisement?** If at any point before this moment you felt like you were
+  being sold something, say exactly where.
+- Would you have tapped it?
+
+---
+
+## 8. The Passport (2 minutes)
+
+Open it.
+
+- Does it read as a field journal, a campground booklet, a scrapbook, a
+  disposable photo album, a memory card? Or does it read as a dashboard?
+- Is there anything in it that looks like a score, a percentage, a completion
+  meter, or an "X of Y"? **There must not be.** If you can find one, that is a
+  defect regardless of how it got there.
+
+---
+
+## 9. Coming back (5 minutes)
+
+Reload with the **same** `?camp=` seed you used at the start.
+
+- Is it the same place? Do you recognise anything?
+- Does the campsite behave as though it has met you before?
+- Is that pleasant, or is it uncanny?
+
+---
+
+## 10. The radio (optional, 5 minutes)
+
+Walk to the log by the fire and pick up the radio. Tune it by ear.
+
+- Could you find a station without looking at the numbers?
+- Was tuning satisfying or fiddly?
+- Is the hiss between stations pleasant enough to leave on?
+- Would you leave it playing while you did something else? That is the bar.
+
+---
+
+## What we most want to know
+
+In priority order, because a report that says everything is fine is a report
+that says nothing:
+
+1. **Does roasting feel good with a thumb, on glass?** (R1, R7)
+2. **Do you want to eat the sandwich?** (R3)
+3. **Does the machine feel like a ritual or a loading bar?** (R2)
+4. **Does it hold 60 fps on your phone, and does it get hot?** (R8)
+5. **Does the audio sound like a machine, or like a game?** (S7)
+6. **Is the night navigable?** (new in this build, tuned against measurements
+   rather than eyes)
+7. **Did you ever feel sold to before the reveal?**
+8. **Did it ever feel like horror rather than solitude?**
+
+---
+
+## Reporting
+
+For each finding, three lines is enough:
+
+```
+WHERE   roasting, about 40 seconds in, on iPhone
+WHAT    couldn't tell if I was turning it or moving it closer
+FELT    frustrating — gave up and just held it still
+```
+
+`FELT` is the line that matters. We can find the code from the other two.
+
+Send findings to [`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) — every
+one becomes a row in "What looking at the running product found", which is
+where this build's ten most valuable defects already live.

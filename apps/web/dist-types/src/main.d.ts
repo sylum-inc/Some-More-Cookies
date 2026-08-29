@@ -24,6 +24,10 @@ declare global {
                 scene: unknown;
                 camera: unknown;
             };
+            environments: readonly {
+                id: string;
+                name: string;
+            }[];
         };
     }
 }

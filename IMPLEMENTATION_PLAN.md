@@ -7,20 +7,58 @@
 
 ## Current state
 
-**Session 1 in progress.** Repository was empty at session start (a README containing one line). Everything below is being built from zero.
+**Session 1 complete.** The repository was empty at session start (a README
+containing one line). Everything below was built from zero.
 
 | Area | State |
 | --- | --- |
-| Monorepo, TypeScript, Vite, Vitest | ✅ done |
-| PRODUCT_SPEC / ARCHITECTURE / ADRs | ✅ done |
-| `packages/sim` simulation core | 🔨 in progress |
-| PS1 render layer + procedural materials | ⬜ next |
-| Procedural audio engine | 🔨 in progress (parallel) |
-| `packages/content` environment catalogue | ⬜ queued |
-| `packages/protocol` + `services/api` | 🔨 in progress (parallel) |
-| P1 playable ritual | ⬜ queued |
-| Passport, photo mode, accessibility | ⬜ queued |
-| Multiplayer | ⬜ architected, not built |
+| Monorepo, TypeScript, Vite, Vitest, Playwright | ✅ |
+| PRODUCT_SPEC / ARCHITECTURE / 6 ADRs / README | ✅ |
+| `packages/sim` simulation core | ✅ 233 tests |
+| PS1 render layer + procedural materials | ✅ 32 tests |
+| Procedural audio engine | ✅ 102 tests |
+| `packages/content` — 26 concepts scored, 12 encoded | ✅ 79 tests |
+| `packages/protocol` + `services/api` | ✅ 230 tests |
+| P1 playable ritual, end to end | ✅ driven by E2E in Chromium |
+| Passport, photo mode, accessibility | ✅ built, E2E-verified |
+| Multiplayer | ⬜ architected (ADR-0006), not built |
+| Live ops / CMS | ⬜ schemas exist, tooling not built |
+
+**704 unit and integration tests + 4 end-to-end acceptance tests.**
+
+### What "playable" currently means
+
+A person can load the page, walk in through the dark toward a lit fire, rake
+the coals, wait for the fire to burn down, take a marshmallow, roast it with
+one continuous drag that controls both distance and rotation, watch it brown
+unevenly if they do not turn it, take it to the plate, stack four components
+by hand with visible offsets, load the SM-01, close its heavy door, throw the
+latch, choose a program, confirm, pull the lever, watch amber become blue and
+frost spread, hear the compressor and the relays, release the latch, open the
+door into falling vapour, take out a sandwich whose appearance is derived from
+everything they just did, photograph it, save it into a scrapbook Passport,
+bite it from a chosen side, and be offered — only now — the chance to order a
+real one.
+
+No step in that sentence is a placeholder button.
+
+---
+
+## What looking at the running product found
+
+Five defects that reading the code would not have surfaced, all fixed, most
+with regression tests:
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 1 | The opening image had no fire in it | An established fire decayed to embers within seconds, because fuel could only ever be as lit as its surroundings — there was no self-sustaining term |
+| 2 | Every roast charred, at every distance | Flame radiance was calibrated when flames were weak; once fires actually flamed it swamped the entire browning band |
+| 3 | A naturally burned-down bed could not roast at all | Coal radiance scaled linearly with pile size, so a half-spent bed radiated half as hard rather than covering half the ground |
+| 4 | Frost grew past its target and then visibly retreated mid-run | The freezing stage had no cap, and the transforming stage eased *down* toward one |
+| 5 | The finished sandwich rendered as an unlit silhouette | Nothing lit it; it is small, dark-backed and away from the fire |
+
+Number 5 is the one worth dwelling on: the single most important object in the
+product was invisible, and every test was green.
 
 ---
 
@@ -31,17 +69,17 @@
 
 | # | Work | Acceptance criteria | State |
 | --- | --- | --- | --- |
-| 1.1 | Deterministic sim core | Same seed + input timeline ⇒ identical sandwich, asserted by a replay test. Fire, heat, roasting, assembly, machine, sandwich, eating all covered by unit tests. | 🔨 |
-| 1.2 | PS1 render pipeline | Vertex jitter, affine instability, ordered dither, low-res target, short fog, crunchy shadows — all per-material and tier-controllable, all individually disableable for accessibility. | ⬜ |
-| 1.3 | Procedural materials | Every surface in the ritual textured from seeded runtime generators. No untextured grey. | ⬜ |
-| 1.4 | Arrival | The player approaches a fire through the dark and arrives; not a cutscene, not a menu. | ⬜ |
-| 1.5 | Fire tending | Fuel can be added and embers raked; the fire's simulated state visibly and audibly changes; ember bed is a distinct, better roasting surface. | ⬜ |
-| 1.6 | Roasting | One continuous drag controls distance and rotation. Per-patch browning is visible on the mesh. Ignition and blow-out work. No timer, no button. | ⬜ |
-| 1.7 | Assembly | Each component is placed freeform in 3D with magnetic assist; offsets/squish/crumbs are recorded and visibly persist to the final sandwich. | ⬜ |
-| 1.8 | SM-01 ritual | All twelve stages operable (§3.2 of the spec), amber→blue, frost growth, mechanical audio sequence, vapour on open. | ⬜ |
-| 1.9 | Reveal | In-world reveal first, hero view optional. Sandwich renders at hero tier and looks appetizing. | ⬜ |
-| 1.10 | Eating | Bites remove real geometry from a chosen side, with crumbs, fracture and cold cues. | ⬜ |
-| 1.11 | Run + inspect | The whole loop is driven end-to-end in Chromium under Playwright with a screenshot captured at each stage. | ⬜ |
+| 1.1 | Deterministic sim core | Same seed + input timeline ⇒ identical sandwich, asserted by replay test. Fire, heat, roasting, assembly, machine, sandwich, eating all unit tested. | ✅ |
+| 1.2 | PS1 render pipeline | Jitter, affine swim, ordered dither, low-res target, short fog — per-material, per-tier, each individually disableable. | ✅ |
+| 1.3 | Procedural materials | Every surface textured from seeded runtime generators. No untextured grey. | ✅ |
+| 1.4 | Arrival | The player walks toward a lit fire through the dark. Not a cutscene, not a menu. | ✅ |
+| 1.5 | Fire tending | Fuel and raking change the simulated fire visibly and audibly; the ember bed is a distinct, better roasting surface. | ✅ |
+| 1.6 | Roasting | One continuous drag controls distance and rotation. Per-patch browning is visible. Ignition and blow-out work. No timer, no button. | ✅ |
+| 1.7 | Assembly | Each component placed freeform with magnetic assist; offsets/squish/crumbs persist to the final sandwich. | ✅ |
+| 1.8 | SM-01 ritual | All stages operable, amber→blue, frost growth, mechanical audio sequence, vapour on open. | ✅ |
+| 1.9 | Reveal | In-world reveal first; the sandwich renders at hero tier with its own local lighting. | ✅ |
+| 1.10 | Eating | Bites remove real geometry from a chosen side, with crumbs, fracture and cold cues. | ✅ |
+| 1.11 | Run + inspect | The whole loop is driven in Chromium under Playwright with a screenshot at each stage. | ✅ |
 
 **P1 is done when** a person can walk to a fire, roast a marshmallow badly, make a lopsided s'more, run the machine, and want to eat the result — with no placeholder buttons anywhere in that path.
 
@@ -59,6 +97,22 @@ Acceptance: two clients share a campsite; joining is diegetic with no lobby; a r
 Ordering · loyalty/rewards · CMS/live ops · event and QR architecture · physical/digital bridges.
 
 Acceptance: MAKE THIS REAL appears only after the reveal; the fiction holds through the terminal until checkout; orders are idempotent; high-value rewards are server-validated.
+
+---
+
+## Known shortfalls in the current build
+
+Recorded plainly, because a plan that only lists wins is not a plan.
+
+| # | Shortfall | Why it matters | What it needs |
+| --- | --- | --- | --- |
+| S1 | **Some affordances are HUD buttons, not objects.** Adding wood, raking coals, taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The *actions* are real and drive the simulation, but the spec's spirit is that you touch the woodpile, not a label. | This is the closest this build comes to the substitution ban (spec §1.3). It is a shortfall of reach, not of substance — the machine's twelve controls, roasting and assembly are all fully diegetic. | Raycast targets on the woodpile, ember bed and plate, with the buttons kept as an accessibility fallback. |
+| S2 | **Never run on a touch device.** | Roasting is a two-axis drag; risk R7 is unresolved without a thumb on real glass. | A device lab, or at minimum a phone. |
+| S3 | **Never profiled on real hardware.** | The 60 FPS target is unverified; SwiftShader here cannot answer it. | Real device profiling against the budgets in ARCHITECTURE §10. |
+| S4 | **Multiplayer is architected, not built.** | Priority 3 in full. | The WebSocket transport and the authority layer described in ADR-0006; the protocol and session domains already model it. |
+| S5 | **Wildlife, radio, secrets and traces are data, not behaviour.** The catalogue defines all twelve environments' rosters, stations and discoveries; the client does not yet act on them. | Priority 2 is half-delivered: the world looks different per environment, but does not yet *behave* differently beyond weather and fuel. | Client systems reading the manifests that already exist. |
+| S6 | **The significance model is not wired to storage.** The model and its tests exist; no traces are yet recorded from play. | Persistent campsite memory (spec §6.3) is unproven end to end. | Emit evidence at the points the ritual already knows about, and persist through the world-state domain. |
+| S7 | **Audio is unheard.** 102 tests cover its maths and scheduling; no human has listened to it. | The SM-01's mechanical narrative is carried by sound. | Someone with speakers. |
 
 ---
 
@@ -80,14 +134,14 @@ audio ─────┘        protocol ──► api ──► commerce/reward
 
 | # | Risk | Mitigation | Status |
 | --- | --- | --- | --- |
-| R1 | **Roasting may not feel good.** A thermal model can be correct and still be unsatisfying — this is the single biggest product risk, because roasting is the tactile heart. | Build it deterministic and headlessly testable so it can be tuned rapidly; expose tuning constants in one place; validate by driving real input timelines and inspecting outcome spreads, not by reading code. | open |
-| R2 | **The transformation may not feel rewarding.** If the machine reads as a loading screen, the product fantasy collapses. | Every stage is operable and physical; the run is 45–75 s with something to watch or walk away from; amber→blue is a real lighting change, not a texture swap; audio carries the mechanical narrative. | open |
-| R3 | **The sandwich may not look delicious** at PS1 fidelity. | The hero material tier exists precisely for this; it is the only object permitted the bump. Judge by screenshot, repeatedly. | open |
+| R1 | **Roasting may not feel good.** A thermal model can be correct and still be unsatisfying — the single biggest product risk. | Tuned against measured outcomes across the whole distance band, three times. Coals now give a wide window between golden and charred; open flame gives almost none. Still unvalidated by a human hand on a real screen. | partly open |
+| R2 | **The transformation may not feel rewarding.** If the machine reads as a loading screen, the product fantasy collapses. | Built as specified: twelve operable stages, a 50 s standard run, real amber→blue lighting, growing frost, and a mechanical audio sequence. Reads well in stills; the pacing needs a human. | partly open |
+| R3 | **The sandwich may not look delicious** at PS1 fidelity. | Took five passes against screenshots: local key/fill/rim lighting, warmer ice cream at both ends of the browning range, thicker chocolate, a darker cookie for contrast, and framing that turns away from the fire. Now legibly an ice cream sandwich. Appetite is a human judgement and remains the weakest-evidenced claim in this build. | partly open |
 | R4 | **PS1 authenticity vs. appetite.** Dithering and low resolution can make food look unappetising. | Affine/jitter are per-material and dialled *down* on food; the fidelity bump is earned; accessibility controls double as art-direction dials. | open |
 | R5 | **No assets, no artist.** | ADR-0002: everything procedural, behind swap-in interfaces. Aesthetically correct for PS1. | mitigated |
 | R6 | **Determinism is load-bearing** for multiplayer and reward validation; a careless `Math.random` or wall-clock read silently breaks it. | Seeded splittable PRNG only; fixed timestep; replay tests assert identical outcomes. | mitigated by tests |
-| R7 | **Mobile input for a two-axis roasting control** could be fiddly. | One continuous drag mapped to radial/tangential; assists (auto-rotation, stronger snapping) available; must be validated on a real touch device. | open |
-| R8 | **60 FPS on 4–5-year-old phones.** | Rendering at 320×240 buys most of it; adaptive tiers scale the rest; simulation is budgeted at ≤1.5 ms; measure, never guess. | open |
+| R7 | **Mobile input for a two-axis roasting control** could be fiddly. | One continuous drag mapped to distance/rotation, unit tested for range, clamping and no-jump-on-touch; keyboard alternative and auto-rotation assist both work. **Never tested on a real touch device** — the most important untested claim here. | open |
+| R8 | **60 FPS on 4–5-year-old phones.** | Rendering at 320×240 buys most of it; adaptive tiers with hysteresis are implemented and unit tested against synthetic frame times. **Never profiled on real hardware** — the SwiftShader environment here cannot answer this. | open |
 
 ---
 

@@ -74,7 +74,7 @@ export function Fire({ fire, settings, maxParticles }: FireProps): React.ReactEl
 
   const stoneMaterial = useMemo(
     // Darkened: raw stone albedo next to a fire blows out to paper white.
-    () => createPs1Material({ map: getTexture('stone', { size: 64 }), settings, color: 0x6b675f, roughness: 1 }),
+    () => createPs1Material({ map: getTexture('stone', { size: 64 }), settings, color: 0x46433d, roughness: 1 }),
     [settings],
   );
 
@@ -270,7 +270,9 @@ export function Fire({ fire, settings, maxParticles }: FireProps): React.ReactEl
       {/* Ash bed */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]} receiveShadow>
         <circleGeometry args={[0.42, 12]} />
-        <meshStandardMaterial map={getTexture('ash', { size: 64 })} roughness={1} />
+        {/* Tinted well down: raw ash albedo this close to the fire light
+            blows out to white paper and swallows the coals. */}
+        <meshStandardMaterial map={getTexture('ash', { size: 64 })} color={0x4a453e} roughness={1} />
       </mesh>
 
       {/* Fuel */}

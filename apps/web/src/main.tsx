@@ -8,6 +8,7 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { getEnvironment, listEnvironments, selectEnvironment } from '@somemore/content';
 import {
   arrive,
   beginRoasting,
@@ -33,25 +34,40 @@ import { Store } from './state/store.js';
  */
 function resolveCampsite(): { environmentId: string; campsiteSeed: string } {
   const params = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
-  const fromQuery = params.get('camp');
-  const environmentId = params.get('env') ?? 'pinewood-hollow';
-
-  if (fromQuery) return { environmentId, campsiteSeed: fromQuery };
-
   const KEY = 'some-more/campsite/v1';
-  try {
-    const stored = localStorage.getItem(KEY);
-    if (stored) return { environmentId, campsiteSeed: stored };
-    const seed = `camp-${Math.random().toString(36).slice(2, 10)}`;
-    localStorage.setItem(KEY, seed);
-    return { environmentId, campsiteSeed: seed };
-  } catch {
-    return { environmentId, campsiteSeed: 'camp-default' };
+
+  let campsiteSeed = params.get('camp') ?? '';
+  if (!campsiteSeed) {
+    try {
+      campsiteSeed = localStorage.getItem(KEY) ?? '';
+      if (!campsiteSeed) {
+        campsiteSeed = `camp-${Math.random().toString(36).slice(2, 10)}`;
+        localStorage.setItem(KEY, campsiteSeed);
+      }
+    } catch {
+      campsiteSeed = 'camp-default';
+    }
   }
+
+  // An explicit `?env=` wins; otherwise the campsite seed decides which
+  // environment this visit lands in. Region is not read here: it may only
+  // weight discovery, never lock it (spec §5.4), and the weighting lives in
+  // the content package where it can be tested.
+  const requested = params.get('env');
+  const environment =
+    (requested ? getEnvironment(requested) : undefined) ??
+    selectEnvironment({ seed: campsiteSeed });
+
+  return { environmentId: environment.id, campsiteSeed };
 }
 
 const { environmentId, campsiteSeed } = resolveCampsite();
-const store = new Store({ environmentId, campsiteSeed });
+const environment = getEnvironment(environmentId);
+const store = new Store({
+  environmentId,
+  campsiteSeed,
+  ...(environment ? { weatherProfile: environment.weather } : {}),
+});
 
 /**
  * Exposed for the end-to-end tests and for the browser console.
@@ -67,6 +83,7 @@ declare global {
       actions: Record<string, (...args: never[]) => unknown>;
       /** Populated once the canvas exists; used by the screenshot harness. */
       three?: { gl: unknown; scene: unknown; camera: unknown };
+      environments: readonly { id: string; name: string }[];
     };
   }
 }
@@ -79,6 +96,7 @@ if (typeof window !== 'undefined') {
       return result;
     };
   window.__someMore = {
+    environments: listEnvironments().map((e) => ({ id: e.id, name: e.name })),
     store,
     actions: {
       arrive: wrap(() => arrive(store.state.ritual)),

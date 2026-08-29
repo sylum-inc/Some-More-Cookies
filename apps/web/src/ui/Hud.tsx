@@ -93,14 +93,36 @@ export function Hud(props: HudProps): React.ReactElement {
       }}
     >
       {/* Corner affordances */}
-      <div style={{ position: 'absolute', top: 0, right: 0, padding: '14px', display: 'flex', gap: 8, pointerEvents: 'auto' }}>
+      <div
+        style={{
+          position: 'absolute',
+          top: 'env(safe-area-inset-top, 0px)',
+          right: 'env(safe-area-inset-right, 0px)',
+          padding: 12,
+          display: 'flex',
+          gap: 8,
+          pointerEvents: 'auto',
+        }}
+      >
         <CornerButton label="Passport" onClick={props.onOpenPassport} textScale={textScale} highContrast={highContrast} />
         <CornerButton label="Settings" onClick={props.onOpenSettings} textScale={textScale} highContrast={highContrast} />
       </div>
 
       {/* Photo, available once there is something worth photographing */}
       {(stage === 'reveal' || stage === 'eating' || stage === 'after' || stage === 'at-fire') && (
-        <div style={{ position: 'absolute', bottom: 0, right: 0, padding: '14px', display: 'flex', gap: 8, pointerEvents: 'auto' }}>
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 'env(safe-area-inset-bottom, 0px)',
+            right: 'env(safe-area-inset-right, 0px)',
+            padding: 12,
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap',
+            justifyContent: 'flex-end',
+            pointerEvents: 'auto',
+          }}
+        >
           {(stage === 'eating' || stage === 'after') && ritual.sandwich && (
             <CornerButton label="Make this real" onClick={props.onOpenTerminal} textScale={textScale} highContrast={highContrast} accent />
           )}
@@ -161,22 +183,31 @@ export function Hud(props: HudProps): React.ReactElement {
         </div>
       )}
 
-      {/* Guidance */}
+      {/* Guidance. Placed clear of the corner controls so it never collides
+          with them on a narrow viewport. */}
       <div
         style={{
           position: 'absolute',
-          left: '50%',
-          top: '6%',
-          transform: 'translateX(-50%)',
-          fontSize: scale(13),
-          letterSpacing: '0.04em',
-          color: highContrast ? '#fff' : 'rgba(232,224,205,0.8)',
-          textShadow: '0 1px 4px rgba(0,0,0,0.9)',
-          textAlign: 'center',
-          maxWidth: '80vw',
+          left: 0,
+          right: 0,
+          top: `calc(${scale(46)} + env(safe-area-inset-top, 0px))`,
+          display: 'flex',
+          justifyContent: 'center',
+          padding: `0 ${scale(16)}`,
         }}
       >
-        {guidanceFor(ritual, stage)}
+        <span
+          style={{
+            fontSize: scale(13),
+            letterSpacing: '0.04em',
+            color: highContrast ? '#fff' : 'rgba(232,224,205,0.82)',
+            textShadow: '0 1px 4px rgba(0,0,0,0.95)',
+            textAlign: 'center',
+            maxWidth: '46ch',
+          }}
+        >
+          {guidanceFor(ritual, stage)}
+        </span>
       </div>
 
       {/* Subtitles */}

@@ -47,7 +47,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
   const [hovered, setHovered] = useState<string | null>(null);
 
   const enamel = useMemo(
-    () => createPs1Material({ tier: 'ps1Plus', settings, map: getTexture('enamel', { size: 128 }), color: 0x9a978f, roughness: 0.55, metalness: 0.05 }),
+    () => createPs1Material({ tier: 'ps1Plus', settings, map: getTexture('enamel', { size: 128 }), color: 0xb2afa7, roughness: 0.55, metalness: 0.05 }),
     [settings],
   );
   const aluminium = useMemo(
@@ -422,6 +422,29 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           <meshStandardMaterial color={0x2c2e31} roughness={0.9} />
         </mesh>
       ))}
+
+      {/* Chamber lamp. A freezer lights its own interior when the door opens —
+          functional, diegetic, and the only reason the tray and the sandwich
+          are legible standing in a dark campsite. */}
+      <pointLight
+        position={[0, 0.62, BODY.depth / 2 - 0.16]}
+        distance={1.5}
+        decay={1.7}
+        intensity={machine.door * 1.9}
+        color={0xfff4e2}
+      />
+
+      {/* Panel work light over the controls, on whenever the unit is awake. */}
+      <spotLight
+        position={[0, 1.42, BODY.depth / 2 + 0.42]}
+        target-position={[0, 0.86, BODY.depth / 2]}
+        angle={0.85}
+        penumbra={0.9}
+        distance={2.4}
+        decay={1.5}
+        intensity={1.5}
+        color={0xe8ecf2}
+      />
 
       {/* Cold pool of light on the floor while the machine runs */}
       <pointLight

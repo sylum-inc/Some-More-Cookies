@@ -81,6 +81,11 @@ export declare function screenToTableOffset(pointerX: number, pointerY: number, 
  */
 export declare class BlowGestureDetector {
     private samples;
+    /**
+     * -Infinity, not 0: a zero start makes the detector inert for the first
+     * 900 ms of whatever timebase is passed in, which silently breaks blow-out
+     * for anyone who shakes early.
+     */
     private lastTriggered;
     /** Feeds a pointer sample. Returns true when a blow-out is recognised. */
     sample(x: number, timeMs: number): boolean;

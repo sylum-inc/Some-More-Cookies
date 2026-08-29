@@ -171,7 +171,12 @@ export function screenToTableOffset(
  */
 export class BlowGestureDetector {
   private samples: { x: number; t: number }[] = [];
-  private lastTriggered = 0;
+  /**
+   * -Infinity, not 0: a zero start makes the detector inert for the first
+   * 900 ms of whatever timebase is passed in, which silently breaks blow-out
+   * for anyone who shakes early.
+   */
+  private lastTriggered = -Infinity;
 
   /** Feeds a pointer sample. Returns true when a blow-out is recognised. */
   sample(x: number, timeMs: number): boolean {
@@ -205,5 +210,6 @@ export class BlowGestureDetector {
 
   reset(): void {
     this.samples.length = 0;
+    this.lastTriggered = -Infinity;
   }
 }

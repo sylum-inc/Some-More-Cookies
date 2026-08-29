@@ -20,6 +20,7 @@ import {
   type RitualStage,
   type RitualState,
 } from '@somemore/sim';
+import { getEnvironment } from '@somemore/content';
 import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
@@ -186,6 +187,7 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
   const lastStage = useRef<RitualStage>(ritual.stage);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
+  const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
 
   // Shadows are a quality-tier decision, applied once.
   useEffect(() => {
@@ -269,7 +271,29 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
         seed={seedNumber}
         weather={ritual.weather}
         settings={settings}
-        drawDistance={qualitySettings.drawDistance}
+        // The environment's own draw distance, capped by the quality tier so
+        // a generous site cannot blow the budget on a weak device.
+        drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
+        {...(environment
+          ? {
+              palette: {
+                ground: environment.scene.nightPalette.ground,
+                foliage: environment.scene.nightPalette.foliage,
+                fog: environment.scene.fog.colour,
+                sky: environment.scene.nightPalette.zenith,
+              },
+              // Only canopy kits become trees. Summing *all* vegetation would
+              // plant a forest on a heather moor, whose density is grass.
+              treeCount: Math.min(
+                88,
+                Math.round(
+                  environment.scene.vegetation
+                    .filter((kit) => kit.heightRange.max >= 2.5)
+                    .reduce((total, kit) => total + kit.density, 0) * 1.8,
+                ),
+              ),
+            }
+          : {})}
       />
 
       <Fire fire={ritual.fire} settings={settings} maxParticles={qualitySettings.maxParticles} />

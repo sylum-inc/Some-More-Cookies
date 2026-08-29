@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Canvas } from '@react-three/fiber';
+import type * as THREE from 'three';
 import {
   bite as takeBiteAction,
   blowOutMarshmallow,
@@ -45,7 +46,20 @@ export function App({ store }: AppProps): React.ReactElement {
   const blowDetector = useMemo(() => new BlowGestureDetector(), []);
   const arrivalRef = useRef(0);
   const arrivingRef = useRef(false);
-  const glRef = useRef<{ domElement: HTMLCanvasElement } | null>(null);
+  /**
+   * The renderer, scene and camera.
+   *
+   * Photo mode needs all three: a WebGL drawing buffer is cleared once the
+   * browser composites it, so reading the canvas at an arbitrary moment yields
+   * black. Re-rendering immediately before the read, in the same task, is what
+   * makes the capture work without paying `preserveDrawingBuffer` on every
+   * frame of the whole session.
+   */
+  const rendererRef = useRef<{
+    gl: THREE.WebGLRenderer;
+    scene: THREE.Scene;
+    camera: THREE.Camera;
+  } | null>(null);
   const audioRef = useRef<AudioBridge | null>(null);
 
   const [quality, setQuality] = useState<QualityTier>(() =>
@@ -253,8 +267,11 @@ export function App({ store }: AppProps): React.ReactElement {
   );
 
   const handlePhoto = useCallback(() => {
-    const canvas = glRef.current?.domElement;
-    if (!canvas) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    // Re-render synchronously so the drawing buffer holds a frame to read.
+    renderer.gl.render(renderer.scene, renderer.camera);
+    const canvas = renderer.gl.domElement;
     const photo = capturePhoto(canvas, {
       environmentId: state.environmentId,
       stage: ritual.stage,
@@ -306,7 +323,7 @@ export function App({ store }: AppProps): React.ReactElement {
         gl={{ antialias: false, powerPreference: 'high-performance', alpha: false }}
         camera={{ position: LAYOUT.trailStart, fov: 62, near: 0.05, far: 200 }}
         onCreated={({ gl, scene, camera }) => {
-          glRef.current = gl;
+          rendererRef.current = { gl, scene, camera };
           gl.setClearColor(0x070a0f, 1);
           // Exposed for the visual-inspection harness and the browser console.
           const handle = window.__someMore;

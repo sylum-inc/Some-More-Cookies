@@ -24,13 +24,15 @@ export interface CampsiteProps {
   weather: WeatherState;
   settings: RenderSettings;
   drawDistance: number;
-  /** Night palette, linear RGB. */
+  /** Night palette, hex strings from the environment manifest. */
   palette?: {
     ground: string;
     foliage: string;
     fog: string;
     sky: string;
   };
+  /** How many trees to scatter, derived from the manifest's canopy kits. */
+  treeCount?: number;
 }
 
 const DEFAULT_PALETTE = {
@@ -40,7 +42,14 @@ const DEFAULT_PALETTE = {
   sky: '#070a0f',
 };
 
-export function Campsite({ seed, weather, settings, drawDistance, palette = DEFAULT_PALETTE }: CampsiteProps): React.ReactElement {
+export function Campsite({
+  seed,
+  weather,
+  settings,
+  drawDistance,
+  palette = DEFAULT_PALETTE,
+  treeCount = 54,
+}: CampsiteProps): React.ReactElement {
   const fogRef = useRef<THREE.Fog>(null);
   const starsRef = useRef<THREE.Points>(null);
   const rainRef = useRef<THREE.Points>(null);
@@ -82,7 +91,9 @@ export function Campsite({ seed, weather, settings, drawDistance, palette = DEFA
     // either side of it, so the approach frames the fire instead of burying
     // the camera inside a trunk.
     const trailAngle = Math.atan2(6.2, 7.5);
-    for (let i = 0; i < 62; i++) {
+    // A treeless salt flat and a closed-canopy forest are the same code path,
+    // differing only in this number from the manifest.
+    for (let i = 0; i < treeCount; i++) {
       const angle = rng() * Math.PI * 2;
       const distance = 6 + rng() * 15;
       let delta = Math.abs(angle - trailAngle) % (Math.PI * 2);
@@ -98,7 +109,7 @@ export function Campsite({ seed, weather, settings, drawDistance, palette = DEFA
       });
     }
     return result;
-  }, [seed]);
+  }, [seed, treeCount]);
 
   const treeGeometries = useMemo(
     () => Array.from({ length: 4 }, (_, i) => createTreeGeometry(seed + i * 977, 4.2)),

@@ -12,13 +12,15 @@ export interface CampsiteProps {
     weather: WeatherState;
     settings: RenderSettings;
     drawDistance: number;
-    /** Night palette, linear RGB. */
+    /** Night palette, hex strings from the environment manifest. */
     palette?: {
         ground: string;
         foliage: string;
         fog: string;
         sky: string;
     };
+    /** How many trees to scatter, derived from the manifest's canopy kits. */
+    treeCount?: number;
 }
-export declare function Campsite({ seed, weather, settings, drawDistance, palette }: CampsiteProps): React.ReactElement;
+export declare function Campsite({ seed, weather, settings, drawDistance, palette, treeCount, }: CampsiteProps): React.ReactElement;
 //# sourceMappingURL=Campsite.d.ts.map

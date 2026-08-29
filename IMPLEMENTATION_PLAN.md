@@ -107,6 +107,42 @@ does, and exactly why it could not see this.
 
 ---
 
+## What the tools measured
+
+Automated verification now produces numbers rather than a tick. The full
+method, and what each tool can and cannot prove, is in
+[`tools/README.md`](./tools/README.md).
+
+| Budget (ARCHITECTURE §10) | Measured | Verdict |
+| --- | --- | --- |
+| Simulation step ≤ 1.5 ms | worst stage (roasting) **0.0156 ms mean, 0.093 ms p99** | ~96× inside |
+| Retained heap growth | **0.264 B/step over 115,200 steps** (32 simulated minutes) | flat, no leak |
+| ≤ 120 draw calls | **121 at arrival** (60–94 everywhere else) | **over**, pinned as an unaccepted deviation |
+| ≤ 60,000 triangles | 5,246 | 9 % |
+| ≤ 24 MB textures | 1.59 MB | 7 % |
+| ≤ 6 dynamic lights | **10 in reveal/eating** | **over**, deliberate: the sandwich's hero rig |
+| Audio: no clipping | **0 clipped samples across 25 sounds**, largest DC offset 0.0064 | pass |
+
+Two budgets are over, both pinned so they cannot drift further, both with the
+fix named. Draw calls crossed 120 the moment the campsite became explorable
+(148 → 175 objects at arrival); batching the scenery props is the fix. The
+light count is the finished sandwich's key/fill/rim rig, which exists because
+without it the most important object in the product rendered as a silhouette
+(defect #5) — it is over budget on the three stages that matter most, and that
+is a trade taken knowingly.
+
+§10's claim of "zero per-frame allocation" was **not true** and is now
+narrower: `stepRitual` was constructing a named `Rng` per subsystem per step.
+The streams are cached and reseeded, and the tool reports transient churn as
+an order of magnitude rather than asserting on it, because three defensible
+sampling methods gave figures 30× apart for the same build. Retained growth is
+what the budget stands behind.
+
+The tools also caught both of those regressions within minutes of the work
+that caused them landing, which is the actual argument for having built them.
+
+---
+
 ## Priorities and acceptance criteria
 
 ### P1 — Prove the magic

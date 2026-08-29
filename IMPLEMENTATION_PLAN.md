@@ -46,7 +46,7 @@ No step in that sentence is a placeholder button.
 
 ## What looking at the running product found
 
-Five defects that reading the code would not have surfaced, all fixed, most
+Ten defects that reading the code would not have surfaced, all fixed, most
 with regression tests:
 
 | # | Found | Cause |
@@ -56,9 +56,24 @@ with regression tests:
 | 3 | A naturally burned-down bed could not roast at all | Coal radiance scaled linearly with pile size, so a half-spent bed radiated half as hard rather than covering half the ground |
 | 4 | Frost grew past its target and then visibly retreated mid-run | The freezing stage had no cap, and the transforming stage eased *down* toward one |
 | 5 | The finished sandwich rendered as an unlit silhouette | Nothing lit it; it is small, dark-backed and away from the fire |
+| 6 | The whole assembly stage rendered black | It happens away from the fire, and by then the fire has burned to coals. Fixed with a camp lantern on the stump, not an invisible fill light |
+| 7 | Photographs saved as black frames | A WebGL drawing buffer is cleared once composited; the capture now re-renders synchronously first |
+| 8 | The blow-out gesture was inert for the first 900 ms | Its cooldown initialised to `0` rather than `-Infinity` |
+| 9 | The marshmallow read as a tiny blob | Roasting was framed from standing height rather than at arm's length |
+| 10 | **The reveal showed solid enamel with the sandwich sealed inside the geometry** | The SM-01's body was a single `boxGeometry` — the cabinet had no opening. The door opened onto the machine's own front panel |
 
-Number 5 is the one worth dwelling on: the single most important object in the
-product was invisible, and every test was green.
+Numbers 5, 6 and 10 are the ones worth dwelling on. The most important object
+in the product was invisible; an entire interaction stage rendered black; and
+the machine at the centre of the whole fantasy had no hole in it. All three
+were invisible to a fully green test suite, and none would have been found by
+reading the code.
+
+Number 10 also took three attempts. The first two "fixes" moved the camera,
+because the symptom looked like a framing problem. It was only after querying
+the actual scene graph — door bounds, camera position, sandwich world
+position — that the real cause showed up: the sight line was not blocked by
+anything, the sandwich was simply *inside solid geometry*. Measuring beat
+reasoning.
 
 ---
 

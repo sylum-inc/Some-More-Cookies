@@ -143,19 +143,14 @@ function poseFor(stage: RitualStage, arrivalProgress: number, marshmallow?: Vec3
         fov: 50,
       };
     case 'reveal': {
-      // Framed on the open chamber from far enough back that the machine's
-      // face, the swung door and the tray are all in shot. Standing closer
-      // put the camera inside the open door's sweep and filled the frame with
-      // frosted enamel — a whiteout at the one moment that has to land.
-      const chamber = machineToWorld([0, 0.46, 0.14]);
+      // Square on the open chamber, slightly to the free-edge side and low
+      // enough to see onto the tray. The door swings wide (see Machine.tsx),
+      // so it no longer stands across this sight line.
+      const chamber = machineToWorld([0, 0.5, 0.16]);
       return {
-        position: [
-          LAYOUT.machine[0] + MACHINE_FRONT[0] * 1.62,
-          0.78,
-          LAYOUT.machine[2] + MACHINE_FRONT[1] * 1.62,
-        ],
+        position: machineToWorld([0.06, 0.62, 1.15]),
         target: chamber,
-        fov: 34,
+        fov: 36,
       };
     }
     case 'eating':
@@ -367,7 +362,7 @@ export function World({ store, roastControl, quality, onFrame, arrivalRef, onSim
       {showAssembly && <AssemblyTable assembly={ritual.assembly} settings={settings} position={LAYOUT.assemblyTable} />}
 
       {showSandwichOnTray && ritual.sandwich && (
-        <group position={machineToWorld([0, 0.395, 0.15])}>
+        <group position={machineToWorld([0, 0.372, 0.14])}>
           <Sandwich sandwich={ritual.sandwich} bite={null} settings={settings} />
         </group>
       )}

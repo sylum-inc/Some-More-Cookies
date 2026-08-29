@@ -32,8 +32,20 @@ export interface MachineProps {
   hintEnabled?: boolean;
 }
 
-/** Body dimensions in metres — roughly a chest freezer on castors. */
+/** Body dimensions in metres — roughly an upright freezer on rubber feet. */
 const BODY = { width: 0.86, height: 1.02, depth: 0.62 };
+
+/** The chamber mouth cut into the front face, and the shell around it. */
+const CHAMBER = {
+  width: 0.52,
+  height: 0.42,
+  /** Height of the opening's centre above the floor. */
+  centreY: 0.56,
+  /** Wall thickness of the cabinet shell. */
+  shell: 0.06,
+  /** Depth of the front frame. */
+  frontDepth: 0.06,
+};
 
 export function Machine({ machine, settings, onAction, hintEnabled = true }: MachineProps): React.ReactElement {
   const doorRef = useRef<THREE.Group>(null);
@@ -141,8 +153,11 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
     // --- Door -------------------------------------------------------------
     const door = doorRef.current;
     if (door) {
-      // Hinged at the left edge, swinging toward the player.
-      door.rotation.y = -machine.door * 1.35;
+      // Hinged at the left edge and swung wide — about 120°, the way an
+      // upright freezer actually opens. At 90° the door sits square across
+      // the opening and hides the chamber from anyone standing in front of
+      // it, which is exactly where the player stands for the reveal.
+      door.rotation.y = -machine.door * 2.15;
     }
 
     // --- Latch and lever --------------------------------------------------
@@ -238,10 +253,61 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
 
   return (
     <group name="sm-01">
-      {/* --- Body ------------------------------------------------------- */}
-      <mesh material={enamel} position={[0, BODY.height / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[BODY.width, BODY.height, BODY.depth]} />
+      {/* --- Body -------------------------------------------------------
+          Built as a shell with a real opening rather than one solid box.
+          A single box has no hole in it, so opening the door revealed the
+          machine's own front panel with the sandwich sealed inside the
+          geometry — the reveal could not work until the chamber had a
+          mouth. */}
+      {/* Back, sides, top and bottom */}
+      <mesh material={enamel} position={[0, BODY.height / 2, -BODY.depth / 2 + CHAMBER.shell / 2]} castShadow receiveShadow>
+        <boxGeometry args={[BODY.width, BODY.height, CHAMBER.shell]} />
       </mesh>
+      {[-1, 1].map((side) => (
+        <mesh
+          key={side}
+          material={enamel}
+          position={[side * (BODY.width / 2 - CHAMBER.shell / 2), BODY.height / 2, 0]}
+          castShadow
+          receiveShadow
+        >
+          <boxGeometry args={[CHAMBER.shell, BODY.height, BODY.depth]} />
+        </mesh>
+      ))}
+      <mesh material={enamel} position={[0, BODY.height - CHAMBER.shell / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[BODY.width, CHAMBER.shell, BODY.depth]} />
+      </mesh>
+      <mesh material={enamel} position={[0, CHAMBER.shell / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[BODY.width, CHAMBER.shell, BODY.depth]} />
+      </mesh>
+
+      {/* Front face, as a frame around the chamber mouth */}
+      {(() => {
+        const z = BODY.depth / 2 - CHAMBER.frontDepth / 2;
+        const sideWidth = (BODY.width - CHAMBER.width) / 2;
+        const above = BODY.height - (CHAMBER.centreY + CHAMBER.height / 2);
+        const below = CHAMBER.centreY - CHAMBER.height / 2;
+        return (
+          <group>
+            {[-1, 1].map((side) => (
+              <mesh
+                key={side}
+                material={enamel}
+                position={[side * (BODY.width / 2 - sideWidth / 2), BODY.height / 2, z]}
+                castShadow
+              >
+                <boxGeometry args={[sideWidth, BODY.height, CHAMBER.frontDepth]} />
+              </mesh>
+            ))}
+            <mesh material={enamel} position={[0, BODY.height - above / 2, z]} castShadow>
+              <boxGeometry args={[CHAMBER.width, above, CHAMBER.frontDepth]} />
+            </mesh>
+            <mesh material={enamel} position={[0, below / 2, z]} castShadow>
+              <boxGeometry args={[CHAMBER.width, below, CHAMBER.frontDepth]} />
+            </mesh>
+          </group>
+        );
+      })()}
 
       {/* Aluminium plinth and top cap */}
       <mesh material={aluminium} position={[0, 0.045, 0]} castShadow>
@@ -271,14 +337,18 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
 
       {/* --- Chamber and door ------------------------------------------- */}
       {/* Dark interior so the reveal reads against it */}
-      <mesh position={[0, 0.56, BODY.depth / 2 - 0.16]}>
-        <boxGeometry args={[0.52, 0.42, 0.3]} />
-        <meshStandardMaterial color={0x0a0c0e} side={THREE.BackSide} roughness={1} />
+      <mesh position={[0, CHAMBER.centreY, BODY.depth / 2 - 0.2]}>
+        <boxGeometry args={[CHAMBER.width - 0.005, CHAMBER.height - 0.005, 0.34]} />
+        <meshStandardMaterial color={0x14181c} side={THREE.BackSide} roughness={1} />
       </mesh>
 
       {/* Tray */}
-      <mesh material={aluminium} position={[0, 0.38, BODY.depth / 2 - 0.16]} receiveShadow>
-        <boxGeometry args={[0.46, 0.012, 0.28]} />
+      <mesh
+        material={aluminium}
+        position={[0, CHAMBER.centreY - CHAMBER.height / 2 + 0.015, BODY.depth / 2 - 0.18]}
+        receiveShadow
+      >
+        <boxGeometry args={[CHAMBER.width - 0.06, 0.012, 0.3]} />
       </mesh>
 
       <group ref={doorRef} position={[-0.29, 0.56, BODY.depth / 2 + 0.005]}>
@@ -429,7 +499,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           functional, diegetic, and the only reason the tray and the sandwich
           are legible standing in a dark campsite. */}
       <pointLight
-        position={[0, 0.62, BODY.depth / 2 - 0.16]}
+        position={[0, CHAMBER.centreY + 0.13, BODY.depth / 2 - 0.14]}
         distance={1.1}
         decay={2}
         intensity={machine.door * 0.9}

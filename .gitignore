@@ -10,3 +10,4 @@ playwright-report/
 test-results/
 artifacts/screenshots/*.png
 !artifacts/screenshots/.gitkeep
+dist-types/

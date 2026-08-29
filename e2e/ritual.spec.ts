@@ -153,7 +153,11 @@ test.describe('the ritual', () => {
     // accessible-name matching is case-insensitive.
     const terminal = page.getByRole('dialog', { name: /order terminal/i });
     await expect(terminal.getByRole('button', { name: 'MAKE THIS REAL' })).toBeVisible();
-    await expect(terminal).toContainText('SM-01');
+    // The terminal prints the unit's serial (SM01-...) and the product, so
+    // the order screen is provably about *this* sandwich from *this* machine.
+    await expect(terminal).toContainText('SOME MORE');
+    await expect(terminal).toContainText('ROASTED MARSHMALLOW ICE CREAM');
+    await expect(terminal).toContainText(/SM01-\d{4}[A-Z]-\d{5}-[A-Z]/);
 
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);

@@ -1,6 +1,6 @@
 # Some More — Implementation Plan
 
-**Status:** living document · updated continuously · last updated: session 1
+**Status:** living document · updated continuously · last updated: session 2
 **Companions:** [`PRODUCT_SPEC.md`](./PRODUCT_SPEC.md) · [`ARCHITECTURE.md`](./ARCHITECTURE.md)
 
 ---
@@ -21,10 +21,16 @@ containing one line). Everything below was built from zero.
 | `packages/protocol` + `services/api` | ✅ 230 tests |
 | P1 playable ritual, end to end | ✅ driven by E2E in Chromium |
 | Passport, photo mode, accessibility | ✅ built, E2E-verified |
-| Multiplayer | ⬜ architected (ADR-0006), not built |
-| Live ops / CMS | ⬜ schemas exist, tooling not built |
+| Free movement and exploration | ✅ 37 tests |
+| Wildlife, radio, secrets — wired into the ritual | ✅ 78 tests |
+| Campsite memory (the significance model, persisted) | ✅ 8 tests |
+| PostgreSQL adapter + hand-rolled wire protocol | ✅ 18 + 18 tests |
+| Realtime transport and multiplayer authority | ✅ RFC 6455 by hand, no new deps |
+| Client ↔ server seam, commerce and rewards | ✅ 10 seam tests against the real service |
+| Live ops / CMS · QR and events | 🔨 in progress |
+| Secondary activities (skipping, stars, torch, fishing) | 🔨 in progress |
 
-**704 unit and integration tests + 4 end-to-end acceptance tests.**
+**Over 1,000 unit, integration and seam tests + end-to-end acceptance tests in Chromium.**
 
 ### What "playable" currently means
 
@@ -75,6 +81,30 @@ position — that the real cause showed up: the sight line was not blocked by
 anything, the sandwich was simply *inside solid geometry*. Measuring beat
 reasoning.
 
+### Session 2: the eleventh, and the largest
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 11 | **Every random stream in the simulation was frozen.** | `Rng.split(name)` derives a child from the parent's *current* state, and nothing in the ritual ever drew from the parent — so splitting `'fire'` on every step produced the identical child on every step. Fire, weather, roasting, assembly and wildlife each sampled one value and then repeated it for the entire session. |
+
+This surfaced because a newly wired wildlife system produced exactly zero
+sightings over ten simulated minutes with a perfectly still player, when the
+model's own tests said it should produce roughly one and a half. The model was
+right; the ritual was handing it the same coin, flipped once, forever.
+
+Nothing failed. Everything compiled, 887 tests passed, and the fire on screen
+still flickered — because the *deterministic* parts of the fire model still
+varied. What was gone was all the stochastic texture: crackle scheduling,
+weather transitions, roast variation between two identical roasts. Three
+regression tests now cover it, and per-step streams are derived from a tick
+counter that is part of the simulation's identity.
+
+The general lesson is the same one as #5, #6 and #10, in a different disguise:
+a green suite means the assertions passed, not that the system works. Here the
+assertions passed because every test that could have caught it built its own
+`Rng` and passed it in directly — which is exactly what a careful unit test
+does, and exactly why it could not see this.
+
 ---
 
 ## Priorities and acceptance criteria
@@ -124,9 +154,10 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 | S1 | **Two affordances are still HUD buttons.** Taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The woodpile and the ember bed are now touched directly, and which log you reach for decides what wood goes on the fire. | The remaining two are transitions rather than manipulations, so they read less wrongly — but the spec's spirit is that you carry the marshmallow, not press "take". | Drag the roasting stick to the plate; pick the sandwich off the tray. Both buttons stay as an accessibility fallback for anyone who cannot drag. |
 | S2 | **Never run on a touch device.** | Roasting is a two-axis drag; risk R7 is unresolved without a thumb on real glass. | A device lab, or at minimum a phone. |
 | S3 | **Never profiled on real hardware.** | The 60 FPS target is unverified; SwiftShader here cannot answer it. | Real device profiling against the budgets in ARCHITECTURE §10. |
-| S4 | **Multiplayer is architected, not built.** | Priority 3 in full. | The WebSocket transport and the authority layer described in ADR-0006; the protocol and session domains already model it. |
-| S5 | **Wildlife, radio, secrets and traces are data, not behaviour.** The catalogue defines all twelve environments' rosters, stations and discoveries; the client does not yet act on them. | Priority 2 is half-delivered: the world looks different per environment, but does not yet *behave* differently beyond weather and fuel. | Client systems reading the manifests that already exist. |
-| S6 | **The significance model is not wired to storage.** The model and its tests exist; no traces are yet recorded from play. | Persistent campsite memory (spec §6.3) is unproven end to end. | Emit evidence at the points the ritual already knows about, and persist through the world-state domain. |
+| S4 | ~~Multiplayer is architected, not built.~~ **Built.** RFC 6455 framing, handshake, rooms, authority hand-off with fencing, blocks and anti-grief, all with no new dependencies. Voice is behind a LiveKit adapter that reports "not configured" without credentials. | — | Remaining: proximity mixing applies no gain yet, and participant truth is in-process rather than read from the provider. |
+| S5 | ~~Wildlife, radio, secrets and traces are data, not behaviour.~~ **Wired.** `stepRitual` steps all three every step; their cue field is derived from state that actually exists — the fire that is burning, the marshmallow that is browning, the compressor that is running. Animals render with eyeshine; the radio is an object you walk to and tune. | — | Remaining: a human has neither seen the animals nor heard the dial. |
+| S6 | ~~The significance model is not wired to storage.~~ **Wired locally.** Wildlife and discovery events become traces, and traces, resident visit counts and found secrets are folded into the Passport per campsite and handed back on the next visit. | — | Remaining: campsite memory is local-only; the world-state domain exists server-side but the client does not yet sync traces to it. |
+| S8 | **The order terminal now reaches a real service, but no human has bought anything.** The whole sequence runs against the API in tests, including the payment intent and confirmation through the fake provider. | Nobody has typed a real address into it on a phone. | A person, and eventually a processor. |
 | S7 | **Audio is unheard.** 102 tests cover its maths and scheduling; no human has listened to it. | The SM-01's mechanical narrative is carried by sound. | Someone with speakers. |
 
 ---
@@ -164,8 +195,8 @@ audio ─────┘        protocol ──► api ──► commerce/reward
 
 | Blocker | Blocks | Workaround in place |
 | --- | --- | --- |
-| No Stripe credentials | Live payments | `PaymentProvider` abstraction + fake provider; Stripe implementation structured against the real API, reports "not configured" without keys |
-| No PostgreSQL instance | Persistent account storage | Repository interfaces + complete in-memory implementations + a real `schema.sql` ready for the adapter |
+| No Stripe credentials | Live payments | `PaymentProvider` abstraction + fake provider; Stripe implementation structured against the real API. The client reads `paymentsConfigured` off `/v1/meta`, so the terminal starts taking payments the day keys are set, with no client change |
+| ~~No PostgreSQL instance~~ | — | **Resolved.** A local cluster was started and the whole suite runs against it. The wire protocol client is hand-rolled over `node:net` (SCRAM-SHA-256, extended query protocol, pooling). One thing genuinely outstanding before a managed instance over the public internet: `sslmode=require` encrypts but does not verify a certificate chain |
 | No object storage | Photo upload | Photo metadata modelled with storage keys; blobs held locally |
 | No email provider | Magic-link login | `Mailer` interface with a console implementation |
 | No WebRTC/LiveKit account | Spatial voice | Abstraction defined; panner path built so a `MediaStream` attaches later |

@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/sim" },
+    { "path": "./packages/content" },
+    { "path": "./packages/protocol" },
+    { "path": "./services/api" },
+    { "path": "./apps/web" }
+  ]
+}

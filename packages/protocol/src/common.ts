@@ -1,0 +1,250 @@
+import { z } from 'zod';
+
+/* -------------------------------------------------------------------------- */
+/* Primitives                                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Opaque identifier. Ids are server-minted, URL-safe and stable forever.
+ * Format: `<prefix>_<uuid-ish>`; we only constrain the character set and length
+ * so that storage adapters (Postgres `text`) and URLs stay predictable.
+ */
+export const IdSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9_.:-]+$/, 'ids must be URL-safe');
+
+export const TimestampSchema = z.iso.datetime({ offset: true });
+
+export const UnitIntervalSchema = z.number().min(0).max(1);
+
+export const NonNegativeIntSchema = z.number().int().min(0);
+
+export const PositiveIntSchema = z.number().int().min(1);
+
+/** uint32 world seed — the sim derives every deterministic detail from this. */
+export const SeedSchema = z.number().int().min(0).max(0xffffffff);
+
+export const SemVerSchema = z.string().regex(/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/);
+
+export const LocaleSchema = z.string().regex(/^[a-z]{2}(?:-[A-Z]{2})?$/);
+
+export const CountryCodeSchema = z.string().regex(/^[A-Z]{2}$/);
+
+export const CurrencySchema = z.string().regex(/^[A-Z]{3}$/);
+
+export const PlatformValues = ['ios', 'android', 'web', 'macos', 'windows', 'visionos'] as const;
+export const PlatformSchema = z.enum(PlatformValues);
+export type Platform = z.infer<typeof PlatformSchema>;
+
+/**
+ * Client-supplied key that makes a mutating operation replay-safe.
+ * Same key + same payload => original result; same key + different payload =>
+ * `idempotency_key_conflict`.
+ */
+export const IdempotencyKeySchema = z
+  .string()
+  .min(8)
+  .max(200)
+  .regex(/^[A-Za-z0-9_.:-]+$/, 'idempotency keys must be URL-safe');
+
+/** Mixin: every mutating request in this protocol carries an idempotency key. */
+export const IdempotentRequestSchema = z.object({
+  idempotencyKey: IdempotencyKeySchema,
+});
+
+/** Wrap any request object so that it requires an idempotency key. */
+export function withIdempotency<T extends z.ZodObject>(schema: T) {
+  return schema.extend(IdempotentRequestSchema.shape);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Geometry                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const Vec3Schema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  z: z.number().finite(),
+});
+export type Vec3 = z.infer<typeof Vec3Schema>;
+
+/* -------------------------------------------------------------------------- */
+/* Money                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Money is always integer minor units (cents) plus an ISO-4217 currency.
+ * Never floats, never strings — rounding happens once, at quote time.
+ */
+export const MoneySchema = z.object({
+  currency: CurrencySchema,
+  amountMinor: z.number().int(),
+});
+export type Money = z.infer<typeof MoneySchema>;
+
+export const NonNegativeMoneySchema = MoneySchema.extend({
+  amountMinor: NonNegativeIntSchema,
+});
+
+export function money(amountMinor: number, currency = 'USD'): Money {
+  return { currency, amountMinor };
+}
+
+export function addMoney(a: Money, b: Money): Money {
+  if (a.currency !== b.currency) throw new Error(`currency mismatch: ${a.currency} vs ${b.currency}`);
+  return { currency: a.currency, amountMinor: a.amountMinor + b.amountMinor };
+}
+
+export function multiplyMoney(a: Money, factor: number): Money {
+  return { currency: a.currency, amountMinor: Math.round(a.amountMinor * factor) };
+}
+
+/* -------------------------------------------------------------------------- */
+/* JSON                                                                        */
+/* -------------------------------------------------------------------------- */
+
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValueSchema),
+    z.record(z.string(), JsonValueSchema),
+  ]),
+);
+
+/* -------------------------------------------------------------------------- */
+/* Errors                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export const ApiErrorCodeValues = [
+  'bad_request',
+  'validation_failed',
+  'unauthorized',
+  'forbidden',
+  'not_found',
+  'method_not_allowed',
+  'conflict',
+  'idempotency_key_conflict',
+  'idempotency_key_required',
+  'illegal_state_transition',
+  'rate_limited',
+  'precondition_failed',
+  'payload_too_large',
+  'unsupported_media_type',
+  'payment_provider_not_configured',
+  'payment_failed',
+  'webhook_signature_invalid',
+  'reward_already_claimed',
+  'anti_abuse_rejected',
+  'schema_version_unsupported',
+  'raw_card_data_rejected',
+  'internal_error',
+] as const;
+export const ApiErrorCodeSchema = z.enum(ApiErrorCodeValues);
+export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;
+
+/** Every non-2xx response body in the service has exactly this shape. */
+export const ErrorEnvelopeSchema = z.object({
+  error: z.object({
+    code: ApiErrorCodeSchema,
+    message: z.string(),
+    requestId: z.string(),
+    details: JsonValueSchema.optional(),
+  }),
+});
+export type ErrorEnvelope = z.infer<typeof ErrorEnvelopeSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Pagination                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export const PageRequestSchema = z.object({
+  cursor: z.string().max(256).optional(),
+  limit: z.number().int().min(1).max(100).default(25),
+});
+export type PageRequest = z.infer<typeof PageRequestSchema>;
+
+export function pageSchema<T extends z.ZodType>(item: T) {
+  return z.object({
+    items: z.array(item),
+    nextCursor: z.string().nullable(),
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* PCI guard                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Field names that must never appear anywhere in a request body. We are not,
+ * and never will be, in scope for raw PAN handling: card details go straight
+ * from the client SDK to the payment provider and only a provider token or
+ * intent id ever reaches us.
+ */
+export const FORBIDDEN_CARD_FIELDS: readonly string[] = [
+  'cardnumber',
+  'card_number',
+  'cardnum',
+  'pan',
+  'primaryaccountnumber',
+  'cvc',
+  'cvv',
+  'cvv2',
+  'csc',
+  'securitycode',
+  'expmonth',
+  'exp_month',
+  'expyear',
+  'exp_year',
+  'track1',
+  'track2',
+];
+
+const PAN_LIKE = /(?:\d[ -]?){13,19}/;
+
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** Luhn check, used to distinguish a real PAN from an arbitrary long number. */
+export function looksLikeCardNumber(value: string): boolean {
+  const digits = value.replace(/[ -]/g, '');
+  if (!/^\d{13,19}$/.test(digits)) return false;
+  let sum = 0;
+  let double = false;
+  for (let i = digits.length - 1; i >= 0; i -= 1) {
+    const ch = digits[i];
+    if (ch === undefined) return false;
+    let d = ch.charCodeAt(0) - 48;
+    if (double) {
+      d *= 2;
+      if (d > 9) d -= 9;
+    }
+    sum += d;
+    double = !double;
+  }
+  return sum % 10 === 0;
+}
+
+/**
+ * Deep-scan an arbitrary decoded JSON body for raw card data. Used by the API
+ * edge *before* schema parsing (which would otherwise silently strip the keys)
+ * so that a client mistake is loudly rejected instead of quietly dropped.
+ */
+export function containsRawCardData(value: unknown, depth = 0): boolean {
+  if (depth > 12 || value === null || value === undefined) return false;
+  if (typeof value === 'string') return PAN_LIKE.test(value) && looksLikeCardNumber(value);
+  if (typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.some((v) => containsRawCardData(v, depth + 1));
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (FORBIDDEN_CARD_FIELDS.includes(normalizeKey(key))) return true;
+    if (containsRawCardData(child, depth + 1)) return true;
+  }
+  return false;
+}

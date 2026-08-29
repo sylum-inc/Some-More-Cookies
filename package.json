@@ -1,0 +1,31 @@
+{
+  "name": "some-more",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Some More — a cross-platform interactive campfire world.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @somemore/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "api": "npm run dev --workspace @somemore/api"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.9.0",
+    "vite": "^7.3.0",
+    "vitest": "^3.2.0"
+  }
+}

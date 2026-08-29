@@ -13,6 +13,8 @@ import {
   approachPoint,
   bearingFromFire,
   createPlayer,
+  eyePosition,
+  lookDirection,
   createWorld,
   focused,
   terrainHeight,
@@ -46,7 +48,7 @@ import { Store } from './state/store.js';
 import { AdaptiveQuality, applyRenderSettings, probeQualityTier, QUALITY, type QualityTier } from './render/ps1.js';
 import { BlowGestureDetector, RoastController, screenToTableOffset } from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
-import { AudioBridge } from './audio/bridge.js';
+import { AudioBridge, type AudioCue } from './audio/bridge.js';
 import { SyncEngine } from './net/sync.js';
 
 export interface AppProps {
@@ -218,7 +220,15 @@ export function App({ store }: AppProps): React.ReactElement {
   const unlockAudio = useCallback(() => {
     if (state.audioReady) return;
     void audioRef.current?.unlock().then((ok: boolean) => {
-      if (ok) store.set({ audioReady: true });
+      if (!ok) return;
+      // The campsite layout is the scene's business, so the positions are
+      // pushed in from here rather than guessed by the audio engine.
+      audioRef.current?.placeEmitters({
+        fire: [0, 0.2, 0],
+        machine: LAYOUT.machine,
+        radio: LAYOUT.radio,
+      });
+      store.set({ audioReady: true });
     });
   }, [state.audioReady, store]);
 
@@ -420,10 +430,18 @@ export function App({ store }: AppProps): React.ReactElement {
 
   // --- Simulation-driven audio and subtitles ------------------------------
   const lastSubtitle = useRef<{ text: string; at: number } | null>(null);
+  const listenerScratch = useRef({ eye: vec3(), look: vec3() });
   const onSimStep = useCallback(
     (r: RitualState) => {
       const bridge = audioRef.current;
-      if (bridge) bridge.update(r);
+      let cue: AudioCue | null = null;
+      if (bridge) {
+        // The listener has to move with the player or nothing is anywhere: the
+        // radio on the log and an animal behind you both depend on it.
+        const scratch = listenerScratch.current;
+        bridge.listener(eyePosition(player, scratch.eye), lookDirection(player, scratch.look));
+        cue = bridge.update(r);
+      }
 
       // Subtitles for information-bearing sounds (spec §12: nothing is
       // delivered through a single channel).
@@ -439,12 +457,18 @@ export function App({ store }: AppProps): React.ReactElement {
         lastSubtitle.current = { text: '[the marshmallow catches fire]', at: performance.now() };
         store.setSubtitle('[the marshmallow catches fire]');
       }
+      // The radio and the wildlife say what they are: the copy comes from the
+      // simulation (`describeReception`, `describeSighting`), never from here.
+      if (cue && cue.text !== lastSubtitle.current?.text) {
+        lastSubtitle.current = { text: cue.text, at: performance.now() };
+        store.setSubtitle(cue.text);
+      }
       if (lastSubtitle.current && performance.now() - lastSubtitle.current.at > 2600) {
         lastSubtitle.current = null;
         store.setSubtitle(null);
       }
     },
-    [store],
+    [player, store],
   );
 
   /**
@@ -648,6 +672,7 @@ export function App({ store }: AppProps): React.ReactElement {
       {state.overlay === 'passport' && (
         <Passport
           passport={state.passport}
+          campsiteSeed={state.campsiteSeed}
           textScale={state.accessibility.textScale}
           onClose={() => store.setOverlay('none')}
           onLink={(provider) => {

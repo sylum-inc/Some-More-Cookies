@@ -15,10 +15,19 @@ export interface PassportProps {
   onClose: () => void;
   onLink: (provider: 'apple' | 'google' | 'email') => void;
   textScale: number;
+  /** The campsite this Passport is open at, if it is open at one. */
+  campsiteSeed?: string;
 }
 
-export function Passport({ passport, onClose, onLink, textScale }: PassportProps): React.ReactElement {
+export function Passport({
+  passport,
+  onClose,
+  onLink,
+  textScale,
+  campsiteSeed,
+}: PassportProps): React.ReactElement {
   const px = (n: number) => `${n * textScale}px`;
+  const here = campsiteSeed === undefined ? undefined : passport.campsites[campsiteSeed];
 
   return (
     <div className="sm-overlay" role="dialog" aria-label="Campfire Passport" onClick={onClose}>
@@ -157,6 +166,57 @@ export function Passport({ passport, onClose, onLink, textScale }: PassportProps
           )}
         </section>
 
+        {/*
+          This campsite.
+
+          The one page that is *about a place* rather than about the player.
+          It counts visits, because an ordinal is not a score — "the fourth
+          time" is a fact about a night, not a rating of it. There is no
+          denominator anywhere on it: no animals-seen-of-total, no
+          secrets-found-of-total, no completion. The significance value that
+          decided which of these things were worth keeping is never stored and
+          never shown (§6.4).
+        */}
+        {here && here.visits > 1 && (
+          <section style={{ marginBottom: px(20) }}>
+            <SectionLabel textScale={textScale}>This campsite</SectionLabel>
+            <p style={{ fontSize: px(13), color: TOKENS.ink, margin: `${px(8)} 0 0`, lineHeight: 1.6 }}>
+              {visitLine(here.visits)}
+            </p>
+
+            {here.sightings.length > 0 && (
+              <p style={{ fontSize: px(13), color: TOKENS.inkSoft, margin: `${px(8)} 0 0`, lineHeight: 1.6 }}>
+                Seen here: {here.sightings.slice(0, 6).join(', ')}.
+              </p>
+            )}
+
+            {here.secrets.length > 0 && (
+              <div style={{ marginTop: px(10) }}>
+                {here.secrets.slice(0, 6).map((record) => (
+                  <p
+                    key={record.secretId}
+                    style={{
+                      fontFamily: FONT_STACK.hand,
+                      fontSize: px(14),
+                      color: TOKENS.ink,
+                      margin: `${px(4)} 0`,
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {record.evidence ?? record.secretId.replace(/-/g, ' ')}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {here.traces.filter((trace) => trace.disposition === 'landmark').length > 0 && (
+              <p style={{ fontSize: px(12), color: TOKENS.inkSoft, margin: `${px(10)} 0 0`, fontStyle: 'italic' }}>
+                Some of it is still out there.
+              </p>
+            )}
+          </section>
+        )}
+
         {/* Account linking, offered without pressure */}
         <section style={{ borderTop: `1px dashed ${TOKENS.inkSoft}`, paddingTop: px(14) }}>
           <SectionLabel textScale={textScale}>Keep this passport</SectionLabel>
@@ -235,6 +295,21 @@ function SandwichReceipt({
       ))}
     </article>
   );
+}
+
+/**
+ * How many times you have been here, said the way a person would.
+ *
+ * Never a number in a box. "The fourth time" is a sentence; "Visits: 4" is a
+ * statistic, and a statistic about a campsite turns it into a record card.
+ */
+export function visitLine(visits: number): string {
+  if (visits <= 1) return 'The first night here.';
+  if (visits === 2) return 'You have been here once before.';
+  if (visits === 3) return 'The third time at this fire.';
+  if (visits < 8) return `You keep coming back to this one.`;
+  if (visits < 20) return 'This one is yours by now.';
+  return 'You know this place with your eyes shut.';
 }
 
 function SectionLabel({ children, textScale }: { children: React.ReactNode; textScale: number }): React.ReactElement {

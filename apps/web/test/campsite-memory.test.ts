@@ -15,6 +15,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { setPresence, stepRitual, SIM_DT, type WildlifeSpecies } from '@somemore/sim';
 import { Store, type PassportState } from '../src/state/store.js';
+import { visitLine } from '../src/ui/Passport.js';
 
 /** The smallest localStorage that behaves like one. */
 class MemoryStorage {
@@ -159,5 +160,22 @@ describe('campsite memory', () => {
     const store = new Store({ environmentId: 'pine_hollow', campsiteSeed: 'legacy-1', world: WORLD });
     expect(store.state.passport.sandwichCount).toBe(3);
     expect(store.campsiteMemory().visits).toBe(1);
+  });
+});
+
+describe('the campsite page reads as a page, not a record card', () => {
+  it('says how many times you have been, in words', () => {
+    expect(visitLine(1)).toBe('The first night here.');
+    expect(visitLine(2)).toContain('once before');
+    expect(visitLine(3)).toContain('third');
+    expect(visitLine(40)).toContain('eyes shut');
+  });
+
+  it('never puts a number in the line', () => {
+    // A count is a statistic and a statistic turns a campsite into a record
+    // card. An ordinal said in words is a fact about a night.
+    for (const visits of [1, 2, 3, 5, 9, 25, 300]) {
+      expect(visitLine(visits)).not.toMatch(/\d/);
+    }
   });
 });

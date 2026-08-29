@@ -11,3 +11,15 @@ test-results/
 artifacts/screenshots/*.png
 !artifacts/screenshots/.gitkeep
 dist-types/
+
+# Declaration output must never land in a source tree. A stray `tsc` without
+# an `outDir` drops 150 of these into `services/api/src` and they are then one
+# careless `git add -A` away from being committed.
+**/src/**/*.d.ts
+**/src/**/*.d.ts.map
+
+# Generated verification reports. The screenshots the visual suite compares
+# against are baselines and stay tracked; everything a tool writes does not.
+artifacts/**/*.json
+artifacts/**/*.md
+!e2e/__screenshots__/**

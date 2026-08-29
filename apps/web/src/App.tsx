@@ -191,6 +191,30 @@ export function App({ store }: AppProps): React.ReactElement {
     audioRef.current?.applySettings(state.audio);
   }, [state.audio]);
 
+  /**
+   * Folds the night back into this campsite's memory.
+   *
+   * On a slow cadence rather than every frame: everything it merges is
+   * idempotent, and a campsite that remembers you is worth a write every half
+   * minute. `pagehide` rather than `unload` because iOS never fires `unload`,
+   * and a player who closes the tab from the app switcher is the ordinary
+   * case, not the exception.
+   */
+  useEffect(() => {
+    const timer = setInterval(() => store.rememberCampsite(), 30_000);
+    const remember = (): void => {
+      store.rememberCampsite();
+    };
+    window.addEventListener('pagehide', remember);
+    document.addEventListener('visibilitychange', remember);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('pagehide', remember);
+      document.removeEventListener('visibilitychange', remember);
+      remember();
+    };
+  }, [store]);
+
   const unlockAudio = useCallback(() => {
     if (state.audioReady) return;
     void audioRef.current?.unlock().then((ok: boolean) => {

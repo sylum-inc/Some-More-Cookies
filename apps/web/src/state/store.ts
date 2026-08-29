@@ -297,6 +297,11 @@ export class Store {
       environmentId: options.environmentId,
       campsiteSeed: options.campsiteSeed,
     };
+
+    // Written immediately, not at the end of the session: the visit happened
+    // the moment somebody walked in, and a tab that closes on the trail must
+    // still count as having been here.
+    this.persistPassport();
   }
 
   subscribe = (listener: Listener): (() => void) => {

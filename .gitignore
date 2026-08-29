@@ -17,6 +17,8 @@ dist-types/
 # careless `git add -A` away from being committed.
 **/src/**/*.d.ts
 **/src/**/*.d.ts.map
+**/src/**/*.js
+**/src/**/*.js.map
 
 # Generated verification reports. The screenshots the visual suite compares
 # against are baselines and stay tracked; everything a tool writes does not.

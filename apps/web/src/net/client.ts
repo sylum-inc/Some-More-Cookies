@@ -16,18 +16,51 @@
  *     the two is a type error rather than a production surprise.
  */
 
-import type { z } from 'zod';
 import {
   AuthSessionSchema,
   CampfirePassportSchema,
   CampsiteSchema,
+  CartSchema,
+  CartQuoteSchema,
+  OrderSchema,
+  PaymentIntentResponseSchema,
+  ProductSchema,
+  RewardGrantSchema,
   SandwichRecordSchema,
   SCHEMA_VERSION,
+  type Address,
   type AuthSession,
   type CampfirePassport,
   type Campsite,
+  type Cart,
+  type Money,
+  type CartQuote,
+  type Order,
+  type PaymentIntentResponse,
+  type PaymentMethodType,
+  type Product,
+  type RewardGrant,
   type SandwichRecord as WireSandwichRecord,
 } from '@somemore/protocol';
+import { z } from 'zod';
+
+/**
+ * The subset of `/v1/meta` the client acts on.
+ *
+ * Deliberately loose: a deployment is allowed to report capabilities this
+ * build has never heard of, and a client that refuses to parse an unfamiliar
+ * field would break on the next service release rather than ignore it.
+ */
+export const ServiceMetaSchema = z
+  .object({
+    schemaVersion: z.string(),
+    apiVersion: z.string(),
+    paymentProvider: z.string(),
+    paymentsConfigured: z.boolean(),
+    persistence: z.string(),
+  })
+  .loose();
+export type ServiceMeta = z.infer<typeof ServiceMetaSchema>;
 
 export interface ApiClientOptions {
   /** Base URL of the service. Empty string means same origin. */
@@ -185,6 +218,161 @@ export class ApiClient {
    */
   recordSandwich(body: Record<string, unknown>): Promise<ApiResult<WireSandwichRecord>> {
     return this.request('POST', '/v1/sandwiches', SandwichRecordSchema, { body });
+  }
+
+  // --- Deployment capabilities ------------------------------------------
+
+  /**
+   * What this deployment can actually do.
+   *
+   * The client asks rather than assumes. Whether there is a payment provider,
+   * and which one, is a property of the deployment the terminal is talking to
+   * — so the terminal reads it off the wire and stops needing a code change
+   * when a processor is finally configured.
+   */
+  fetchMeta(): Promise<ApiResult<ServiceMeta>> {
+    return this.request('GET', '/v1/meta', ServiceMetaSchema, { authenticated: false });
+  }
+
+  // --- Commerce ---------------------------------------------------------
+  //
+  // Commerce is strictly subordinate to the ritual (spec §11): none of this is
+  // reachable before the reveal, and every call here is allowed to fail
+  // without touching the world. What it is *not* allowed to do is lie — if
+  // there is no payment provider configured, the terminal says so because the
+  // service said so, not because the client hard-coded a message.
+
+  /**
+   * The catalogue. At launch this is one product.
+   *
+   * The list routes wrap their payload in `{ items }`; this unwraps it so the
+   * caller sees the collection it asked for rather than the envelope.
+   */
+  async listProducts(): Promise<ApiResult<Product[]>> {
+    const result = await this.request(
+      'GET',
+      '/v1/commerce/products',
+      z.object({ items: z.array(ProductSchema) }),
+      { authenticated: false },
+    );
+    return result.ok ? { ok: true, value: result.value.items } : result;
+  }
+
+  /** Reward grants this account holds. Empty is the normal case. */
+  async listRewardGrants(): Promise<ApiResult<RewardGrant[]>> {
+    const result = await this.request(
+      'GET',
+      '/v1/rewards/grants',
+      z.object({ items: z.array(RewardGrantSchema) }),
+      {},
+    );
+    return result.ok ? { ok: true, value: result.value.items } : result;
+  }
+
+  /**
+   * Applies a granted reward to the open cart.
+   *
+   * The *grant* is what is redeemed, not a code typed in: a grant was already
+   * server-validated when it was issued, which is what keeps a high-value
+   * reward from being something you can guess (spec §10).
+   */
+  redeemReward(rewardGrantId: string): Promise<ApiResult<Cart>> {
+    return this.request('POST', '/v1/commerce/cart/rewards', CartSchema, {
+      body: { idempotencyKey: idempotencyKey(), rewardGrantId },
+    });
+  }
+
+  /** Applies a promotion code someone typed in. */
+  applyPromotion(code: string): Promise<ApiResult<Cart>> {
+    return this.request('POST', '/v1/commerce/cart/promotions', CartSchema, {
+      body: { idempotencyKey: idempotencyKey(), code },
+    });
+  }
+
+  fetchCart(): Promise<ApiResult<Cart>> {
+    return this.request('GET', '/v1/commerce/cart', CartSchema, {});
+  }
+
+  addCartItem(options: {
+    productId: string;
+    variantId: string;
+    quantity?: number;
+    /** The sandwich this order came out of, for provenance. */
+    sandwichId?: string;
+  }): Promise<ApiResult<Cart>> {
+    return this.request('POST', '/v1/commerce/cart/items', CartSchema, {
+      body: {
+        idempotencyKey: idempotencyKey(),
+        productId: options.productId,
+        variantId: options.variantId,
+        quantity: options.quantity ?? 1,
+        ...(options.sandwichId ? { sandwichId: options.sandwichId } : {}),
+      },
+    });
+  }
+
+  quoteCart(address: Address): Promise<ApiResult<CartQuote>> {
+    return this.request('POST', '/v1/commerce/cart/quote', CartQuoteSchema, {
+      body: { shippingAddress: address },
+    });
+  }
+
+  createOrder(options: {
+    cartId: string;
+    shippingAddress: Address;
+    email?: string;
+    expectedTotal?: Money;
+  }): Promise<ApiResult<Order>> {
+    return this.request('POST', '/v1/commerce/orders', OrderSchema, {
+      body: {
+        idempotencyKey: idempotencyKey(),
+        cartId: options.cartId,
+        shippingAddress: options.shippingAddress,
+        ...(options.email ? { email: options.email } : {}),
+        ...(options.expectedTotal === undefined ? {} : { expectedTotal: options.expectedTotal }),
+      },
+    });
+  }
+
+  /**
+   * Asks the service to start a payment.
+   *
+   * `paymentMethodToken` is a provider-side token minted by the provider's own
+   * SDK. Raw card data never reaches this client, this request or this
+   * service — that is a hard product constraint, and the absence of any field
+   * that could carry a PAN is how it is enforced rather than promised.
+   */
+  createPaymentIntent(
+    orderId: string,
+    methodType: PaymentMethodType,
+    paymentMethodToken?: string,
+  ): Promise<ApiResult<PaymentIntentResponse>> {
+    return this.request(
+      'POST',
+      `/v1/commerce/orders/${encodeURIComponent(orderId)}/payment-intent`,
+      PaymentIntentResponseSchema,
+      {
+        body: {
+          idempotencyKey: idempotencyKey(),
+          methodType,
+          ...(paymentMethodToken ? { paymentMethodToken } : {}),
+        },
+      },
+    );
+  }
+
+  confirmPayment(orderId: string, paymentMethodToken?: string): Promise<ApiResult<Order>> {
+    return this.request(
+      'POST',
+      `/v1/commerce/orders/${encodeURIComponent(orderId)}/payment/confirm`,
+      OrderSchema,
+      {
+        body: {
+          idempotencyKey: idempotencyKey(),
+          ...(paymentMethodToken ? { paymentMethodToken } : {}),
+        },
+      },
+    );
   }
 
   // --- Plumbing ---------------------------------------------------------

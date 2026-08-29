@@ -2,7 +2,7 @@
   "name": "some-more",
   "private": true,
   "version": "0.1.0",
-  "description": "Some More — a cross-platform interactive campfire world.",
+  "description": "Some More \u2014 a cross-platform interactive campfire world.",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -15,7 +15,7 @@
   "scripts": {
     "dev": "npm run dev --workspace @somemore/web",
     "build": "npm run build --workspaces --if-present",
-    "typecheck": "tsc -b --pretty false",
+    "typecheck": "tsc -b --pretty false && tsc -p test/integration/tsconfig.json --pretty false",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

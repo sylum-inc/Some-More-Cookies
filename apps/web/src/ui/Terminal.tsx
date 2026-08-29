@@ -8,22 +8,74 @@
  * Launch catalogue: the flagship roasted-marshmallow sandwich only.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { provenanceLines, type SandwichRecord } from '@somemore/sim';
+import type { Address } from '@somemore/protocol';
 import { FONT_STACK, TOKENS } from './styles.js';
+import { OrderFlow, formatMoney, type OrderFlowState } from '../net/order.js';
+import type { SyncEngine } from '../net/sync.js';
 
 export interface TerminalProps {
   sandwich: SandwichRecord;
   onClose: () => void;
   textScale: number;
+  /**
+   * The seam to the service. Optional: a build with no service still shows the
+   * provenance printout, which is the part that matters, and says plainly that
+   * there is nowhere to send an order.
+   */
+  sync?: SyncEngine | null;
 }
 
-type Step = 'terminal' | 'checkout' | 'unavailable';
+type Step = 'terminal' | 'checkout';
 
-export function Terminal({ sandwich, onClose, textScale }: TerminalProps): React.ReactElement {
+/** A blank shipping form. Nothing here is remembered between sessions. */
+function emptyAddress(): Address {
+  return {
+    name: '',
+    line1: '',
+    line2: null,
+    city: '',
+    region: '',
+    postalCode: '',
+    country: 'US',
+    phone: null,
+  };
+}
+
+export function Terminal({ sandwich, onClose, textScale, sync }: TerminalProps): React.ReactElement {
   const [step, setStep] = useState<Step>('terminal');
   const [lines, setLines] = useState<string[]>([]);
+  const [address, setAddress] = useState<Address>(emptyAddress);
+  const [email, setEmail] = useState('');
   const px = (n: number) => `${n * textScale}px`;
+
+  // The flow is built when the terminal opens and thrown away when it closes:
+  // no commerce object exists anywhere in the product before the reveal (§11).
+  const flow = useMemo(() => (sync ? new OrderFlow(sync.api) : null), [sync]);
+  const [order, setOrder] = useState<OrderFlowState | null>(() => flow?.state ?? null);
+
+  useEffect(() => {
+    if (!flow) return;
+    setOrder(flow.state);
+    return flow.subscribe(setOrder);
+  }, [flow]);
+
+  const startOrder = useCallback(() => {
+    setStep('checkout');
+    if (!flow) return;
+    void (async () => {
+      await sync?.ensureAccount();
+      await flow.begin(sandwich.id);
+    })();
+  }, [flow, sync, sandwich.id]);
+
+  const addressComplete =
+    address.name.trim() !== '' &&
+    address.line1.trim() !== '' &&
+    address.city.trim() !== '' &&
+    address.postalCode.trim() !== '' &&
+    address.country.trim().length === 2;
 
   // The terminal prints its readout a line at a time, the way an appliance
   // with a thermal printer would.
@@ -94,7 +146,7 @@ export function Terminal({ sandwich, onClose, textScale }: TerminalProps): React
               <span style={{ opacity: 0.7 }}>▊</span>
             </pre>
             <div style={{ display: 'flex', gap: px(10), marginTop: px(18), flexWrap: 'wrap' }}>
-              <TerminalButton onClick={() => setStep('checkout')} textScale={textScale} primary>
+              <TerminalButton onClick={startOrder} textScale={textScale} primary>
                 MAKE THIS REAL
               </TerminalButton>
               <TerminalButton onClick={onClose} textScale={textScale}>
@@ -108,32 +160,179 @@ export function Terminal({ sandwich, onClose, textScale }: TerminalProps): React
           <>
             <div style={{ fontSize: px(12), lineHeight: 1.8 }}>
               <div style={{ letterSpacing: '0.2em', marginBottom: px(14) }}>ORDER</div>
-              <Row label="ITEM" value="Roasted Marshmallow Ice Cream Sandwich" textScale={textScale} />
+              <Row
+                label="ITEM"
+                value={order?.product?.name ?? 'Roasted Marshmallow Ice Cream Sandwich'}
+                textScale={textScale}
+              />
               <Row label="QTY" value="1" textScale={textScale} />
               <Row label="MADE AT" value={sandwich.machine.serial} textScale={textScale} />
               <Row label="CLASS" value={sandwich.class} textScale={textScale} />
-              <div
-                style={{
-                  borderTop: '1px dashed #1f3a30',
-                  marginTop: px(14),
-                  paddingTop: px(14),
-                  color: '#8fd4ff',
-                }}
-              >
-                {/* Being honest about the blocker rather than faking a
-                    checkout. A fake payment sheet would be worse than none. */}
-                <div style={{ letterSpacing: '0.16em', marginBottom: px(8) }}>PAYMENT UNAVAILABLE</div>
-                <p style={{ margin: 0, lineHeight: 1.7, color: '#6fa9c9' }}>
-                  This build has no payment processor configured. The order domain, the Stripe adapter, idempotency
-                  and the fulfilment state machine are all implemented and tested — they are waiting on live
-                  credentials, not on code.
-                </p>
-                <p style={{ marginTop: px(12), marginBottom: 0, color: '#3c8f74' }}>
-                  Apple Pay · Google Pay · Card
-                </p>
-              </div>
+
+              {order?.stage === 'loading' && <Status textScale={textScale}>CONTACTING THE DEPOT…</Status>}
+
+              {/* Where to send it. A shipping form, because at this point a
+                  shipping form is genuinely what is required (§11). */}
+              {(order?.stage === 'address' || order?.stage === 'quoting' || order?.stage === 'quoted') && (
+                <div style={{ marginTop: px(16), borderTop: '1px dashed #1f3a30', paddingTop: px(14) }}>
+                  <div style={{ letterSpacing: '0.16em', marginBottom: px(10) }}>WHERE SHOULD WE SEND IT?</div>
+                  <Field label="NAME" value={address.name} textScale={textScale}
+                    onChange={(v) => setAddress({ ...address, name: v })} />
+                  <Field label="ADDRESS" value={address.line1} textScale={textScale}
+                    onChange={(v) => setAddress({ ...address, line1: v })} />
+                  <Field label="CITY" value={address.city} textScale={textScale}
+                    onChange={(v) => setAddress({ ...address, city: v })} />
+                  <Field label="REGION" value={address.region} textScale={textScale}
+                    onChange={(v) => setAddress({ ...address, region: v })} />
+                  <Field label="POSTCODE" value={address.postalCode} textScale={textScale}
+                    onChange={(v) => setAddress({ ...address, postalCode: v })} />
+                  <Field label="COUNTRY" value={address.country} textScale={textScale}
+                    onChange={(v) => setAddress({ ...address, country: v.toUpperCase().slice(0, 2) })} />
+                  <Field label="EMAIL" value={email} textScale={textScale} onChange={setEmail} />
+                </div>
+              )}
+
+              {/* Rewards, shown only when there are any. A terminal that
+                  advertises an empty rewards section is advertising. */}
+              {order && order.rewards.length > 0 && order.stage === 'address' && (
+                <div style={{ marginTop: px(14), borderTop: '1px dashed #1f3a30', paddingTop: px(14) }}>
+                  <div style={{ letterSpacing: '0.16em', marginBottom: px(8) }}>YOU HAVE</div>
+                  {order.rewards.map((grant) => (
+                    <div
+                      key={grant.id}
+                      style={{ display: 'flex', justifyContent: 'space-between', gap: px(10), marginBottom: px(6) }}
+                    >
+                      <span style={{ color: '#5affbe' }}>{grant.rewardCode}</span>
+                      <button
+                        className="sm-focus"
+                        onClick={() => void flow?.redeem(grant.id)}
+                        disabled={order.redeemed.includes(grant.id)}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #1f3a30',
+                          color: order.redeemed.includes(grant.id) ? '#3c8f74' : '#5affbe',
+                          fontFamily: FONT_STACK.mono,
+                          fontSize: px(11),
+                          padding: `${px(3)} ${px(9)}`,
+                          cursor: order.redeemed.includes(grant.id) ? 'default' : 'pointer',
+                        }}
+                      >
+                        {order.redeemed.includes(grant.id) ? 'APPLIED' : 'USE IT'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Real totals, from the service. Nothing here is computed here. */}
+              {order?.quote && (
+                <div style={{ marginTop: px(14), borderTop: '1px dashed #1f3a30', paddingTop: px(14) }}>
+                  <Row label="SUBTOTAL" value={formatMoney(order.quote.subtotal)} textScale={textScale} />
+                  <Row label="SHIPPING" value={formatMoney(order.quote.shipping.amount)} textScale={textScale} />
+                  <Row label="TAX" value={formatMoney(order.quote.tax.total)} textScale={textScale} />
+                  <Row label="TOTAL" value={formatMoney(order.quote.total)} textScale={textScale} />
+                </div>
+              )}
+
+              {order?.stage === 'placing' && <Status textScale={textScale}>PLACING THE ORDER…</Status>}
+
+              {order?.stage === 'paying' && order.order && (
+                <div style={{ marginTop: px(14), borderTop: '1px dashed #1f3a30', paddingTop: px(14) }}>
+                  <Row label="ORDER" value={order.order.reference} textScale={textScale} />
+                  <Row label="TOTAL" value={formatMoney(order.order.total)} textScale={textScale} />
+                  <div style={{ marginTop: px(10), color: '#3c8f74' }}>
+                    {order.methods.length > 0 ? order.methods.join(' · ').toUpperCase() : 'PREPARING PAYMENT…'}
+                  </div>
+                </div>
+              )}
+
+              {order?.stage === 'placed' && order.order && (
+                <div style={{ marginTop: px(16), borderTop: '1px dashed #1f3a30', paddingTop: px(14) }}>
+                  <div style={{ letterSpacing: '0.16em', marginBottom: px(8) }}>ORDER PLACED</div>
+                  <Row label="REFERENCE" value={order.order.reference} textScale={textScale} />
+                  <Row label="STATUS" value={order.order.status.replace(/_/g, ' ').toUpperCase()} textScale={textScale} />
+                  <p style={{ marginTop: px(12), marginBottom: 0, color: '#6fa9c9', lineHeight: 1.7 }}>
+                    We will make you one. It will not be the one you made tonight — that one is yours.
+                  </p>
+                </div>
+              )}
+
+              {/* The honest blocker. It says what the *service* said, so once a
+                  processor is configured this screen stops appearing on its own
+                  rather than needing a client change. */}
+              {(order?.stage === 'unavailable' || order?.stage === 'failed') && (
+                <div
+                  style={{
+                    borderTop: '1px dashed #1f3a30',
+                    marginTop: px(14),
+                    paddingTop: px(14),
+                    color: '#8fd4ff',
+                  }}
+                >
+                  <div style={{ letterSpacing: '0.16em', marginBottom: px(8) }}>
+                    {order.stage === 'unavailable' ? 'PAYMENT UNAVAILABLE' : 'ORDER NOT COMPLETED'}
+                  </div>
+                  <p style={{ margin: 0, lineHeight: 1.7, color: '#6fa9c9' }}>{order.reason}</p>
+                  {order.stage === 'unavailable' && (
+                    <p style={{ marginTop: px(12), marginBottom: 0, color: '#6fa9c9', lineHeight: 1.7 }}>
+                      The order domain, the payment abstraction, idempotency and the fulfilment state machine are
+                      implemented and tested. They are waiting on live credentials, not on code.
+                    </p>
+                  )}
+                  <p style={{ marginTop: px(12), marginBottom: 0, color: '#3c8f74' }}>
+                    Apple Pay · Google Pay · Card
+                  </p>
+                </div>
+              )}
+
+              {!flow && (
+                <div
+                  style={{
+                    borderTop: '1px dashed #1f3a30',
+                    marginTop: px(14),
+                    paddingTop: px(14),
+                    color: '#6fa9c9',
+                    lineHeight: 1.7,
+                  }}
+                >
+                  This build has no depot to send an order to.
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', gap: px(10), marginTop: px(18) }}>
+
+            <div style={{ display: 'flex', gap: px(10), marginTop: px(18), flexWrap: 'wrap' }}>
+              {order?.stage === 'address' && (
+                <TerminalButton
+                  onClick={() => void flow?.quote(address)}
+                  textScale={textScale}
+                  primary
+                  disabled={!addressComplete}
+                >
+                  PRICE IT
+                </TerminalButton>
+              )}
+              {order?.stage === 'quoted' && (
+                <TerminalButton
+                  onClick={() => void flow?.place(address, email || undefined)}
+                  textScale={textScale}
+                  primary
+                >
+                  PLACE ORDER
+                </TerminalButton>
+              )}
+              {order?.stage === 'paying' &&
+                order.methods.map((method) => (
+                  <TerminalButton
+                    key={method}
+                    onClick={() => void flow?.pay(method)}
+                    textScale={textScale}
+                    primary
+                  >
+                    {`PAY ${formatMoney(order.order?.total ?? { currency: 'USD', amountMinor: 0 })} · ${method
+                      .replace(/_/g, ' ')
+                      .toUpperCase()}`}
+                  </TerminalButton>
+                ))}
               <TerminalButton onClick={() => setStep('terminal')} textScale={textScale}>
                 BACK
               </TerminalButton>
@@ -157,22 +356,66 @@ function Row({ label, value, textScale }: { label: string; value: string; textSc
   );
 }
 
+function Status({ children, textScale }: { children: React.ReactNode; textScale: number }): React.ReactElement {
+  return (
+    <div style={{ marginTop: `${14 * textScale}px`, color: '#3c8f74', letterSpacing: '0.14em' }}>{children}</div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  textScale,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  textScale: number;
+}): React.ReactElement {
+  return (
+    <label style={{ display: 'flex', alignItems: 'baseline', gap: `${10 * textScale}px`, marginBottom: `${6 * textScale}px` }}>
+      <span style={{ color: '#3c8f74', minWidth: `${88 * textScale}px` }}>{label}</span>
+      <input
+        className="sm-focus"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        style={{
+          flex: 1,
+          background: 'transparent',
+          border: 'none',
+          borderBottom: '1px solid #1f3a30',
+          color: '#5affbe',
+          fontFamily: FONT_STACK.mono,
+          fontSize: `${12 * textScale}px`,
+          padding: `${3 * textScale}px 0`,
+        }}
+      />
+    </label>
+  );
+}
+
 function TerminalButton({
   children,
   onClick,
   textScale,
   primary,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   textScale: number;
   primary?: boolean;
+  disabled?: boolean;
 }): React.ReactElement {
   return (
     <button
       className="sm-focus"
       onClick={onClick}
+      disabled={disabled}
       style={{
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? 'not-allowed' : 'pointer',
         background: primary ? '#5affbe' : 'transparent',
         color: primary ? '#06120d' : '#5affbe',
         border: '1px solid #5affbe',

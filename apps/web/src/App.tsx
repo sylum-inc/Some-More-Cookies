@@ -660,6 +660,7 @@ export function App({ store }: AppProps): React.ReactElement {
         <Terminal
           sandwich={ritual.sandwich}
           textScale={state.accessibility.textScale}
+          sync={syncRef.current}
           onClose={() => store.setOverlay('none')}
         />
       )}

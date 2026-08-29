@@ -148,6 +148,13 @@ export interface StartTestApiOptions {
    * model a process restart against a database that is already populated.
    */
   readonly resetDatabase?: boolean;
+  /**
+   * Boot without a payment provider, the way a deployment with no processor
+   * credentials actually runs. The order path still works end to end; only the
+   * payment intent is refused, which is the state a client must be able to
+   * report honestly.
+   */
+  readonly paymentsConfigured?: boolean;
 }
 
 /** Boot the real HTTP server on an ephemeral port and drive it with `fetch`. */
@@ -156,7 +163,9 @@ export async function startTestApi(
   options: StartTestApiOptions = {},
 ): Promise<TestHarness> {
   const clock = createManualClock(TEST_START);
-  const payments = createFakePaymentProvider({ clock, webhookSecret: 'whsec_test' });
+  const configured = createFakePaymentProvider({ clock, webhookSecret: 'whsec_test' });
+  const payments: FakePaymentProvider =
+    options.paymentsConfigured === false ? { ...configured, isConfigured: () => false } : configured;
   const mailer = createTestMailer();
   // Silent by default; pass LOG_LEVEL to a single `startTestApi` call when a
   // failing case needs the server's own account of what went wrong.

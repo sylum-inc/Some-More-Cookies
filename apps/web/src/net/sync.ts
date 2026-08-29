@@ -79,6 +79,18 @@ export class SyncEngine {
     }
   }
 
+  /**
+   * The underlying client, for the one caller that needs more than the queue.
+   *
+   * The order flow is interactive and synchronous with a person standing at a
+   * terminal: it cannot be fire-and-forget the way a sandwich upload is, and
+   * putting it in the retry queue would mean a player watching a spinner for
+   * a screen that is meant to answer immediately or say why it cannot.
+   */
+  get api(): ApiClient {
+    return this.client;
+  }
+
   subscribe(listener: (status: SyncStatus) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

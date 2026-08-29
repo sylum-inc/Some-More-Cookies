@@ -7,6 +7,9 @@ export default defineConfig({
       'packages/*/test/**/*.test.ts',
       'services/*/test/**/*.test.ts',
       'apps/web/test/**/*.test.ts',
+      // Seam tests: they boot the real service and drive it with the real
+      // client, so they belong to neither half and live at the root.
+      'test/integration/**/*.test.ts',
     ],
     coverage: {
       provider: 'v8',

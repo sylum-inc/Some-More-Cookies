@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "emitDeclarationOnly": false,
+    "rootDir": "../..",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "paths": {
+      "@somemore/sim": ["../../packages/sim/src/index.ts"],
+      "@somemore/content": ["../../packages/content/src/index.ts"],
+      "@somemore/protocol": ["../../packages/protocol/src/index.ts"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "../../packages/*/src/**/*.ts",
+    "../../services/api/src/**/*.ts",
+    "../../services/api/test/**/*.ts",
+    "../../apps/web/src/**/*.ts",
+    "../../apps/web/src/**/*.tsx"
+  ]
+}

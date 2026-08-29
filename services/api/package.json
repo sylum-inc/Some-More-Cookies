@@ -5,9 +5,12 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "node --experimental-strip-types src/main.ts",
+    "dev": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/main.ts",
     "build": "tsc -b",
     "typecheck": "tsc -b"
   },
-  "dependencies": { "@somemore/protocol": "*", "zod": "^4.5.0" }
+  "dependencies": {
+    "@somemore/protocol": "*",
+    "zod": "^4.5.0"
+  }
 }

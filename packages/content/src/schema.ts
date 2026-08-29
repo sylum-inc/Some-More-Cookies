@@ -279,6 +279,7 @@ export type WildlifeCue =
   | 'water-edge'
   | 'splashing'
   | 'singing'
+  | 'shelter'
   | 'cold-air';
 
 /**

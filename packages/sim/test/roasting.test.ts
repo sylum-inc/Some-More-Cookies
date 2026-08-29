@@ -139,15 +139,15 @@ describe('roasting behaviour', () => {
 
   describe('rotation', () => {
     it('an unturned marshmallow browns one-sidedly', () => {
-      const m = roast(emberFire(), { seconds: 80, radius: 0.15, spin: 0 });
+      const m = roast(emberFire(), { seconds: 80, radius: 0.28, spin: 0 });
       const s = summariseRoast(m);
       expect(s.sidedness).toBeGreaterThan(0.2);
       expect(s.evenness).toBeLessThan(0.85);
     });
 
     it('a steadily turned marshmallow browns evenly', () => {
-      const turned = summariseRoast(roast(emberFire(), { seconds: 80, radius: 0.15, spin: 1.2 }));
-      const still = summariseRoast(roast(emberFire(), { seconds: 80, radius: 0.15, spin: 0 }));
+      const turned = summariseRoast(roast(emberFire(), { seconds: 80, radius: 0.28, spin: 1.2 }));
+      const still = summariseRoast(roast(emberFire(), { seconds: 80, radius: 0.28, spin: 0 }));
       expect(turned.evenness).toBeGreaterThan(still.evenness);
       expect(turned.sidedness).toBeLessThan(still.sidedness);
     });
@@ -159,7 +159,7 @@ describe('roasting behaviour', () => {
 
     it('sugar conducts poorly, so the cold side stays behind', () => {
       // This is the property that makes rotation matter at all.
-      const m = roast(emberFire(), { seconds: 60, radius: 0.15, spin: 0 });
+      const m = roast(emberFire(), { seconds: 60, radius: 0.28, spin: 0 });
       const facing = m.patches.filter((p) => p.normal.x < -0.8);
       const away = m.patches.filter((p) => p.normal.x > 0.8);
       const facingBrown = facing.reduce((t, p) => t + p.brown, 0) / Math.max(1, facing.length);

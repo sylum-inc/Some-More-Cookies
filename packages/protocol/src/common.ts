@@ -55,8 +55,8 @@ export const IdempotentRequestSchema = z.object({
 });
 
 /** Wrap any request object so that it requires an idempotency key. */
-export function withIdempotency<T extends z.ZodObject>(schema: T) {
-  return schema.extend(IdempotentRequestSchema.shape);
+export function withIdempotency<Shape extends z.ZodRawShape>(schema: z.ZodObject<Shape>) {
+  return schema.extend({ idempotencyKey: IdempotencyKeySchema });
 }
 
 /* -------------------------------------------------------------------------- */

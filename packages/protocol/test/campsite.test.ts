@@ -51,11 +51,16 @@ describe('campsite', () => {
     expect(CampsiteSchema.safeParse({ ...baseCampsite, campCode: 'ABCDIO' }).success).toBe(false);
   });
 
-  it('defaults new campsites to private in the create request', () => {
+  it('leaves privacy unset so the server can apply the player default', () => {
     const req = CreateCampsiteRequestSchema.parse({ idempotencyKey: 'camp-0001', name: 'Fire #1' });
-    expect(req.privacy).toBe('private');
+    expect(req.privacy).toBeUndefined();
     expect(req.environmentId).toBe('pine_hollow');
     expect(CreateCampsiteRequestSchema.safeParse({ name: 'Fire #1' }).success).toBe(false);
+    expect(CreateCampsiteRequestSchema.safeParse({ idempotencyKey: 'camp-0001', name: 'F', privacy: 'loud' }).success).toBe(
+      false,
+    );
+    // The stored campsite still defaults to private if nothing sets it.
+    expect(CampsiteSchema.parse(baseCampsite).privacy).toBe('private');
   });
 
   it('rejects an unknown privacy value on update', () => {

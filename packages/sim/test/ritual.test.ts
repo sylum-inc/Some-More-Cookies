@@ -67,9 +67,11 @@ function operateFullMachine(ritual: RitualState): void {
 function completeRitual(seed: string | number = 'camp-1'): RitualState {
   const ritual = createRitual({ campsiteSeed: seed, environmentId: 'pinewood', now: 1_700_000_000_000 });
   arrive(ritual);
-  tendFire(ritual, { type: 'add-log', woodId: 'oak' });
   tendFire(ritual, { type: 'rake' });
-  seconds(ritual, 5);
+  // A player arrives at a lively fire and spends a little time at the
+  // campsite before roasting, by which point it has settled toward coals —
+  // which is the natural arc the fire model produces.
+  seconds(ritual, 100);
   beginRoasting(ritual);
   roastFor(ritual, 75);
   finishRoasting(ritual);

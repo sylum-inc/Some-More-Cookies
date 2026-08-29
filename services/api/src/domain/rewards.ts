@@ -54,6 +54,7 @@ const RISK_WEIGHTS: Readonly<Record<AntiAbuseSignal, number>> = {
 };
 
 const AUTO_REJECT_RISK = 0.5;
+const MIN_ACCOUNT_AGE_HOURS = 1;
 const MANUAL_REVIEW_RISK = 0.25;
 
 export function createRewardsService(deps: DomainDeps, passports: PassportService): RewardsService {
@@ -282,7 +283,9 @@ export function createRewardsService(deps: DomainDeps, passports: PassportServic
 
       const account = await repos.accounts.get(accountId);
       const ageHours = account === null ? 0 : (clock.now().getTime() - Date.parse(account.createdAt)) / 3_600_000;
-      if (ageHours < 0) signals.push('account_too_young');
+      // A brand-new account asking for a real-world perk is not damning on its
+      // own, but combined with anything else it is enough for human review.
+      if (ageHours < MIN_ACCOUNT_AGE_HOURS) signals.push('account_too_young');
 
       const identities = await repos.identities.listByAccount(accountId);
       if (!identities.some((i) => i.provider !== 'anonymous')) signals.push('unlinked_account');

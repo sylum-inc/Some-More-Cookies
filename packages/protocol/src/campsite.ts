@@ -303,7 +303,12 @@ export const CreateCampsiteRequestSchema = withIdempotency(
     name: z.string().min(1).max(60),
     environmentId: z.string().min(1).max(64).regex(/^[a-z0-9_]+$/).default('pine_hollow'),
     seed: SeedSchema.optional(),
-    privacy: CampsitePrivacySchema.default('private'),
+    /**
+     * Omit to inherit the player's `defaultCampsitePrivacy` setting, which is
+     * itself `private` unless they changed it. There is no path to a public
+     * campsite that the player did not explicitly choose.
+     */
+    privacy: CampsitePrivacySchema.optional(),
   }),
 );
 export type CreateCampsiteRequest = z.infer<typeof CreateCampsiteRequestSchema>;

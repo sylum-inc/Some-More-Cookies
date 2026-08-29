@@ -1,0 +1,316 @@
+import type { EnvironmentManifest } from '../schema.js';
+
+/**
+ * Loonwater Narrows — a granite point between two big lakes, birch, and the
+ * best chance of an aurora in the catalogue.
+ *
+ * The classic canoe-country campsite. Cold water, warm rock, an enormous still
+ * lake, and a bird that answers you.
+ */
+export const LOONWATER_NARROWS: EnvironmentManifest = {
+  id: 'loonwater_narrows',
+  name: 'Loonwater Narrows',
+  tagline: 'A shield-rock point between two lakes, birch behind, and something out on the water calling every few minutes.',
+  inspiration:
+    'A canoe-route campsite in northern lake country — glaciated granite, paper birch and black spruce, a fire grate someone bolted to the rock, and a portage sign nailed to a tree.',
+  biomeTags: ['boreal-lakeland', 'canadian-shield', 'mixed-birch-spruce', 'canoe-country'],
+  character: {
+    temperature: 'cool',
+    moisture: 'damp',
+    altitude: 'upland',
+    treeCover: 'moderate',
+    water: 'lake',
+    eeriness: 3,
+  },
+  arrival: {
+    approach:
+      'A portage trail through birch, root-crossed and worn to bare rock in places, with a canoe rest built from two poles between two trees at the halfway point. It comes out onto open granite without warning.',
+    firstHeard:
+      'Water against rock — a small, irregular, endlessly varied lapping that never becomes a rhythm — and then, from a long way out, a loon.',
+    firstSeen:
+      'The rock. Pale grey granite sloping down into black water, still holding the last of the day’s warmth and pale enough to walk on without a light.',
+    underfoot:
+      'Roots, then bare rock, gritty with lichen and warm through your boots.',
+    arrivalBeat:
+      'You come out onto the point and the lake opens on three sides at once. The fire is on the rock in an iron grate, low and orange, doubled exactly in water that is not moving at all.',
+    walkSeconds: { min: 30, max: 48 },
+  },
+  scene: {
+    ground: 'shield-rock',
+    groundNote:
+      'Glacier-smoothed pink-grey granite with black lichen in patches and a seam of quartz running diagonally across the whole point. Duff and blueberry only where the rock dips.',
+    vegetation: [
+      { kitId: 'kit_paper_birch', label: 'Paper birch', density: 11, heightRange: { min: 8, max: 18 }, lowTierDrop: false, note: 'White trunks that hold firelight better than anything else in the catalogue and read as vertical stripes of light at any distance.' },
+      { kitId: 'kit_black_spruce', label: 'Black spruce', density: 14, heightRange: { min: 6, max: 15 }, lowTierDrop: false, note: 'Narrow, dark, ragged-topped. They make the treeline silhouette that says north before anything else does.' },
+      { kitId: 'kit_blueberry_lichen', label: 'Blueberry and caribou lichen', density: 50, heightRange: { min: 0.08, max: 0.35 }, lowTierDrop: true, note: 'Low mats in the rock hollows. The lichen is pale grey-green and glows under a flashlight in a way that surprises everyone.' },
+      { kitId: 'kit_shore_alder', label: 'Alder on the shoreline', density: 18, heightRange: { min: 1.5, max: 3.5 }, lowTierDrop: true, note: 'A dense fringe everywhere the rock is not, which is what makes the open point feel like a room with one wall missing.' },
+    ],
+    landmarks: [
+      { id: 'the_point', label: 'The point', kind: 'natural', handcrafted: true, note: 'A whaleback of granite going out into the water, with the fire grate at the top and a natural bench where the rock steps down.' },
+      { id: 'iron_grate', label: 'The fire grate', kind: 'camp', handcrafted: true, note: 'A steel grate on legs, drilled and bolted into the granite, with a decade of soot and the bolt heads worn shiny by boots.' },
+      { id: 'portage_sign', label: 'The portage sign', kind: 'signage', handcrafted: true, note: 'A yellow plastic sign on a birch, with a canoe pictogram and a distance in rods, which is a unit nobody uses for anything else.' },
+      { id: 'the_quartz_seam', label: 'The quartz seam', kind: 'natural', handcrafted: true, note: 'A white band a hand wide running across the point and straight down into the water, visible under the surface for several metres.' },
+      { id: 'canoe_rest', label: 'The canoe rest', kind: 'built', handcrafted: false, note: 'Two peeled poles lashed between two birches at shoulder height, on the portage, polished smooth on top.' },
+      { id: 'far_island', label: 'The island', kind: 'natural', handcrafted: true, note: 'A dark humped shape four hundred metres out with three tall spruce on it. It is the thing everybody looks at.' },
+    ],
+    elevation: 'bench',
+    elevationNote:
+      'A gentle whaleback rising four metres from the water and dropping away behind into the birch. You are above the lake, which is why the sound carries the way it does.',
+    water: {
+      kind: 'lake',
+      label: 'The narrows',
+      widthM: 700,
+      flow: 'lapping',
+      clarity: 0.7,
+      fishable: true,
+      skippable: true,
+      note: 'Cold, clear, tea-tinted, and on a still night an absolutely perfect mirror. Walleye and smallmouth off the point; something much larger in the deep water off the island.',
+    },
+    drawDistanceM: 160,
+    fog: { colour: '#1a232a', density: 0.014, note: 'Lake fog forms after midnight in low sheets on the water surface only, so the trees are clear and the lake has become a floor of cloud.' },
+    nightPalette: {
+      zenith: '#050a12',
+      horizon: '#182430',
+      ground: '#4a453e',
+      foliage: '#1c2622',
+      rock: '#585049',
+      water: '#0d151c',
+      fireGlow: '#ffa04d',
+      moonlight: '#b3c6dc',
+      shadow: '#06090d',
+    },
+    skyOpenness: 0.78,
+    walkableRadiusM: 42,
+  },
+  weather: {
+    id: 'loonwater-narrows',
+    weights: { clear: 5, 'high-cloud': 4, overcast: 3, 'light-rain': 2, rain: 2, fog: 3, wind: 3, storm: 1, snow: 1 },
+    baseTempC: 10,
+    baseWind: 1.9,
+    exposure: 0.6,
+    skyEventChance: 0.3,
+    skyEvents: ['aurora', 'meteor-shower', 'moonbow'],
+    transitionSeconds: 200,
+  },
+  weatherCharacter: {
+    temperatureNote:
+      'Cool, with the rock giving back heat under you and the lake pulling it out of the air above. Sitting on the granite is warm; standing up is not.',
+    windNote:
+      'Comes down the length of the lake with a two-kilometre fetch and arrives with small waves in front of it. Behind the point it is completely still, and the water on the two sides of the point can look like different weather.',
+    exposureNote: 'The grate is on the exposed top of the whaleback, which is a choice somebody made for the view rather than for the fire.',
+    nightRangeC: { min: 3, max: 16 },
+  },
+  fuel: {
+    sources: [
+      { woodId: 'birch', weight: 7, foundAs: 'Downed birch behind the point, and bark peeled from a dead trunk that lights in any weather.', moistureBias: 0.02 },
+      { woodId: 'pine', weight: 3, foundAs: 'Dead spruce branches from the underside of live trees — the classic squaw-wood, dry in rain.', moistureBias: -0.04 },
+      { woodId: 'driftwood', weight: 3, foundAs: 'Wave-stranded on the lee shore, bleached and light.', moistureBias: 0.08 },
+      { woodId: 'aspen', weight: 2, foundAs: 'Beaver-cut poplar washed across from the island, still showing the tooth marks.', moistureBias: 0.18 },
+    ],
+    note:
+      'Birch bark is the best natural tinder in the product and this is the site that teaches you that: a curl of it takes a spark in rain, in wind, wet, every time. Birch itself burns fast and bright and makes a decent bed; the dead spruce underneath live trees is the trick that makes a fire possible on a wet night here.',
+  },
+  wildlife: [
+    {
+      id: 'loon',
+      label: 'Common loon',
+      shyness: 0.6,
+      curiosity: 0.65,
+      window: ['dusk', 'early-night', 'deep-night', 'pre-dawn'],
+      attractedBy: ['quiet', 'stillness', 'singing', 'moonlight'],
+      repelledBy: ['splashing', 'voices', 'flashlight'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a feather on the waterline', 'a wake crossing the narrows at dawn'],
+      note: 'A pair. One is missing a bit of the collar pattern and is recognisably the same bird across visits. The wail carries the length of the lake and if you answer it — badly, with your own voice — it will sometimes answer back, and that is the best thing in this environment.',
+    },
+    {
+      id: 'beaver_narrows',
+      label: 'Beaver',
+      shyness: 0.5,
+      curiosity: 0.3,
+      window: ['dusk', 'early-night', 'deep-night'],
+      attractedBy: ['quiet', 'water-edge'],
+      repelledBy: ['splashing', 'flashlight', 'voices'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a cut poplar on the shoreline with fresh pale chisel marks', 'a floating branch towed across the narrows'],
+      note: 'Crosses from the island most nights, towing something. The tail slap is a genuine event: a rifle-crack across still water, followed by twenty minutes of nothing.',
+    },
+    {
+      id: 'red_squirrel_north',
+      label: 'Red squirrel',
+      shyness: 0.35,
+      curiosity: 0.85,
+      window: ['dusk', 'dawn'],
+      attractedBy: ['crumbs', 'food-smell', 'quiet'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: true,
+      traces: ['a midden of spruce cone scales on the same rock every visit', 'a marshmallow bag holed at the bottom corner'],
+      note: 'Owns the point and resents you. Delivers a two-minute chattering complaint from the same branch on every visit and has never once been dissuaded.',
+    },
+    {
+      id: 'moose_sign',
+      label: 'Moose (across the water)',
+      shyness: 0.95,
+      curiosity: 0.2,
+      window: ['pre-dawn', 'dawn'],
+      attractedBy: ['quiet', 'water-edge'],
+      repelledBy: ['voices', 'firelight', 'footsteps'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['deep splayed prints in the mud of the far bay', 'a browsed alder with the tops taken off at head height'],
+      note: 'Feeds in the shallows on the far shore at first light, four hundred metres off — an enormous dark shape lifting its head with water running off it. Never on this side, never close, and completely unbothered by you.',
+    },
+    {
+      id: 'whiskeyjack',
+      label: 'Grey jay',
+      shyness: 0.15,
+      curiosity: 1,
+      window: ['dawn', 'dusk'],
+      attractedBy: ['crumbs', 'food-smell', 'voices', 'stillness'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: true,
+      traces: ['a graham cracker corner glued into a spruce crotch with saliva, for later'],
+      note: 'Soft, silent, entirely fearless, and will take food out of an open hand within about ninety seconds of deciding you are worth it. The friendliest animal in the catalogue and the one most likely to make someone say "oh" out loud.',
+    },
+  ],
+  ambience: {
+    wind: { character: 'breathing', baseLevel: 0.3, gustiness: 0.45, material: 'birch leaves and spruce, with the lake surface changing texture underneath it' },
+    insectDensity: 0.55,
+    insectNote: 'A summer-night chorus, plus mosquitoes in the still air behind the point and none at all out on the exposed rock — which is a real and usable reason to sit where the wind is.',
+    waterPresence: 0.6,
+    reverb: 'openForest',
+    reverbNote:
+      'The distinctive one. Flat still water sends sound straight across and the far shore returns it two and a half seconds later, once, quietly and slightly darker. A single clap from the point comes back from the island as a soft slap you feel you should not have caused.',
+    distantEvents: [
+      { id: 'loon_far', label: 'A loon, down the lake', weight: 7, minGapSeconds: 100, note: 'The wail, from a long way off, answered by the pair off the point.' },
+      { id: 'beaver_slap', label: 'Tail slap', weight: 4, minGapSeconds: 240, note: 'A flat crack across the water and then complete silence for a long time.' },
+      { id: 'wolf_far', label: 'Wolves, very far', weight: 2, minGapSeconds: 600, note: 'Three or four voices, kilometres away, for about twenty seconds. They never come nearer and the game never suggests they might.' },
+      { id: 'ice_or_rock', label: 'A knock from the island', weight: 3, minGapSeconds: 400, note: 'One hard sound from the direction of the island, unexplained, not repeated.' },
+      { id: 'lake_lap_change', label: 'The lapping changes', weight: 6, minGapSeconds: 80, note: 'A distant boat wake or a wind shift arriving as a change in the water rhythm against the rock, a minute before anything else changes.' },
+    ],
+    nightFloorDb: -54,
+  },
+  activities: [
+    { id: 'fire-tending', label: 'Tend the fire', prominence: 'notable', note: 'Birch bark makes lighting trivial and keeping a bed hard. The opposite problem to most of the catalogue.' },
+    { id: 'loon-answering', label: 'Answer the loon', prominence: 'signature', note: 'Cup your hands and try the wail. It is a real input with a real success curve, and when a loon four hundred metres away answers you, everyone within earshot goes quiet.' },
+    { id: 'fishing', label: 'Fish off the point', prominence: 'notable', note: 'Cast off the quartz seam into deep water at dusk. Smallmouth, mostly. Something enormous refuses everything, every time.' },
+    { id: 'stone-skipping', label: 'Skip stones', prominence: 'notable', note: 'Glass-flat water and a shoreline of perfect flat granite chips. On a dead-still night the skips are audible from the far shore coming back.' },
+    { id: 'stargazing', label: 'Stargaze', prominence: 'signature', note: 'Lie on warm rock over cold water. The best aurora odds in the catalogue, and the lake doubles it.' },
+    { id: 'swimming', label: 'Swim', prominence: 'available', note: 'Off the quartz seam. Genuinely cold, and getting back onto warm rock afterwards is the entire reason to do it.' },
+    { id: 'photography', label: 'Photograph', prominence: 'notable', note: 'White birch trunks against black water with a fire between them. Aurora reflected in the narrows is the shot of the whole product when it happens.' },
+    { id: 'radio', label: 'Radio', prominence: 'available', note: 'Good over water, poor into the trees. Northern stations, a lot of them automated, and a marine channel.' },
+    { id: 'flashlight', label: 'Flashlight', prominence: 'notable', note: 'Sweep the shoreline and the caribou lichen lights up pale green. Sweep the water and two red points look back — the loon.' },
+    { id: 'wildlife-watching', label: 'Watch for wildlife', prominence: 'notable', note: 'The grey jay does not require watching for. It requires a decision about whether to share.' },
+  ],
+  radio: {
+    stations: [
+      { id: 'cbn_990', dial: 990, band: 'am', name: 'Northern service, overnight', character: 'community', reception: 0.72, note: 'A national overnight programme relayed to a very small number of people. Long documentary segments about things nobody would commission for daytime. Perfect.' },
+      { id: 'klak_1013', dial: 101.3, band: 'fm', name: 'Lakes FM', character: 'lofi', reception: 0.55, note: 'Automated, warm, and occasionally repeating a track it played forty minutes ago. Ice-out dates and fishing reports at the top of the hour, out of season.' },
+      { id: 'marine_ch16', dial: 156.8, band: 'fm', name: 'Channel 16', character: 'environmental', reception: 0.6, note: 'Silence, and then somebody a long way away calling somebody else, and then silence again.' },
+      { id: 'aurora_hiss', dial: 4625, band: 'shortwave', name: 'The buzzer', character: 'strange', reception: 0.34, note: 'A repeating buzz that has been on this frequency for decades. Occasionally, without warning, a voice reads a short list of words and numbers and goes away again.' },
+      { id: 'weather_north', dial: 162.475, band: 'fm', name: 'Lake forecast', character: 'weather-service', reception: 0.68, note: 'Wave heights on named lakes, and a small-craft advisory for water you can see from here.' },
+    ],
+    baseReception: 0.6,
+    receptionNote: 'Excellent across the water and blocked hard by the ridge behind. Stand on the point for the dial; step back into the birch and it halves.',
+    betweenStations: 'Clean cold static with slow swells, and audible crackling when the aurora is active — the two systems are coupled here on purpose.',
+  },
+  secrets: [
+    {
+      id: 'ln_the_island_light',
+      title: 'Something on the island',
+      discovery: 'Once in a long while, there is a small orange light on the island, at the base of the three spruce.',
+      telling:
+        'It is a campfire. It behaves exactly like a campfire, including going out. There is no campsite marked on the island and the portage sign lists no route to it. Nobody ever arrives from it or leaves it.',
+      channels: ['recurring-figures', 'campsite-changes'],
+      oneTime: false,
+      leavesEvidence: null,
+      rarity: 0.14,
+      optional: true,
+      gatesNothing: true,
+    },
+    {
+      id: 'ln_the_quartz_seam',
+      title: 'What is on the seam underwater',
+      discovery: 'Follow the quartz seam into the water with a light, on a still night, at low water.',
+      telling:
+        'Three metres down, on the white band, someone has stacked five stones into a small cairn, underwater, in a place where nobody could have stood. It is completely intact and it is furred with a decade of algae.',
+      channels: ['strange-objects'],
+      oneTime: true,
+      leavesEvidence: 'The cairn is visible from the rock on every later visit when the water is clear, and one more stone has been added to it.',
+      rarity: 0.2,
+      optional: true,
+      gatesNothing: true,
+    },
+    {
+      id: 'ln_the_rods',
+      title: 'The distance on the portage sign',
+      discovery: 'The yellow sign gives the portage length in rods.',
+      telling:
+        'Walk it and count. It is right. Then notice that a second, much older sign is nailed to the same tree behind it, face-in, and the number on that one is different by a hundred and forty rods — a portage to somewhere that is not on this route.',
+      channels: ['notes', 'strange-objects'],
+      oneTime: false,
+      leavesEvidence: null,
+      rarity: 0.3,
+      optional: true,
+      gatesNothing: true,
+    },
+    {
+      id: 'ln_the_answer',
+      title: 'The night it comes close',
+      discovery: 'Answer the loon well, repeatedly, on a still night, with the fire low and nobody talking.',
+      telling:
+        'It comes in. Right in — twenty metres off the rock, black and white and enormous, riding low, and it looks at you for a while. Then it dives, without a sound, and does not come up anywhere you can see.',
+      channels: ['wildlife-behaviour'],
+      oneTime: true,
+      leavesEvidence: 'A single black-and-white feather is on the rock at the waterline afterwards, and stays there, weighted by a small stone somebody did not put there.',
+      rarity: 0.12,
+      optional: true,
+      gatesNothing: true,
+    },
+  ],
+  machine: {
+    quirkWeights: { 'early-frost': 3, 'long-hold': 2.5, 'sticky-door': 2, 'proud-badge': 2, 'rough-fan': 1.5 },
+    flavourNote:
+      'This unit is bolted to the same granite as the fire grate, with the same generation of hardware, and the lichen has grown right up to the base plate and stopped in a clean line. The completion tone goes out across the narrows and comes back off the island two and a half seconds later, which regulars wait for.',
+    stickerHint: 'NIGHT USE PERMITTED, and a fishing-licence agent decal from a bait shop that no longer exists.',
+    frostNote: 'Cold air off the lake means the frost forms almost immediately and lasts, and on the coldest nights the whole windward panel goes white before the blue phase even starts.',
+  },
+  procedural: {
+    seedStreams: ['scatter', 'weather', 'wildlife', 'radio', 'lake', 'sky', 'machine'],
+    variations: [
+      { id: 'lake_stillness', label: 'Lake surface stillness', range: { min: 0.2, max: 1 }, unit: 'normalised', note: 'Governs the reflection, the echo off the island, the skipping and whether the underwater cairn is visible. The most consequential variation here.' },
+      { id: 'fog_sheet', label: 'Lake fog after midnight', range: { min: 0, max: 1 }, unit: 'probability', note: 'When it forms, the lake becomes a floor of cloud with the island standing out of it.' },
+      { id: 'aurora_strength', label: 'Aurora activity', range: { min: 0, max: 1 }, unit: 'normalised', note: 'Coupled to radio band noise so the two agree. Never required for anything.' },
+      { id: 'birch_deadfall', label: 'Available birch deadfall', range: { min: 5, max: 18 }, unit: 'pieces', note: 'Never zero.' },
+      { id: 'jay_boldness', label: 'How bold the grey jay is tonight', range: { min: 0.3, max: 1 }, unit: 'normalised', note: 'At the top of the range it lands on the SM-01 while it is running.' },
+    ],
+    invariants: [
+      'The quartz seam across the point and into the water.',
+      'The bolted iron fire grate.',
+      'The island and its three spruce.',
+      'The portage sign, and the older one behind it.',
+    ],
+  },
+  discovery: {
+    weight: 11,
+    affinities: { boreal: 2.5, 'continental-interior': 1.4, highland: 1.1, 'maritime-east': 1.2, unknown: 1.3, 'maritime-west': 1, mediterranean: 0.7, 'arid-interior': 0.6, 'humid-subtropical': 0.7 },
+    note: 'The other broadly-loved early environment alongside Pine Hollow, and the northern anchor of the catalogue.',
+  },
+  performance: {
+    cost: 'moderate',
+    midTierDrawCalls: 79,
+    midTierTriangles: 40000,
+    dynamicLights: 4,
+    lowTierCuts: [
+      'Live lake reflection becomes a reflected skybox plus reflected fire and machine only; the trees stop reflecting, which at night is barely detectable.',
+      'Alder shoreline fringe drops to 35% and gains a matching ground texture.',
+      'Blueberry and lichen scatter drop to 30%; the lichen keeps its flashlight response because that is a moment people remember.',
+      'Birch trunk count drops 30%, with the survivors redistributed toward the firelight where their white bark actually matters.',
+    ],
+    note: 'A big water plane and a moderate amount of foliage. Comfortably mid-cost, and the reflection is the only thing that ever threatens the budget.',
+  },
+};

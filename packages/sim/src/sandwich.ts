@@ -102,8 +102,10 @@ export function deriveSandwich(input: DeriveSandwichInput): SandwichRecord {
 
   // --- Ice cream colour -------------------------------------------------
   // Pale cream at one end, deep toasted caramel at the other.
-  const pale: [number, number, number] = [0.96, 0.92, 0.83];
-  const toasted: [number, number, number] = [0.78, 0.6, 0.36];
+  // Warm at both ends. A neutral pale end renders as grey under a warm key
+  // light, and grey ice cream is not appetising.
+  const pale: [number, number, number] = [0.98, 0.93, 0.79];
+  const toasted: [number, number, number] = [0.88, 0.67, 0.40];
   const browning = clamp01(roast.brown);
   const creamColor: [number, number, number] = [
     lerp(pale[0], toasted[0], browning),
@@ -130,7 +132,8 @@ export function deriveSandwich(input: DeriveSandwichInput): SandwichRecord {
 
   // --- Geometry from assembly -------------------------------------------
   const squish = clamp01(assembly.squish);
-  const creamThickness = lerp(0.016, 0.009, squish);
+  // The ice cream is the product; it reads wrong if the cookies dominate it.
+  const creamThickness = lerp(0.023, 0.013, squish);
   const edgeBulge = clamp01(squish * 0.9 + roast.melt * 0.25);
 
   // Five layers: graham, chocolate, ice cream, chocolate, graham. The
@@ -343,7 +346,7 @@ export function sandwichLayers(sandwich: SandwichRecord): SandwichLayer[] {
   const angleFor = (i: number) => (i * 2.399963229728653) % (Math.PI * 2); // golden angle
   const offsets = a.layerOffsets;
   const kinds: SandwichLayer['kind'][] = ['graham', 'chocolate', 'cream', 'chocolate', 'graham'];
-  const thicknesses = [0.007, 0.0028, a.creamThickness, 0.0028, 0.007];
+  const thicknesses = [0.0058, 0.006, a.creamThickness, 0.006, 0.0058];
   return kinds.map((kind, i) => {
     const magnitude = offsets[i] ?? 0;
     const angle = angleFor(i);

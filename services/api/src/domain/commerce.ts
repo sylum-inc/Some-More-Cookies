@@ -394,13 +394,22 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
       const used = await repos.promotions.countRedemptionsForAccount(promotion.id, accountId);
       if (used >= promotion.perAccountLimit) throw conflict('You have already used that code.');
 
-      return mutateCart(accountId, (cart) => {
-        if (cart.promotionCodes.includes(code)) return cart;
-        if (!promotion.stackable && cart.promotionCodes.length > 0) {
-          throw conflict('That code cannot be combined with the one already on your cart.');
+      // Stacking is only legal when the incoming code AND every code already on
+      // the cart opt into it.
+      const current = await openCart(accountId);
+      if (!current.promotionCodes.includes(code) && current.promotionCodes.length > 0) {
+        const existing = await Promise.all(current.promotionCodes.map((c) => repos.promotions.getByCode(c)));
+        const blocked = !promotion.stackable || existing.some((p) => p !== null && !p.stackable);
+        if (blocked) {
+          throw conflict('That code cannot be combined with the one already on your cart.', {
+            existing: current.promotionCodes,
+          });
         }
-        return { ...cart, promotionCodes: [...cart.promotionCodes, code] };
-      });
+      }
+
+      return mutateCart(accountId, (cart) =>
+        cart.promotionCodes.includes(code) ? cart : { ...cart, promotionCodes: [...cart.promotionCodes, code] },
+      );
     },
 
     async redeemReward(accountId, request) {
@@ -536,6 +545,11 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
       });
 
       const now = clock.isoNow();
+      // Asking for a fresh intent after a decline puts the order back in the
+      // queue for payment; `payment_failed` is a dead end otherwise.
+      if (order.status === 'payment_failed') {
+        await moveOrder(order.id, 'awaiting_payment', 'customer', 'Retrying payment.');
+      }
       const updated = await repos.orders.update(order.id, (o) => ({
         ...o,
         payment: {

@@ -65,7 +65,7 @@ export const ROAST_TUNING = {
   blisterRate: 0.5,
   blisterHeatingThreshold: 5.5,
   /** Interior melt accumulates from total heat soak. */
-  meltRate: 0.0045,
+  meltRate: 0.0032,
   meltTempC: 85,
   /** Melt at which the marshmallow slides off the stick. */
   meltFallThreshold: 1,

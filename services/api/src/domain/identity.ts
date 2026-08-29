@@ -29,11 +29,11 @@ import type { DomainDeps } from './types.js';
  * no branch destroys data.
  */
 export interface IdentityService {
-  bootstrapAnonymous(request: AnonymousBootstrapRequest, now: Date): Promise<AuthSession>;
-  getSession(accountId: string, now: Date): Promise<AuthSession>;
-  refresh(accountId: string, now: Date): Promise<AuthToken>;
+  bootstrapAnonymous(request: AnonymousBootstrapRequest): Promise<AuthSession>;
+  getSession(accountId: string): Promise<AuthSession>;
+  refresh(accountId: string): Promise<AuthToken>;
   requireActiveAccount(accountId: string): Promise<Account>;
-  linkIdentity(accountId: string, request: LinkIdentityRequest, now: Date): Promise<LinkIdentityOutcome>;
+  linkIdentity(accountId: string, request: LinkIdentityRequest): Promise<LinkIdentityOutcome>;
   requestMagicLink(accountId: string | null, request: MagicLinkRequest): Promise<MagicLinkIssued>;
   hasLinkedProvider(accountId: string, provider: Identity['provider']): Promise<boolean>;
 }
@@ -72,8 +72,8 @@ export function resolveCredentialSubject(credential: LinkCredential): { subject:
 export function createIdentityService(deps: DomainDeps, passports: PassportService): IdentityService {
   const { repos, clock, ids, tokens, config, logger, mailer, rateLimiter } = deps;
 
-  function issue(accountId: string, now: Date): AuthToken {
-    const signed = tokens.sign(accountId, now);
+  function issue(accountId: string): AuthToken {
+    const signed = tokens.sign(accountId, clock.now());
     return {
       token: signed.token,
       accountId,
@@ -83,11 +83,11 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
     };
   }
 
-  async function sessionFor(account: Account, now: Date): Promise<AuthSession> {
+  async function sessionFor(account: Account): Promise<AuthSession> {
     return {
       account,
       identities: await repos.identities.listByAccount(account.id),
-      auth: issue(account.id, now),
+      auth: issue(account.id),
     };
   }
 
@@ -185,15 +185,15 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
   }
 
   return {
-    async bootstrapAnonymous(request, now) {
-      const nowIso = now.toISOString();
+    async bootstrapAnonymous(request) {
+      const nowIso = clock.isoNow();
       const existing = await repos.identities.findByProviderSubject('anonymous', request.device.deviceId);
       if (existing !== null) {
         // Re-bootstrapping the same device returns the same account: a player
         // who reinstalls before linking should still find their fire.
         const account = await requireActiveAccount(existing.accountId);
         await repos.identities.update(existing.id, (i) => ({ ...i, lastAuthenticatedAt: nowIso }));
-        return sessionFor(account, now);
+        return sessionFor(account);
       }
 
       const account = await repos.accounts.create({
@@ -218,17 +218,17 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
       });
       await passports.create(account.id, request.displayName ?? 'Camper');
       logger.info('identity.bootstrap', { accountId: account.id, platform: request.device.platform });
-      return sessionFor(account, now);
+      return sessionFor(account);
     },
 
-    async getSession(accountId, now) {
+    async getSession(accountId) {
       const account = await requireActiveAccount(accountId);
-      return sessionFor(account, now);
+      return sessionFor(account);
     },
 
-    async refresh(accountId, now) {
+    async refresh(accountId) {
       const account = await requireActiveAccount(accountId);
-      return issue(account.id, now);
+      return issue(account.id);
     },
 
     requireActiveAccount,
@@ -238,8 +238,8 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
       return identities.some((i) => i.provider === provider);
     },
 
-    async linkIdentity(accountId, request, now) {
-      const nowIso = now.toISOString();
+    async linkIdentity(accountId, request) {
+      const nowIso = clock.isoNow();
       const account = await requireActiveAccount(accountId);
       const { credential } = request;
 
@@ -295,7 +295,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
           accountId: survivingId,
           identity,
           report,
-          auth: issue(survivingId, now),
+          auth: issue(survivingId),
         };
       }
 
@@ -350,7 +350,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
             createdAt: nowIso,
             lastAuthenticatedAt: nowIso,
           });
-          return { status: 'merged', accountId: survivingId, identity, report, auth: issue(survivingId, now) };
+          return { status: 'merged', accountId: survivingId, identity, report, auth: issue(survivingId) };
         }
       }
 
@@ -373,7 +373,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
       await repos.accounts.update(account.id, (a) => ({ ...a, anonymous: false, updatedAt: nowIso }));
       logger.info('identity.linked', { accountId: account.id, provider: credential.provider });
 
-      return { status: 'linked', accountId: account.id, identity, auth: issue(account.id, now) };
+      return { status: 'linked', accountId: account.id, identity, auth: issue(account.id) };
     },
 
     async requestMagicLink(accountId, request) {

@@ -66,7 +66,11 @@ export function sampleHeat(fire: FireState, point: Vec3, out: HeatSample = reusa
   // Treated as a warm disc at ground level. The `+0.09` near-field softening
   // prevents a singularity when the marshmallow is laid right on the coals —
   // without it, touching the bed would produce infinite heat.
-  const emberStrength = clamp01(fire.emberMass) * clamp01((fire.emberTemp - 120) / 700);
+  // Radiance depends on how *hot* the coals are, not on how big the pile is:
+  // a modest bed still glows at full strength, it simply covers less ground
+  // (which `emberSpread` below accounts for). Scaling linearly with mass made
+  // a naturally burned-down fire useless for roasting.
+  const emberStrength = clamp01(fire.emberMass * 1.9) * clamp01((fire.emberTemp - 120) / 700);
   const emberDistSq = horizontal * horizontal + (height + 0.04) * (height + 0.04) + 0.14;
   // Coals radiate mostly upward, so being above the bed beats being beside it.
   const emberUpBias = lerp(0.45, 1, clamp01((height + 0.05) / (horizontal + 0.25)));
@@ -80,8 +84,12 @@ export function sampleHeat(fire: FireState, point: Vec3, out: HeatSample = reusa
   // Modelled as a source at roughly 40% of the flame's height.
   const flameCentreY = fire.flameHeight * 0.4;
   const flameDy = height - flameCentreY;
-  const flameDistSq = horizontal * horizontal + flameDy * flameDy + 0.06;
-  const radiantFlame = (fire.flame * 11) / flameDistSq;
+  // A flame column is a large *extended* source, not a point: the softening
+  // term is generous so the falloff near the fire is gradual rather than
+  // singular. Without it, a fully alight fire scorches everything within half
+  // a metre and the whole browning band collapses.
+  const flameDistSq = horizontal * horizontal + flameDy * flameDy + 0.16;
+  const radiantFlame = (fire.flame * 3.2) / flameDistSq;
 
   // --- Convection -------------------------------------------------------
   // A rising column that widens and cools with height. Only points inside it

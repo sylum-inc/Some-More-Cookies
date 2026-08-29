@@ -12,11 +12,13 @@ export function copy<T>(value: T): T {
  */
 export class MemoryTable<T> {
   private readonly rows = new Map<string, T>();
+  private readonly entityName: string;
+  private readonly keyOf: (row: T) => string;
 
-  constructor(
-    private readonly entityName: string,
-    private readonly keyOf: (row: T) => string,
-  ) {}
+  constructor(entityName: string, keyOf: (row: T) => string) {
+    this.entityName = entityName;
+    this.keyOf = keyOf;
+  }
 
   insert(row: T): T {
     const key = this.keyOf(row);

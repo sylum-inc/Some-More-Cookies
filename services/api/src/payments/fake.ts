@@ -29,6 +29,7 @@ interface FakeIntent {
   amountMinor: number;
   currency: string;
   methodType: PaymentMethodType;
+  paymentMethodToken: string | null;
   clientSecret: string;
   refundedMinor: number;
 }
@@ -40,6 +41,8 @@ export interface FakePaymentProvider extends PaymentProvider {
 }
 
 export const FAKE_DECLINE_AMOUNT_MINOR = 66_666;
+/** Present this token to make the fake provider decline, like a test card. */
+export const FAKE_DECLINE_TOKEN = 'pm_fake_declined';
 
 /**
  * Deterministic in-process payment provider for local dev and tests. It models
@@ -84,6 +87,7 @@ export function createFakePaymentProvider(options: FakePaymentProviderOptions): 
         amountMinor: input.amount.amountMinor,
         currency: input.amount.currency,
         methodType: input.methodType,
+        paymentMethodToken: input.paymentMethodToken ?? null,
         clientSecret: `${intentId}_secret_${randomUUID().replace(/-/g, '').slice(0, 12)}`,
         refundedMinor: 0,
       };
@@ -107,7 +111,8 @@ export function createFakePaymentProvider(options: FakePaymentProviderOptions): 
         };
       }
       if (intent.status === 'succeeded') return toProviderIntent(intent);
-      if (declines.has(intent.amountMinor)) {
+      if (input.paymentMethodToken !== undefined) intent.paymentMethodToken = input.paymentMethodToken;
+      if (intent.paymentMethodToken === FAKE_DECLINE_TOKEN || declines.has(intent.amountMinor)) {
         intent.status = 'failed';
         return toProviderIntent(intent, 'card_declined');
       }

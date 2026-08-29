@@ -495,7 +495,10 @@ export function stepMachine(machine: MachineState, dt: number): void {
       machine.chamberTempC = approach(machine.chamberTempC, -26, 0.2, dt);
       scheduleOnce(machine, 'refrigerant-flow', 2.4);
       const frostRate = hasQuirk('early-frost') ? 0.16 : 0.11;
-      machine.frost = clamp01(machine.frost + frostRate * dt);
+      // Never past the program's target: frost that overshoots here would
+      // visibly *retreat* during the transformation, which reads as the
+      // machine losing its grip at exactly the wrong moment.
+      machine.frost = Math.min(profile.frostTarget, machine.frost + frostRate * dt);
       stepFrostCrackle(machine, dt);
       if (machine.stageElapsed >= profile.freezeSeconds) setStage(machine, 'transforming');
       break;
@@ -504,7 +507,8 @@ export function stepMachine(machine: MachineState, dt: number): void {
       machine.runElapsed += dt;
       machine.blue = approach(machine.blue, 1, 2, dt);
       machine.chamberTempC = approach(machine.chamberTempC, -32, 0.25, dt);
-      machine.frost = clamp01(approach(machine.frost, profile.frostTarget, 0.35, dt));
+      // Frost only ever grows during a run.
+      machine.frost = Math.max(machine.frost, clamp01(approach(machine.frost, profile.frostTarget, 0.35, dt)));
       stepFrostCrackle(machine, dt);
       if (machine.stageElapsed >= profile.transformSeconds) {
         setStage(machine, 'complete');

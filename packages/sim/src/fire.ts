@@ -21,7 +21,8 @@ export interface WoodType {
   readonly label: string;
   /** Heat released per unit mass burned. */
   readonly heatOutput: number;
-  /** Mass consumed per second at full oxygen when fully alight. */
+  /** Mass consumed per second at full oxygen when fully alight. A split
+   * log holds a flame for roughly ten minutes at these rates. */
   readonly burnRate: number;
   /** Fraction of consumed mass that becomes ember bed rather than ash. */
   readonly emberYield: number;
@@ -40,7 +41,7 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     id: 'pine',
     label: 'Pine',
     heatOutput: 1.05,
-    burnRate: 0.019,
+    burnRate: 0.0042,
     emberYield: 0.2,
     ignitability: 1.35,
     smokiness: 0.55,
@@ -51,7 +52,7 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     id: 'oak',
     label: 'Oak',
     heatOutput: 1.3,
-    burnRate: 0.008,
+    burnRate: 0.0019,
     emberYield: 0.46,
     ignitability: 0.6,
     smokiness: 0.25,
@@ -62,7 +63,7 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     id: 'birch',
     label: 'Birch',
     heatOutput: 1.12,
-    burnRate: 0.014,
+    burnRate: 0.0031,
     emberYield: 0.3,
     ignitability: 1.15,
     smokiness: 0.3,
@@ -73,7 +74,7 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     id: 'driftwood',
     label: 'Driftwood',
     heatOutput: 0.95,
-    burnRate: 0.013,
+    burnRate: 0.0029,
     emberYield: 0.26,
     ignitability: 0.95,
     smokiness: 0.4,
@@ -85,7 +86,7 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     id: 'aspen',
     label: 'Aspen',
     heatOutput: 0.86,
-    burnRate: 0.02,
+    burnRate: 0.0045,
     emberYield: 0.16,
     ignitability: 1.25,
     smokiness: 0.35,
@@ -96,7 +97,7 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     id: 'mesquite',
     label: 'Mesquite',
     heatOutput: 1.4,
-    burnRate: 0.0065,
+    burnRate: 0.0015,
     emberYield: 0.55,
     ignitability: 0.45,
     smokiness: 0.2,
@@ -222,14 +223,18 @@ export function createFire(config: Partial<FireConfig> = {}): FireState {
  */
 export function createEstablishedFire(config: Partial<FireConfig> = {}): FireState {
   const fire = createFire(config);
-  fire.logs.push(createLog('oak', { mass: 0.72, moisture: 0.04, ignition: 0.95, burnedFor: 240 }));
-  fire.logs.push(createLog('pine', { mass: 0.45, moisture: 0.03, ignition: 0.9, burnedFor: 180 }));
+  // Sized so the fire is lively on arrival and settles to a proper ember bed
+  // over the next few minutes — which is roughly when a player reaches the
+  // roasting stage, and is how the "coals are better" discovery presents
+  // itself without ever being taught.
+  fire.logs.push(createLog('oak', { mass: 0.36, moisture: 0.04, ignition: 0.95, burnedFor: 240 }));
+  fire.logs.push(createLog('pine', { mass: 0.2, moisture: 0.03, ignition: 0.9, burnedFor: 180 }));
   fire.emberMass = 0.55;
   fire.emberTemp = 620;
   fire.oxygen = 0.72;
-  fire.combustion = 0.02;
-  fire.flame = 0.62;
-  fire.flameHeight = 0.5;
+  fire.combustion = 0.004;
+  fire.flame = 0.85;
+  fire.flameHeight = 0.7;
   fire.elapsed = 260;
   return fire;
 }
@@ -302,7 +307,10 @@ export function stepFire(fire: FireState, dt: number, rng: Rng): void {
 
   // --- Fuel ------------------------------------------------------------
   // Heat available to dry and ignite fuel comes from embers and current burn.
-  const ambientHeat = clamp01(fire.emberMass * 0.8 + fire.combustion * 9);
+  // The combustion coupling is strong because a burning fire is overwhelmingly
+  // its own heat source — too weak a coupling and an established fire quietly
+  // decays to coals, which would break the product's opening image.
+  const ambientHeat = clamp01(fire.emberMass * 1.1 + fire.combustion * 45);
   let combustion = 0;
   let smokeGen = 0;
 
@@ -320,8 +328,13 @@ export function stepFire(fire: FireState, dt: number, rng: Rng): void {
     }
 
     const dryness = 1 - log.moisture;
+    // A log that is already alight largely keeps itself alight: without this
+    // self-sustaining term, fuel can only ever be as lit as its surroundings,
+    // and a fire can never be more than its embers.
     const ignitionDrive =
-      wood.ignitability * ambientHeat * dryness * (0.35 + fire.oxygen * 0.65) - log.moisture * 0.6;
+      wood.ignitability * ambientHeat * dryness * (0.35 + fire.oxygen * 0.65) +
+      log.ignition * 0.55 * dryness * (0.4 + fire.oxygen * 0.6) -
+      log.moisture * 0.6;
     log.ignition = clamp01(approach(log.ignition, clamp01(ignitionDrive), 0.22, dt));
 
     if (log.ignition > 0.03) {
@@ -345,7 +358,10 @@ export function stepFire(fire: FireState, dt: number, rng: Rng): void {
 
   // --- Embers ----------------------------------------------------------
   // Coals burn away slowly; wind makes them glow hotter but spends them faster.
-  const emberBurn = fire.emberMass * 0.0022 * (0.5 + fire.oxygen * 0.8);
+  // Coals are the long-lived part of a fire; they must outlast a whole
+  // session so a player who lets the flames die still has something to roast
+  // over (spec §4.1 — the fire never goes out irrecoverably).
+  const emberBurn = fire.emberMass * 0.0009 * (0.5 + fire.oxygen * 0.8);
   fire.emberMass = Math.max(0, fire.emberMass - emberBurn * dt);
 
   const emberTargetTemp =
@@ -357,7 +373,7 @@ export function stepFire(fire: FireState, dt: number, rng: Rng): void {
   fire.emberTemp = approach(fire.emberTemp, emberTargetTemp, 0.09, dt);
 
   // --- Flame -----------------------------------------------------------
-  const flameTarget = clamp01(fire.combustion * 26 * (0.45 + fire.oxygen * 0.75));
+  const flameTarget = clamp01(fire.combustion * 240 * (0.45 + fire.oxygen * 0.75));
   fire.flame = approach(fire.flame, flameTarget, 2.2, dt);
   // Flicker is noise-driven so it is organic but reproducible.
   const flicker = fbm1D(0xf1a3, fire.elapsed * 3.1, 3) * 0.16;

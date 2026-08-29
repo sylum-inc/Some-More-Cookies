@@ -417,3 +417,41 @@ describe('readouts', () => {
     expect(record.firmness).toBe(PROGRAMS.standard.firmness);
   });
 });
+
+describe('frost growth', () => {
+  it('never retreats during a run', () => {
+    // Frost that shrinks mid-run reads as the machine losing its grip.
+    const machine = createMachine('camp-frost', 'pinewood');
+    advance(machine, 1);
+    performAction(machine, { type: 'load' });
+    performAction(machine, { type: 'close-door' });
+    advance(machine, 4);
+    performAction(machine, { type: 'engage-latch' });
+    performAction(machine, { type: 'confirm' });
+    performAction(machine, { type: 'pull-lever' });
+    let previous = machine.frost;
+    for (let i = 0; i < 60 * (runDuration('standard') + 2); i++) {
+      stepMachine(machine, SIM_DT);
+      expect(machine.frost).toBeGreaterThanOrEqual(previous - 1e-9);
+      previous = machine.frost;
+    }
+    expect(machine.frost).toBeCloseTo(PROGRAMS.standard.frostTarget, 2);
+  });
+
+  it('reaches a heavier target on deep freeze', () => {
+    const run = (program: 'soft-set' | 'standard' | 'deep-freeze') => {
+      const machine = createMachine('camp-frost', 'pinewood');
+      advance(machine, 1);
+      performAction(machine, { type: 'load' });
+      performAction(machine, { type: 'close-door' });
+      advance(machine, 4);
+      performAction(machine, { type: 'engage-latch' });
+      performAction(machine, { type: 'set-program', program });
+      performAction(machine, { type: 'confirm' });
+      performAction(machine, { type: 'pull-lever' });
+      advance(machine, runDuration(program) + 2);
+      return machine.frost;
+    };
+    expect(run('deep-freeze')).toBeGreaterThan(run('soft-set'));
+  });
+});

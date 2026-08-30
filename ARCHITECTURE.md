@@ -300,6 +300,26 @@ Both figures are pinned in `tools/budgets.mjs` so neither can quietly drift.
 
 Settings live in one observable store consumed by simulation (assists), rendering (dither, motion, contrast, fire brightness), audio (per-bus volume, transient taming), and UI (text scale, subtitles). Nothing reads device settings directly, so every knob is testable. Assists change dexterity requirements only, never outcomes.
 
+### How the service runs
+
+From TypeScript source, in production as in development and in every test —
+`node --import ./runtime/ts-resolve.mjs src/main.ts`. Not a shortcut: the
+compiled output could not run and never had, because the workspace packages
+declare `"exports": "./src/index.ts"` and a compiled service resolving
+`@somemore/protocol` lands on TypeScript. Pointing the packages at built
+JavaScript instead would have meant tests resolving `src` while production
+resolved `dist`, which is the shape of defect #18. One loading path is worth
+more than a conventional artifact. `tsc -b` typechecks and emits declarations
+for the project references, and no longer emits JavaScript.
+
+`services/api/Dockerfile` builds from the **repository root**, because the
+service imports its workspace packages — including `@somemore/sim`, which it
+never names and reaches through `@somemore/content`. `docker-compose.yml`,
+`fly.toml` and `render.yaml` all run migrations as a release step rather than at
+boot, so two instances cannot race through the same migration. See
+[`services/api/DEPLOY.md`](./services/api/DEPLOY.md), which is explicit that the
+image has never been built here and lists what was verified instead.
+
 ### Where the app is served from
 
 `BASE_PATH` (default `/`) is one value threaded through everything that writes a

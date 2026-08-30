@@ -5,10 +5,11 @@
   "type": "module",
   "main": "./src/index.ts",
   "scripts": {
-    "dev": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/main.ts",
-    "migrate": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/db/migrate.ts up",
-    "migrate:status": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/db/migrate.ts status",
-    "migrate:reset": "node --experimental-strip-types --import ./dev/ts-extensions.mjs src/db/migrate.ts reset",
+    "start": "node --import ./runtime/ts-resolve.mjs src/main.ts",
+    "dev": "node --import ./runtime/ts-resolve.mjs src/main.ts",
+    "migrate": "node --import ./runtime/ts-resolve.mjs src/db/migrate.ts up",
+    "migrate:status": "node --import ./runtime/ts-resolve.mjs src/db/migrate.ts status",
+    "migrate:reset": "node --import ./runtime/ts-resolve.mjs src/db/migrate.ts reset",
     "build": "tsc -b",
     "typecheck": "tsc -b"
   },

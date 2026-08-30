@@ -1,6 +1,19 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": ".", "lib": ["ES2023"], "types": ["node"] },
+  /*
+   * `emitDeclarationOnly`, because the JavaScript this used to emit could not
+   * run and nothing consumed it. The workspace packages export TypeScript
+   * source, so a compiled `dist/src/main.js` dies resolving `@somemore/protocol`
+   * — see `runtime/ts-resolve.mjs`. Declarations are what the project
+   * references actually need; the service itself runs from source.
+   */
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "emitDeclarationOnly": true
+  },
   "include": ["src/**/*.ts", "test/**/*.ts"],
   "references": [{ "path": "../../packages/protocol" }, { "path": "../../packages/content" }]
 }

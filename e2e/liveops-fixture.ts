@@ -113,7 +113,7 @@ export async function startApi(options: { configured: boolean; corsOrigin?: stri
 
   const child: ChildProcess = spawn(
     process.execPath,
-    ['--experimental-strip-types', '--import', './dev/ts-extensions.mjs', 'src/main.ts'],
+    ['--import', './runtime/ts-resolve.mjs', 'src/main.ts'],
     {
       cwd: resolve(process.cwd(), 'services/api'),
       env,

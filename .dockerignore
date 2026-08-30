@@ -1,0 +1,15 @@
+# Everything the image must not carry. The build context is the repository
+# root, so without this it would ship the browser binaries, every baseline
+# screenshot and the whole test-results directory into a server image.
+node_modules
+**/node_modules
+**/dist
+**/dist-types
+.git
+.github
+playwright-report
+test-results
+artifacts
+e2e/__screenshots__
+*.log
+.DS_Store

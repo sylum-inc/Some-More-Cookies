@@ -219,6 +219,40 @@ picture badly, and both would have been recorded as evidence about multiplayer
 if nobody had looked at them. The lesson from #17 generalises — a screenshot is
 only worth what the pose behind it is worth.
 
+### Session 5: the service had no way to run
+
+Asked to give the shared campfire somewhere to live. There was not a single
+deployment manifest in the repository, which was the known part. The unknown
+part was worse.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 43 | **The compiled service could not run, and never had.** `tsc -b` emitted JavaScript into `services/api/dist`, and the first thing that JavaScript does is import `@somemore/protocol` — whose `package.json` declares `"exports": "./src/index.ts"`. Node resolves it to TypeScript source and dies on the first `./version.js` inside it | Nothing consumed that output and nothing had ever executed it. There was no working production start path at all, and the artifact that looked like one was a trap. The comment in the resolver hook even asserted the opposite — "a production build goes through `tsc`, so neither path loads this file" — which nothing had ever checked |
+| 44 | **The container would have built perfectly and died on its first line.** `services/api` imports `@somemore/protocol` and `@somemore/content`; `@somemore/content` imports `@somemore/sim`, which the service never mentions | Found by assembling the runtime stage on disk exactly as the Dockerfile lays it out and booting from it. A missing `COPY` only ever announces itself by running the thing |
+
+The resolution for #43 was to run from source in production, as development and
+every test already do. The alternative — pointing the packages at built
+JavaScript — would have meant tests resolving `src` while production resolved
+`dist`, which is the exact shape of defect #18: a well-tested subsystem that
+nothing actually reached. One loading path is worth more here than a
+conventional build artifact. `tsc -b` now emits declarations only, so there is
+nothing left in `dist/` that can be mistaken for something to deploy.
+
+There is no Docker daemon in this environment, so **the image has never been
+built** and no manifest has ever been applied. That is stated at the top of
+`services/api/DEPLOY.md` rather than implied by a green checkmark. What was run,
+step by step, is everything the image does: the dependency install in a
+manifest-only tree (73 packages), the production start, the assembled runtime
+stage, the migrations against a real PostgreSQL, health reporting the pool, and
+a CORS preflight from a `github.io` origin.
+
+Two smaller things the exercise surfaced, both now in the manifests and the
+guide: `HOST` defaults to `127.0.0.1`, which inside a container means nothing
+outside it can connect; and the service **refuses to start** in production
+without `AUTH_TOKEN_SECRET` rather than signing sessions with a known
+development key — correct, and exactly the sort of correctness that reads as a
+broken deployment if the manifest does not set it.
+
 ### Session 4: the app could only ever be served from a root
 
 Asked to host it on a GitHub project page, which serves from a subdirectory.
@@ -435,7 +469,7 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 | S6 | ~~The significance model is not wired to storage.~~ **Wired locally.** Wildlife and discovery events become traces, and traces, resident visit counts and found secrets are folded into the Passport per campsite and handed back on the next visit. | — | Remaining: campsite memory is local-only; the world-state domain exists server-side but the client does not yet sync traces to it. |
 | S8 | **The order terminal now reaches a real service, but no human has bought anything.** The whole sequence runs against the API in tests, including the payment intent and confirmation through the fake provider. | Nobody has typed a real address into it on a phone. | A person, and eventually a processor. |
 | S9 | **Nothing has run on a real phone.** Every safe-area inset is zero in headless Chromium, so no test here has seen a real notch; `beforeinstallprompt` is dispatched by hand; no home-screen install, no launch image and no wake lock has ever been exercised; and there is no iOS anything — no macOS, no Safari, no simulator. | The three mobile defects found this session were found by *reasoning about* insets and painting them onto screenshots, not by measuring them. | A phone. `docs/HUMAN_TEST.md` §9b is written for exactly this. |
-| S9b | **One visual baseline is stale, and one verification number is unmeasured.** `e2e/__screenshots__/machine-idle.png` predates two SM-01 changes — the chamber opening and the pacing work — so `visual` fails on that frame alone, entirely inside the machine, with the eight frames before it pixel-identical. And `--project=perf` has not completed on the final tree: four agents on four CPUs held the load average near ten all session, and I contaminated my own run by rebuilding `dist` under a suite that was already up. | A stale baseline is not a regression, but it hides the next one. | One serialised run on an idle machine: refresh that baseline, then `perf` and `visual` end to end. |
+| S9b | ~~One visual baseline is stale, and one verification number is unmeasured.~~ **Closed.** Every one of the sixteen baselines was regenerated from scratch rather than updated — a tolerance wide enough to hide the fire's flicker is wide enough to hide a stale picture, and `roasted.png` was still showing the one-sided marshmallow from before the input fix while matching happily. `perf` was re-run serially on an idle machine: 83/120 draw calls, 10,370/60,000 triangles, 1.605/24 MB textures. | — | — |
 | S10 | **The native shells are configured but not generated.** `apps/mobile/` has the Capacitor config, an asset generator that draws all 37 native icons from the same code as the favicon, and the argument in full — but no `ios/` or `android/`. | Generating them writes a Gradle wrapper JAR and placeholder PNGs, which ADR-0002 forbids, and nothing here could compile or run them. Committing two hundred files that have never been built is what §16 exists to prevent. | Developer accounts, and a machine with Xcode and the Android SDK. |
 | S7 | **Audio is unheard.** 102 tests cover its maths and scheduling; no human has listened to it. | The SM-01's mechanical narrative is carried by sound. | Someone with speakers. |
 

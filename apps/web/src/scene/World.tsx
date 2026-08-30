@@ -317,11 +317,21 @@ export interface WorldProps {
   walkable: WalkableWorld;
   /** Reports what the player can act on, so the interface can offer it. */
   onReachChange?: (interactable: Interactable | null) => void;
+  /**
+   * Lifting the finished sandwich off the tray.
+   *
+   * Passed down because the act happens *on the sandwich*, in the chamber,
+   * where the player is already looking — not on a button in the corner. It
+   * used to be the latter, which is the same species of thing as the "Build"
+   * button the product exists to not have (spec §1.3).
+   */
+  onLiftSandwich?: () => void;
 }
 
 export function World({
   store,
   roastControl,
+  onLiftSandwich,
   quality,
   onFrame,
   arrivalRef,
@@ -359,6 +369,8 @@ export function World({
    */
   const anchored = isAnchored(ritual.stage) && !(store.campfire?.spectating ?? false);
   const lastReach = useRef<string | null>(null);
+  /** Where a hand closed on the sandwich, while it is being lifted out. */
+  const liftFrom = useRef<{ x: number; y: number } | null>(null);
   const lastStage = useRef<RitualStage>(ritual.stage);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
@@ -690,7 +702,34 @@ export function World({
       {showAssembly && <AssemblyTable assembly={ritual.assembly} settings={settings} position={LAYOUT.assemblyTable} />}
 
       {showSandwichOnTray && ritual.sandwich && (
-        <group position={machineToWorld([0, 0.372, 0.14])}>
+        <group
+          position={machineToWorld([0, 0.372, 0.14])}
+          /*
+           * Picked up by taking hold of it and lifting.
+           *
+           * `onPointerDown` and not `onClick`, because a click is a press and a
+           * release in the same place and this is a *lift*: the hand closes on
+           * it and it comes away. The pointer is captured so the drag out of
+           * the chamber belongs to the sandwich rather than to whatever it
+           * passes over.
+           */
+          onPointerDown={(event) => {
+            event.stopPropagation();
+            liftFrom.current = { x: event.clientX, y: event.clientY };
+          }}
+          onPointerMove={(event) => {
+            const from = liftFrom.current;
+            if (from === null) return;
+            // Far enough that a tap on it is not a lift, close enough that
+            // nobody has to drag it across the room.
+            if (Math.hypot(event.clientX - from.x, event.clientY - from.y) < 34) return;
+            liftFrom.current = null;
+            onLiftSandwich?.();
+          }}
+          onPointerUp={() => {
+            liftFrom.current = null;
+          }}
+        >
           <Sandwich sandwich={ritual.sandwich} bite={null} settings={settings} />
         </group>
       )}

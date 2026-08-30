@@ -27,6 +27,8 @@ export interface HudProps {
   controls: 'pointer' | 'keyboard';
   /** A report that must reach the player whether or not subtitles are on. */
   notice: string | null;
+  /** How far the roasting stick has been pulled back toward the plate, 0..1. */
+  withdraw: number;
   textScale: number;
   highContrast: boolean;
   subtitlesEnabled: boolean;
@@ -164,6 +166,7 @@ function guidanceFor(
   ritual: RitualState,
   stage: RitualStage,
   controls: 'pointer' | 'keyboard' = 'pointer',
+  withdraw = 0,
 ): string {
   const keys = controls === 'keyboard';
   switch (stage) {
@@ -180,9 +183,14 @@ function guidanceFor(
           ? 'It has caught. Press B to blow it out, or let it burn.'
           : 'It has caught. Shake it out, or let it burn.';
       }
+      if (withdraw > 0.12) {
+        // Said while it happens. A pull that completes silently is
+        // indistinguishable from a slip.
+        return keys ? 'Keep pulling it back.' : 'Keep pulling back to take it off.';
+      }
       return keys
-        ? 'Arrows move it in and out, and turn it.'
-        : 'Drag to move it in and out. Drag sideways to turn it.';
+        ? 'Arrows move it in and out, and turn it. Down takes it off.'
+        : 'Drag it in and out, sideways to turn. Pull right back to take it off.';
     case 'assembling': {
       const next = ritual.assembly.heldKind;
       if (next) {
@@ -195,7 +203,7 @@ function guidanceFor(
     case 'machine':
       return machineLine(ritual.machine, keys);
     case 'reveal':
-      return 'Take it out.';
+      return keys ? 'Take it out.' : 'Take hold of it and lift it out.';
     case 'eating':
       return 'Bite from whichever side you like.';
     case 'after':
@@ -380,15 +388,40 @@ export function Hud(props: HudProps): React.ReactElement {
           them this sits fourteen pixels above the home indicator in portrait
           and under the notch in landscape. The other two corners already read
           them; this one did not. */}
+      {/*
+        The last two buttons, and where they went.
+
+        Taking the marshmallow to the plate and taking the sandwich out were
+        the last two acts in the ritual that were a control rather than a thing
+        you do — the same species as the "Roast" and "Build" buttons the
+        product exists to not have (spec §1.3). They are gestures now: the
+        stick is pulled back off the fire past the edge of the coals, and the
+        sandwich is taken hold of and lifted off the tray.
+
+        The buttons are still here, and still reachable, because a gesture is
+        not a control scheme (spec §12) — but they are in the accessibility
+        tree rather than on the screen unless the player is actually using a
+        keyboard. That way a pointer or a thumb gets the ritual with nothing
+        in front of it, a Tab or a screen reader finds a real named button in
+        the ordinary place, and neither is a degraded version of the other.
+
+        Kept mounted rather than conditionally rendered on `controls`, because
+        a virtual cursor that never fires a keydown would otherwise be looking
+        at a document where the button does not exist.
+      */}
       {stage === 'roasting' && (
         <div
-          style={{
-            position: 'absolute',
-            left: 'env(safe-area-inset-left, 0px)',
-            bottom: 'env(safe-area-inset-bottom, 0px)',
-            padding: 14,
-            pointerEvents: 'auto',
-          }}
+          style={
+            props.controls === 'keyboard'
+              ? {
+                  position: 'absolute',
+                  left: 'env(safe-area-inset-left, 0px)',
+                  bottom: 'env(safe-area-inset-bottom, 0px)',
+                  padding: 14,
+                  pointerEvents: 'auto',
+                }
+              : SR_ONLY
+          }
         >
           <CornerButton
             label={ritual.marshmallow.fallen ? 'Take another' : 'Take it to the plate'}
@@ -400,7 +433,13 @@ export function Hud(props: HudProps): React.ReactElement {
       )}
 
       {stage === 'reveal' && ritual.sandwich && (
-        <div style={{ position: 'absolute', left: '50%', bottom: '12%', transform: 'translateX(-50%)', pointerEvents: 'auto' }}>
+        <div
+          style={
+            props.controls === 'keyboard'
+              ? { position: 'absolute', left: '50%', bottom: '12%', transform: 'translateX(-50%)', pointerEvents: 'auto' }
+              : SR_ONLY
+          }
+        >
           <CornerButton label="Take it" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
         </div>
       )}
@@ -453,7 +492,7 @@ export function Hud(props: HudProps): React.ReactElement {
             overflowWrap: 'break-word',
           }}
         >
-          {guidanceFor(ritual, stage, props.controls)}
+          {guidanceFor(ritual, stage, props.controls, props.withdraw)}
         </span>
       </div>
 

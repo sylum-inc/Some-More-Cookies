@@ -670,6 +670,36 @@ export function App({ store }: AppProps): React.ReactElement {
   const dragging = useRef(false);
   const pointerStart = useRef({ x: 0, y: 0 });
 
+  /*
+   * How far the stick has been pulled back, for the guidance line only.
+   *
+   * Kept out of the store: it changes on every pointer move of a drag, and the
+   * store notifies every subscriber. The ref is what the guard reads so a
+   * render only happens when the *rounded* value moves — which is roughly ten
+   * times across a whole pull rather than once per pointer event.
+   */
+  const [withdraw, setWithdraw] = useState(0);
+  const withdrawRef = useRef(0);
+  const reportWithdraw = useCallback((value: number) => {
+    const rounded = Math.round(value * 10) / 10;
+    if (rounded === withdrawRef.current) return;
+    withdrawRef.current = rounded;
+    setWithdraw(rounded);
+  }, []);
+
+  /*
+   * Taking the marshmallow off the fire.
+   *
+   * Above the pointer handlers because they call it: the pull that carries the
+   * stick to the plate is a drag, not a button, so this is now part of the
+   * interaction rather than something the HUD does afterwards.
+   */
+  const handleFinishRoasting = useCallback(() => {
+    reportWithdraw(0);
+    finishRoasting(ritual);
+    store.touch();
+  }, [ritual, store, reportWithdraw]);
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
       unlockAudio();
@@ -752,6 +782,16 @@ export function App({ store }: AppProps): React.ReactElement {
       if (!dragging.current) return;
       if (ritual.stage === 'roasting') {
         roastControl.move(event.clientX, event.clientY);
+        // Pulled all the way back past the fire: it is off the heat and on its
+        // way to the plate. See `withdrawToPlate` — this used to be a button.
+        if (roastControl.withdrawProgress >= 1) {
+          roastControl.resetWithdraw();
+          roastControl.end();
+          dragging.current = false;
+          handleFinishRoasting();
+          return;
+        }
+        reportWithdraw(roastControl.withdrawProgress);
         // A shake while it is alight blows it out — no microphone required.
         if (ritual.marshmallow.burning && blowDetector.sample(event.clientX, performance.now())) {
           if (blowOutMarshmallow(ritual)) {
@@ -770,7 +810,7 @@ export function App({ store }: AppProps): React.ReactElement {
         moveComponent(ritual, offset, ritual.assembly.heldRotation);
       }
     },
-    [ritual, roastControl, blowDetector, store],
+    [ritual, roastControl, blowDetector, store, handleFinishRoasting, reportWithdraw],
   );
 
   const onPointerUp = useCallback(() => {
@@ -910,6 +950,14 @@ export function App({ store }: AppProps): React.ReactElement {
           bearingFromFire(player),
           state.accessibility.autoRotate <= 0,
         );
+        // Holding "further away" past the end of the band carries the stick to
+        // the plate, exactly as a drag does. No second mechanism.
+        if (roastControl.withdrawProgress >= 1) {
+          roastControl.resetWithdraw();
+          handleFinishRoasting();
+        } else {
+          reportWithdraw(roastControl.withdrawProgress);
+        }
         if (event.key === 'b' && blowOutMarshmallow(ritual)) store.touch();
       }
 
@@ -1051,6 +1099,11 @@ export function App({ store }: AppProps): React.ReactElement {
     ritual,
     roastControl,
     beginArrival,
+    // Both are called from the roasting branch: the pull to the plate is a
+    // keyboard act as well as a drag, so a stale closure here would be a stale
+    // `ritual` inside it.
+    handleFinishRoasting,
+    reportWithdraw,
     store,
     keyboard,
     movement,
@@ -1146,11 +1199,6 @@ export function App({ store }: AppProps): React.ReactElement {
   );
 
   // --- Actions -----------------------------------------------------------
-  const handleFinishRoasting = useCallback(() => {
-    finishRoasting(ritual);
-    store.touch();
-  }, [ritual, store]);
-
   const handleTakeSandwich = useCallback(() => {
     const sandwich = takeSandwichAction(ritual);
     if (sandwich) {
@@ -1318,6 +1366,7 @@ export function App({ store }: AppProps): React.ReactElement {
         <World
           store={store}
           roastControl={roastControl}
+          onLiftSandwich={handleTakeSandwich}
           quality={quality}
           onFrame={onFrame}
           arrivalRef={arrivalRef}
@@ -1354,6 +1403,7 @@ export function App({ store }: AppProps): React.ReactElement {
         subtitle={state.subtitle}
         controls={state.controls}
         notice={state.notice}
+        withdraw={withdraw}
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}

@@ -219,6 +219,39 @@ picture badly, and both would have been recorded as evidence about multiplayer
 if nobody had looked at them. The lesson from #17 generalises — a screenshot is
 only worth what the pose behind it is worth.
 
+### Session 5: the last two buttons
+
+§1.3 rules out a "Roast" button and a "Build" button. Two acts had held out as
+controls anyway — taking the marshmallow to the plate, and taking the sandwich
+out of the machine — and both were a button in the corner of the screen right
+up until now.
+
+They are gestures now. The stick is **pulled back past the edge of the coals**:
+the band's outer end is the edge of the fire, so anything beyond it is already
+off the fire, and 0.35 of a band further is about a hundred pixels of deliberate
+pull. Drawing the marshmallow back to cool it cannot finish the roast by
+accident, and the same key that already means "further away" carries it to the
+plate on the keyboard, so there is no second mechanism to keep in step with the
+first. The sandwich is **taken hold of and lifted** off the tray — `pointerdown`
+and a lift, not a click, because a click is a press and a release in the same
+place and this is not that.
+
+The buttons still exist, and are still reachable, because a gesture is not a
+control scheme (§12). They are in the accessibility tree and not on the screen
+unless the player is actually using a keyboard — kept mounted rather than
+conditionally rendered, because a virtual cursor that never fires a keydown
+would otherwise be reading a document where the button does not exist.
+
+The test for this was wrong twice before it was right, which is worth keeping:
+
+1. `toBeHidden` — wrong, because the button is *deliberately* in the tree.
+2. Measuring its box — wrong, because `overflow: hidden` on a clipped parent
+   changes what is painted and not what a child measures, so the button still
+   reported 179×30 while being invisible.
+3. Asking whether a pointer at the button's own centre hits it — right, because
+   hit-testing follows painting, and that is exactly the claim: reachable by a
+   screen reader and by Tab, not there for a thumb.
+
 ### Session 5: the service had no way to run
 
 Asked to give the shared campfire somewhere to live. There was not a single

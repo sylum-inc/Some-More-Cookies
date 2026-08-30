@@ -160,6 +160,64 @@ describe('roast control', () => {
     expect(ritual.roastInput.rotation).toBeCloseTo(24 * 0.22, 6);
   });
 
+  it('carries the marshmallow to the plate when the stick is pulled right back', () => {
+    // The pull that replaced the button. Past the end of the band the stick is
+    // off the fire, and far enough past it is on its way to the plate.
+    const control = new RoastController();
+    control.begin(500, 100);
+    // Drag down to the very end of the band and no further.
+    const pxPerBand = (DEFAULT_ROAST_CONTROL.maxRadius - DEFAULT_ROAST_CONTROL.minRadius) /
+      DEFAULT_ROAST_CONTROL.radiusPerPixel;
+    control.move(500, 100 + pxPerBand * (1 - DEFAULT_ROAST_CONTROL.startPosition));
+    expect(control.bandPosition).toBeCloseTo(1, 5);
+    expect(control.withdrawProgress, 'reaching the end of the band is not taking it off').toBe(0);
+
+    // Cooling it by drawing it back a little must not finish the roast.
+    control.move(500, 100 + pxPerBand * (1 - DEFAULT_ROAST_CONTROL.startPosition + 0.1));
+    expect(control.withdrawProgress).toBeLessThan(1);
+
+    control.move(
+      500,
+      100 + pxPerBand * (1 - DEFAULT_ROAST_CONTROL.startPosition + DEFAULT_ROAST_CONTROL.withdrawToPlate),
+    );
+    expect(control.withdrawProgress).toBe(1);
+  });
+
+  it('springs back if the pull stops short', () => {
+    // Otherwise a half-pull would sit there and the next small movement would
+    // finish a roast the player never meant to end.
+    const control = new RoastController();
+    control.begin(500, 100);
+    control.move(500, 700);
+    expect(control.withdrawProgress).toBeGreaterThan(0);
+    control.end();
+    expect(control.withdrawProgress).toBe(0);
+  });
+
+  it('reaches the plate on the keyboard too, on the key that already means further away', () => {
+    const control = new RoastController();
+    // Enough presses to cross the band and then the withdraw, at the App's step.
+    let fired = 0;
+    for (let i = 0; i < 60 && fired === 0; i += 1) {
+      control.nudge(0.04, 0);
+      if (control.withdrawProgress >= 1) fired = i + 1;
+    }
+    expect(fired, 'holding the away key never reached the plate').toBeGreaterThan(0);
+    // And it is a deliberate hold, not two taps.
+    expect(fired).toBeGreaterThan(15);
+  });
+
+  it('draws the marshmallow back visibly as it is pulled, rather than only counting', () => {
+    const control = new RoastController();
+    control.begin(500, 100);
+    control.move(500, 700);
+    const pulled = control.pose();
+    expect(
+      Math.hypot(pulled.position.x, pulled.position.z),
+      'the pull moved a number and nothing on screen',
+    ).toBeGreaterThan(DEFAULT_ROAST_CONTROL.maxRadius);
+  });
+
   it('leaves the rotation alone when the auto-rotate assist owns it', () => {
     const ritual = createRitual({ campsiteSeed: 'auto-rotate', environmentId: 'pine_hollow' });
     beginRoasting(ritual);

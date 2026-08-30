@@ -274,6 +274,167 @@ test.describe('accessibility', () => {
 });
 
 
+/*
+ * Spec §1.3: no "Roast" button, no "Build" button. Two acts held out longest —
+ * taking the marshmallow to the plate and taking the sandwich out — and both
+ * were a control in the corner of the screen right up until they were not.
+ *
+ * This drives them by hand and asserts the button is not on screen while it
+ * does, because "we replaced the button with a gesture" and "we added a gesture
+ * next to the button" look identical from the simulation's side.
+ */
+test.describe('the last two acts are acts, not buttons', () => {
+  /*
+   * Both halves of the claim in one assertion, because either alone is wrong.
+   *
+   * `toBeHidden` is not it: the button is deliberately *in* the accessibility
+   * tree — a gesture is not a control scheme (spec §12) — so it is a real,
+   * named, focusable button that a screen reader or a Tab will find. What it
+   * must not be is on the screen in front of somebody who has a thumb. That is
+   * a question about its box, not about its visibility.
+   */
+  async function offScreenButOffered(
+    page: import('@playwright/test').Page,
+    name: RegExp,
+  ): Promise<void> {
+    const button = page.getByRole('button', { name });
+    await expect(button, 'the button left the accessibility tree').toHaveCount(1);
+
+    /*
+     * Asked as "does a pointer at its own centre hit it", not "how big is its
+     * box". The wrapper is clipped to a pixel; the button inside still reports
+     * its full layout size, because `overflow: hidden` on a parent changes what
+     * is painted and not what a child measures. Hit-testing follows painting,
+     * so this is the question that matches the claim: it is reachable by a
+     * screen reader and by Tab, and it is not there for a thumb.
+     */
+    const hit = await button.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return at === el || el.contains(at);
+    });
+    expect(hit, 'the button is still on screen where a pointer would find it').toBe(false);
+  }
+
+  test('the marshmallow comes off the fire because you pull it off', async ({ page }) => {
+    await page.goto('/?camp=camp-pull&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await act(page, 'arrive');
+    await act(page, 'beginRoasting');
+    await page.waitForTimeout(400);
+
+    // Nothing offering to do it for you.
+    await offScreenButOffered(page, /take it to the plate/i);
+    await expect(page.getByTestId('guidance')).toContainText(/pull/i);
+
+    const box = page.viewportSize()!;
+    await page.mouse.move(box.width / 2, box.height * 0.35);
+    await page.mouse.down();
+    // Drawing it back a little is cooling it, not finishing it.
+    await page.mouse.move(box.width / 2, box.height * 0.55, { steps: 8 });
+    await page.waitForTimeout(200);
+    expect(
+      await page.evaluate(() => window.__someMore!.store.state.ritual.stage),
+      'drawing it back to cool it ended the roast',
+    ).toBe('roasting');
+
+    // Pulling it right back off the coals does.
+    await page.mouse.move(box.width / 2, box.height * 0.99, { steps: 20 });
+    await page.waitForTimeout(400);
+    await page.mouse.up();
+    expect(await page.evaluate(() => window.__someMore!.store.state.ritual.stage)).toBe(
+      'assembling',
+    );
+  });
+
+  test('the sandwich comes out because you lift it out', async ({ page }) => {
+    await page.goto('/?camp=camp-lift&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await act(page, 'arrive');
+    await act(page, 'beginRoasting');
+    await act(page, 'finishRoasting');
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'assembling', null, {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      for (let i = 0; i < 4; i += 1) {
+        a['holdComponent']!();
+        a['placeComponent']!();
+      }
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'machine', null, {
+      timeout: 30_000,
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.machine.door > 0.9, null, {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      a['machine']!({ type: 'load' });
+      a['machine']!({ type: 'close-door' });
+    });
+    await page.waitForFunction(
+      () => window.__someMore!.store.state.ritual.machine.stage === 'door-closed',
+      null,
+      { timeout: 30_000 },
+    );
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      a['machine']!({ type: 'engage-latch' });
+      a['machine']!({ type: 'set-program', program: 'standard' });
+      a['machine']!({ type: 'confirm' });
+      a['machine']!({ type: 'pull-lever' });
+    });
+    for (let i = 0; i < 80; i += 1) {
+      const stage = await page.evaluate(() => {
+        window.__someMore!.actions['advanceSeconds']!(5);
+        return window.__someMore!.store.state.ritual.machine.stage;
+      });
+      if (stage === 'complete') break;
+    }
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      a['machine']!({ type: 'release-latch' });
+      a['machine']!({ type: 'open-door' });
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'reveal', null, {
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(1200);
+
+    await offScreenButOffered(page, /^take it$/i);
+    await expect(page.getByTestId('guidance')).toContainText(/lift/i);
+
+    /*
+     * Found by looking, not computed: the reveal is a composed shot and the
+     * sandwich sits just below the middle of it. A few candidates rather than
+     * one, because a pixel-exact expectation here would be a test that fails
+     * whenever the framing is improved.
+     */
+    const box = page.viewportSize()!;
+    let taken = false;
+    for (const dy of [0.44, 0.48, 0.52, 0.56]) {
+      for (const dx of [0.46, 0.5, 0.54]) {
+        const x = box.width * dx;
+        const y = box.height * dy;
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.move(x, y + 70, { steps: 8 });
+        await page.mouse.up();
+        await page.waitForTimeout(250);
+        if ((await page.evaluate(() => window.__someMore!.store.state.ritual.stage)) !== 'reveal') {
+          taken = true;
+          break;
+        }
+      }
+      if (taken) break;
+    }
+    expect(taken, 'the sandwich could not be lifted off the tray by hand').toBe(true);
+    expect(await page.evaluate(() => window.__someMore!.store.state.ritual.stage)).toBe('eating');
+  });
+});
+
 test.describe('exploration', () => {
   test('the campsite can actually be walked around and looked at', async ({ page }) => {
     // Until this existed the camera was on rails and the campsite was a set

@@ -30,6 +30,21 @@ export interface RoastControlConfig {
   rotationPerPixel: number;
   /** Where the marshmallow starts, as a 0..1 position along the radius band. */
   startPosition: number;
+  /**
+   * How far past the end of the band you must keep pulling to take the
+   * marshmallow off the fire, in band units.
+   *
+   * Taking it to the plate used to be a button in the corner of the screen,
+   * which is the same species of thing as the "Roast" button the product
+   * exists to not have (spec §1.3). It is a pull: the stick comes back out of
+   * the heat and away, which is what a hand does. The band's outer end is the
+   * edge of the fire, so anything beyond it is already off the fire.
+   *
+   * 0.35 of the band is about a hundred pixels of drag past the end — far
+   * enough that cooling a marshmallow by drawing it back cannot finish the
+   * roast by accident, short enough that it never feels like a fight.
+   */
+  withdrawToPlate: number;
 }
 
 export const DEFAULT_ROAST_CONTROL: RoastControlConfig = {
@@ -42,6 +57,7 @@ export const DEFAULT_ROAST_CONTROL: RoastControlConfig = {
   radiusPerPixel: 0.0016,
   rotationPerPixel: 0.011,
   startPosition: 0.55,
+  withdrawToPlate: 0.35,
 };
 
 export interface RoastPose {
@@ -55,6 +71,8 @@ export class RoastController {
   private readonly config: RoastControlConfig;
   /** 0..1 along the band; 0 = closest to the fire. */
   private position: number;
+  /** How far past the end of the band the stick has been pulled, band units. */
+  private overshoot = 0;
   private rotation = 0;
   private dragging = false;
   private startX = 0;
@@ -85,14 +103,20 @@ export class RoastController {
     // Dragging *down* pulls the marshmallow back out of the fire, which is the
     // direction a real arm moves.
     const radiusRange = this.config.maxRadius - this.config.minRadius;
-    this.position = clamp01(
-      this.startPositionAtDrag + (dy * this.config.radiusPerPixel) / radiusRange,
-    );
+    const raw = this.startPositionAtDrag + (dy * this.config.radiusPerPixel) / radiusRange;
+    this.position = clamp01(raw);
+    // Kept rather than discarded by the clamp: past the end of the band the
+    // stick is off the fire and on its way to the plate.
+    this.overshoot = Math.max(0, raw - 1);
     this.rotation = this.startRotationAtDrag + dx * this.config.rotationPerPixel;
   }
 
   end(): void {
     this.dragging = false;
+    // A pull that stopped short springs back. Only a pull carried all the way
+    // through takes the marshmallow off the fire, and `withdrawProgress` is
+    // read while the hand is still moving.
+    this.overshoot = 0;
   }
 
   get isDragging(): boolean {
@@ -105,12 +129,38 @@ export class RoastController {
     this.startRotationAtDrag += delta;
   }
 
-  /** Moves along the band directly — used by keyboard and gamepad input. */
+  /**
+   * Moves along the band directly — used by keyboard and gamepad input.
+   *
+   * Past the end of the band the surplus accumulates as overshoot, so holding
+   * the "further away" key keeps pulling the stick back exactly as a drag
+   * does, and reaches the plate the same way. No extra key, and no second
+   * mechanism to keep in step with the first.
+   */
   nudge(positionDelta: number, rotationDelta: number): void {
-    this.position = clamp01(this.position + positionDelta);
+    const raw = this.position + this.overshoot + positionDelta;
+    this.position = clamp01(raw);
+    this.overshoot = Math.max(0, raw - 1);
     this.rotation += rotationDelta;
     this.startPositionAtDrag = this.position;
     this.startRotationAtDrag = this.rotation;
+  }
+
+  /**
+   * 0 while the marshmallow is over the fire, 1 when it has been pulled far
+   * enough back to be on its way to the plate.
+   *
+   * Reported rather than acted on, so the interface can say what is happening
+   * while it happens — a pull that silently completes is indistinguishable
+   * from a slip.
+   */
+  get withdrawProgress(): number {
+    return clamp01(this.overshoot / this.config.withdrawToPlate);
+  }
+
+  /** Puts the stick back over the fire, after a withdraw was acted on. */
+  resetWithdraw(): void {
+    this.overshoot = 0;
   }
 
   setBearing(bearing: number): void {
@@ -120,9 +170,13 @@ export class RoastController {
   /** Current world pose of the marshmallow, with the fire pit at the origin. */
   pose(out: RoastPose = { position: vec3(), rotation: 0, proximity: 0 }): RoastPose {
     const c = this.config;
-    const radius = c.minRadius + (c.maxRadius - c.minRadius) * this.position;
+    const range = c.maxRadius - c.minRadius;
+    // The overshoot moves the marshmallow too, or a pull toward the plate is a
+    // number changing with nothing happening on screen.
+    const extended = this.position + this.overshoot;
+    const radius = c.minRadius + range * extended;
     // Held higher when further out — the natural arc of an arm.
-    const height = c.minHeight + (c.maxHeight - c.minHeight) * this.position;
+    const height = c.minHeight + (c.maxHeight - c.minHeight) * extended;
     out.position.x = Math.cos(this.bearing) * radius;
     out.position.y = height;
     out.position.z = Math.sin(this.bearing) * radius;

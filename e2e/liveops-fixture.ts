@@ -117,7 +117,18 @@ export async function startApi(options: { configured: boolean; corsOrigin?: stri
     {
       cwd: resolve(process.cwd(), 'services/api'),
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      /*
+       * stdout is discarded rather than piped.
+       *
+       * A piped stream nobody reads fills its 64KB kernel buffer and then the
+       * child *blocks on write* — so the service stops answering partway
+       * through a run, which is exactly what happened: a redeem mid-spec died
+       * with ECONNREFUSED after the service had been serving happily for
+       * thirty seconds. The service logs structured JSON to stdout on every
+       * request, so it does not take long. stderr is piped because it is
+       * drained below.
+       */
+      stdio: ['ignore', 'ignore', 'pipe'],
     },
   );
   child.stderr?.on('data', (chunk: Buffer) => {
@@ -145,10 +156,19 @@ export async function startApi(options: { configured: boolean; corsOrigin?: stri
  */
 export async function startConsole(): Promise<RunningService> {
   const port = await freePort();
+  /*
+   * Its own process group, killed as a group.
+   *
+   * `npx` forks the real `vite`, and a `SIGTERM` to `npx` does not reach it —
+   * which leaves a preview server bound to a port after the run has finished.
+   * Found by listing processes after a run and seeing one still there.
+   */
   const child = spawn('npx', ['vite', 'preview', '--port', String(port), '--strictPort'], {
     cwd: resolve(process.cwd(), 'apps/console'),
     env: process.env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // Same reason as the API: an undrained pipe eventually stops the child.
+    stdio: ['ignore', 'ignore', 'ignore'],
+    detached: true,
   });
   const baseUrl = `http://127.0.0.1:${port}`;
 
@@ -163,7 +183,16 @@ export async function startConsole(): Promise<RunningService> {
     if (Date.now() > deadline) throw new Error(`the console never came up on ${baseUrl}`);
     await new Promise((done) => setTimeout(done, 200));
   }
-  return { baseUrl, stop: () => void child.kill('SIGTERM') };
+  return {
+    baseUrl,
+    stop: () => {
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, 'SIGTERM');
+      } catch {
+        child.kill('SIGTERM');
+      }
+    },
+  };
 }
 
 /* -------------------------------------------------------------------------- */

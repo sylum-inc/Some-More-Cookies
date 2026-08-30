@@ -187,6 +187,7 @@ npx tsc -b packages/protocol services/api
 | `CODE_SIGNING_KEY_ID` | for minting | — | Which key new codes are signed with, e.g. `k1`. |
 | `CODE_SIGNING_PRIVATE_KEY` | for minting | — | Base64 Ed25519 private key (a raw 32-byte seed or a PKCS8 DER blob). Absent ⇒ codes can still be *verified* if public keys are set, but none can be minted. |
 | `CODE_VERIFY_PUBLIC_KEYS` | for scanning | — | `keyId:base64,keyId:base64`. Old print runs keep verifying after a rotation. Absent *and* no private key ⇒ scanning is disabled with a structured `not_configured`, never permissively. |
+| `CORS_ALLOWED_ORIGINS` | for a browser client on another origin | — | Exact origins, comma-separated, no wildcards — e.g. the live-ops console. Only these get `Access-Control-Allow-Origin` on a **credentialed** route; an unnamed origin gets nothing and the browser blocks the call. Public GETs (`/health`, `/v1/meta`, the content manifest, `/v1/codes/keys`) always answer `*`, because they carry nothing about anybody and offline verification needs the keys reachable from wherever the client is served. Empty is the correct default: same origin only. |
 | `CODE_REDEMPTION_WINDOW_SECONDS` | no | `3600` | Window for both redemption limits below. |
 | `CODE_REDEMPTIONS_PER_WINDOW` | no | `10` | Scan attempts per account per window. |
 | `CODE_FAILURES_PER_WINDOW` | no | `20` | Failed scans per salted IP hash per window. |
@@ -718,6 +719,26 @@ warehouse — and a photo of a wrapper never advertises "this is the free-kit on
 Redeeming always requires an authenticated account, which is what makes a
 scraped code worth nothing on its own.
 
+### Verifying on the device
+
+```bash
+GET /v1/codes/keys   # { keys: [{ keyId, publicKey }], mintingKeyId }
+```
+
+Unauthenticated, cacheable, and public *by design*: a public key is not a secret
+and publishing it is the entire reason ADR-0008 chose Ed25519 over a shorter
+HMAC. A phone that has fetched this once can reject a forged, mistyped or
+expired wrapper at a campsite with no signal, without asking us — which is also
+how a scraper's garbage never reaches storage. It is how a key rotation reaches
+installed clients without a store release. `publicKey` is base64 of the raw 32
+bytes (RFC 8032), which is what `crypto.subtle.importKey('raw', …)` takes.
+
+The client's half is `apps/web/src/net/codes.ts`. It holds keys from
+`VITE_CODE_VERIFY_PUBLIC_KEYS` (baked into the build) and from this endpoint
+(cached on the device), and with **neither** it answers `unverifiable` and asks
+the service — never "fine". A missing key must not be able to become free ice
+cream, on either side of the wire.
+
 ### Minting
 
 ```bash
@@ -1093,12 +1114,19 @@ Two blockers are *narrowed* rather than removed:
     -print workflow, and a physical proof scanned by a real phone camera under
     real light before a run is ordered. The wrapper is where this system either
     works or does not, and none of that has been tested on paper.
-15. **A live-ops console** — every authoring route exists and none of them has a
-    screen. *Needed:* an operator UI for drafting, previewing (the manifest a
-    given release *would* produce, at a chosen time), diffing versions, scheduling
-    windows, one-click rollback, and reading the release history. Today this is
-    `curl`, which is fine for an engineer and not fine for the person who
-    actually schedules a meteor-shower weekend.
+15. **A live-ops console** — *narrowed, not closed.* There is now a real one:
+    `apps/console/`, a second Vite app on its own origin, with authoring,
+    dry-run validation showing every dotted path at once, the lifecycle
+    transitions, the release history with one-click rollback, a live view of the
+    manifest a phone would receive right now, and batch minting and retirement.
+    It is a separate build so that no staff capability and no ops token can
+    reach a player's bundle, and the token is typed in per tab rather than
+    configured at build time — there is deliberately no `VITE_LIVE_OPS_TOKEN`.
+    *Still needed:* previewing the manifest a given release would produce **at a
+    chosen time** (today it previews *now*), a diff between two versions of a
+    document, and a deployment target behind an operator network. And the whole
+    thing still sits on one shared secret with no roles — Blocker 9 is what
+    makes this a stopgap.
 
 ### Not blockers, but decisions someone owes us
 

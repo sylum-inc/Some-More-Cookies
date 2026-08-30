@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { sampleRenderer } from './instrument.js';
@@ -23,9 +25,27 @@ import { STATIC_BUDGETS } from '../tools/budgets.mjs';
  * lobby (spec §9), so a shared fire is a URL somebody sends you.
  */
 
-const API_PORT = 8791;
-const API_ORIGIN = `http://127.0.0.1:${API_PORT}`;
-const WS_URL = `ws://127.0.0.1:${API_PORT}/v1/realtime`;
+/**
+ * Ports are found, not chosen.
+ *
+ * A fixed port is a promise about a machine, and this one has several agents
+ * and several suites on it. One orphaned server from an interrupted run held
+ * 8791 and every subsequent run died on `EADDRINUSE` before it had tested
+ * anything — which is a test suite reporting on its own housekeeping rather
+ * than on the product.
+ */
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+  const address = server.address() as AddressInfo;
+  const port = address.port;
+  await new Promise<void>((done) => server.close(() => done()));
+  return port;
+}
+
+let API_PORT = 0;
+let API_ORIGIN = '';
+let WS_URL = '';
 
 /**
  * This spec serves the built client itself, on its own port.
@@ -37,8 +57,8 @@ const WS_URL = `ws://127.0.0.1:${API_PORT}/v1/realtime`;
  * It happened twice. Its own server is a few seconds of start-up in exchange
  * for a result that means something.
  */
-const WEB_PORT = 4179;
-const WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
+let WEB_PORT = 0;
+let WEB_ORIGIN = '';
 
 let api: ChildProcess | null = null;
 let web: ChildProcess | null = null;
@@ -108,6 +128,12 @@ async function bootstrapPlayer(name: string): Promise<Player> {
 }
 
 test.beforeAll(async () => {
+  API_PORT = await freePort();
+  API_ORIGIN = `http://127.0.0.1:${API_PORT}`;
+  WS_URL = `ws://127.0.0.1:${API_PORT}/v1/realtime`;
+  WEB_PORT = await freePort();
+  WEB_ORIGIN = `http://127.0.0.1:${WEB_PORT}`;
+
   api = spawn(
     process.execPath,
     ['--experimental-strip-types', '--import', './dev/ts-extensions.mjs', 'src/main.ts'],
@@ -119,8 +145,22 @@ test.beforeAll(async () => {
   );
   api.stderr?.on('data', (chunk: Buffer) => process.stderr.write(`[api] ${chunk.toString()}`));
 
-  web = spawn('npm', ['run', 'preview', '--workspace', '@somemore/web', '--', '--port', String(WEB_PORT)], {
-    cwd: process.cwd(),
+  /*
+   * Vite directly rather than through `npm run`.
+   *
+   * `npm` does not forward a signal to the process it spawned, so every run
+   * that went through it left a preview server behind holding the port, and
+   * the next run died on `EADDRINUSE`. Spawning the binary means the child we
+   * hold is the process we need to kill.
+   */
+  web = spawn(resolve(process.cwd(), 'apps/web/node_modules/.bin/vite'), [
+    'preview',
+    '--port',
+    String(WEB_PORT),
+    '--host',
+    '127.0.0.1',
+  ], {
+    cwd: resolve(process.cwd(), 'apps/web'),
     env: { ...process.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -151,9 +191,14 @@ test.afterEach(async () => {
 });
 
 test.afterAll(() => {
-  api?.kill('SIGTERM');
+  for (const child of [api, web]) {
+    if (child === null) continue;
+    child.kill('SIGTERM');
+    // A server that will not go quietly still has to let go of its port.
+    const forced = setTimeout(() => child.kill('SIGKILL'), 2_000);
+    forced.unref?.();
+  }
   api = null;
-  web?.kill('SIGTERM');
   web = null;
 });
 
@@ -255,11 +300,40 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
     );
   } catch (error) {
     const failures = pageFailures.get(page) ?? [];
+    // Say what the page actually looked like. "It timed out" is not a finding.
+    const seen = await page.evaluate(() => {
+      const handle = window.__someMore!;
+      const state = handle.store.state as { stage: string; ritual: PageRitual; campsiteSeed: string };
+      const fire = handle.campfire!;
+      return {
+        storeStage: state.stage,
+        ritualStage: state.ritual.stage,
+        seed: state.ritual.seed,
+        campsiteSeed: state.campsiteSeed,
+        sharedIsAdopted: fire.timeline !== null && fire.timeline.ritual === state.ritual,
+        appliedTick: fire.timeline?.appliedTick ?? -1,
+        safeTick: fire.timeline?.safeTick ?? -1,
+        status: fire.status,
+        joined: fire.joined,
+      };
+    });
     throw new Error(
-      `never left the trail after arriving.${failures.length > 0 ? ` Page errors: ${failures.join(' | ')}` : ' No page errors were reported.'}`,
+      `never left the trail after arriving: ${JSON.stringify(seen)}.${
+        failures.length > 0 ? ` Page errors: ${failures.join(' | ')}` : ' No page errors were reported.'
+      }`,
       { cause: error },
     );
   }
+  /*
+   * Let this page run for a moment before moving on to the next one.
+   *
+   * Presence is published from the render loop, and the render loop only runs
+   * while the page is in front. Without this the guest never tells anybody it
+   * has reached the fire, and the host spends forty seconds waiting for
+   * somebody who — as far as the wire is concerned — is still on the trail.
+   */
+  await awaitFrames(page);
+  await page.waitForTimeout(700);
   return page;
 }
 
@@ -343,15 +417,34 @@ async function framePortrait(page: Page, accountId: string): Promise<number> {
 
 /** Wait until presence has brought somebody in off the arrival seat. */
 async function settledByTheFire(page: Page, accountId: string): Promise<void> {
-  await page.waitForFunction(
-    (id) => {
-      const them = window.__someMore!.campfire!.roster.get(id as string);
-      if (them === null || them.phase !== 'here') return false;
-      return Math.hypot(them.position.x, them.position.z) < 3.4;
-    },
-    accountId,
-    { timeout: 40_000 },
-  );
+  await awaitFrames(page);
+  try {
+    await page.waitForFunction(
+      (id) => {
+        const them = window.__someMore!.campfire!.roster.get(id as string);
+        if (them === null || them.phase !== 'here') return false;
+        return Math.hypot(them.position.x, them.position.z) < 3.6;
+      },
+      accountId,
+      { timeout: 60_000 },
+    );
+  } catch (error) {
+    const seen = await page.evaluate((id) => {
+      const fire = window.__someMore!.campfire!;
+      const them = fire.roster.get(id as string);
+      return {
+        tick: fire.tick,
+        safeTick: fire.timeline?.safeTick ?? -1,
+        present: them !== null,
+        phase: them?.phase ?? null,
+        walkProgress: them?.walkProgress ?? null,
+        arrivalTick: them?.arrivalTick ?? null,
+        distance: them === null ? null : Number(Math.hypot(them.position.x, them.position.z).toFixed(2)),
+        target: them === null ? null : Number(Math.hypot(them.target.x, them.target.z).toFixed(2)),
+      };
+    }, accountId);
+    throw new Error(`nobody arrived at the fire: ${JSON.stringify(seen)}`, { cause: error });
+  }
 }
 
 test.describe('two at the same fire', () => {
@@ -391,20 +484,12 @@ test.describe('two at the same fire', () => {
      * legible part way down it — which is what `silhouetteAtMs` is for. Wait
      * the walk out rather than skipping it: it is the join, and a screenshot
      * taken before it finishes is a screenshot of an empty clearing.
+     *
+     * One page at a time, each in front while it waits. The walk is driven by
+     * the shared tick, the shared tick advances from the render loop, and a
+     * backgrounded Chromium tab has no render loop — so waiting for both at
+     * once is waiting for a page that has been asked to stop.
      */
-    await one.waitForFunction(
-      (id) => (window.__someMore!.campfire!.roster.get(id as string)?.phase ?? '') === 'here',
-      guest.accountId,
-      { timeout: 30_000 },
-    );
-    await two.waitForFunction(
-      (id) => (window.__someMore!.campfire!.roster.get(id as string)?.phase ?? '') === 'here',
-      host.accountId,
-      { timeout: 30_000 },
-    );
-
-    // Presence brings them in off the arrival seat and up to the fire; only
-    // then is there a picture of two people at one fire to take.
     await settledByTheFire(one, guest.accountId);
     await settledByTheFire(two, host.accountId);
 
@@ -415,6 +500,31 @@ test.describe('two at the same fire', () => {
 
     await lookAt(one, guest.accountId);
     await one.screenshot({ path: `${SHOTS}/campfire-close.png` });
+
+    /*
+     * A name, present but quiet.
+     *
+     * Asserted rather than eyeballed, because the first version of this was a
+     * `Sprite` that never once appeared in a screenshot and "I could not see it
+     * in a dark picture" is not a defect report. The name has to have a
+     * texture, be visible, and be legible across the width of a campfire.
+     */
+    const nameplate = await one.evaluate(() => {
+      const three = window.__someMore!.three as { scene: { getObjectByName(name: string): unknown } };
+      const root = three.scene.getObjectByName('campfire-people') as
+        | { children: { visible: boolean; getObjectByName(name: string): unknown }[] }
+        | undefined;
+      const group = root?.children.find((child) => child.visible);
+      const plate = group?.getObjectByName('nameplate') as
+        | { visible: boolean; material: { opacity: number; map: unknown } }
+        | undefined;
+      if (plate === undefined) return null;
+      return { visible: plate.visible, opacity: plate.material.opacity, hasName: plate.material.map !== null };
+    });
+    expect(nameplate, 'the other camper should have a name over them').not.toBeNull();
+    expect(nameplate!.hasName).toBe(true);
+    expect(nameplate!.visible).toBe(true);
+    expect(nameplate!.opacity).toBeGreaterThan(0.2);
 
     // Somebody else is genuinely drawn: a group of meshes with a name over it.
     const drawn = await one.evaluate(() => {
@@ -497,15 +607,22 @@ test.describe('two at the same fire', () => {
       const held = authority.lastHold;
       if (held === null || held === undefined) return null;
       return {
-        drivers: [...authority.drivers('obj_marshmallow_1', held.startedTick)],
+        hands: [held.fromAccountId, held.toAccountId],
         span: held.untilTick - held.startedTick,
-        progress: authority.handoffProgress('obj_marshmallow_1', held.startedTick),
+        /*
+         * Read while the window is open, not afterwards. `drivers` is computed
+         * from the live hold, which is swept the instant it closes — the pass
+         * is a quarter of a second and a polling test is never looking at that
+         * instant. `lastHold` is what survives it.
+         */
+        driversDuring: [...authority.drivers('obj_marshmallow_1', held.startedTick)],
       };
     });
     expect(hold).not.toBeNull();
-    expect(hold!.drivers.sort()).toEqual([host.accountId, guest.accountId].sort());
+    // Both hands on the stick, which is what carries it across.
+    expect(hold!.hands.sort()).toEqual([host.accountId, guest.accountId].sort());
     expect(hold!.span).toBeGreaterThan(0);
-    expect(hold!.progress).toBe(0);
+    expect(hold!.driversDuring).toContain(guest.accountId);
 
     await one.bringToFront();
     await one.screenshot({ path: `${SHOTS}/campfire-handoff.png` });
@@ -632,29 +749,69 @@ test.describe('two at the same fire', () => {
     );
 
     await one.evaluate(() => window.__someMore!.campfire!.beginRoast());
-    await one.waitForFunction(() => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.stage === 'roasting', undefined, {
-      timeout: 15_000,
-    });
+    // The guest's world reaches the roast because the intent travelled, not
+    // because the guest did anything.
+    await awaitFrames(two);
+    await two.waitForFunction(
+      () => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.stage === 'roasting',
+      undefined,
+      { timeout: 20_000 },
+    );
 
-    // The guest's browser loses the socket. Nothing else about their night
-    // changes: the fire is still burning, the marshmallow is still there, and
-    // the page does not reload (ARCHITECTURE §1.5).
+    /*
+     * The guest's browser loses the socket mid-roast.
+     *
+     * ARCHITECTURE §1.5: the fire does not stop burning because a network did.
+     * The page does not reload, the marshmallow is still on the stick, and the
+     * simulation keeps stepping — it simply stops being the *session's* world
+     * and says so, which is what `strayed` records.
+     */
     const before = await two.evaluate(() => ({
       stage: (window.__someMore!.store.state as { ritual: PageRitual }).ritual.stage,
       tick: (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick,
     }));
     await two.evaluate(() => window.__someMore!.campfire!.transport!.dispose());
     await two.bringToFront();
-    await two.waitForTimeout(1_500);
+    // Wait for the fire to move rather than for a fixed number of seconds: on
+    // a software renderer a "two second" wait can be three frames.
+    try {
+      await two.waitForFunction(
+        (tick) => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick > (tick as number),
+        before.tick,
+        { timeout: 20_000 },
+      );
+    } catch (error) {
+      const seen = await two.evaluate(() => {
+        const fire = window.__someMore!.campfire!;
+        return {
+          tick: (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick,
+          joined: fire.joined,
+          status: fire.status,
+          strayed: fire.timeline?.strayed ?? null,
+          appliedTick: fire.timeline?.appliedTick ?? -1,
+          safeTick: fire.timeline?.safeTick ?? -1,
+          sameRitual: fire.timeline !== null &&
+            fire.timeline.ritual === (window.__someMore!.store.state as { ritual: PageRitual }).ritual,
+        };
+      });
+      throw new Error(`the fire stopped burning when the socket went: ${JSON.stringify(seen)}`, { cause: error });
+    }
     const after = await two.evaluate(() => ({
       stage: (window.__someMore!.store.state as { ritual: PageRitual }).ritual.stage,
       joined: window.__someMore!.campfire!.joined,
       tick: (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick,
       flame: (window.__someMore!.store.state as { ritual: PageRitual }).ritual.fire.flame,
+      strayed: window.__someMore!.campfire!.timeline!.strayed,
+      notes: window.__someMore!.campfire!.notes,
     }));
     expect(after.joined).toBe(false);
     expect(after.stage).toBe(before.stage);
     expect(after.flame).toBeGreaterThan(0);
+    // Still burning, not frozen — this is the whole of §1.5 in one assertion.
+    expect(after.tick).toBeGreaterThan(before.tick);
+    // And honest about it rather than pretending to still be in sync.
+    expect(after.strayed).toBe(true);
+    expect(after.notes.join(' ')).toContain('carried on without the others');
     await two.screenshot({ path: `${SHOTS}/campfire-alone-again.png` });
 
   });

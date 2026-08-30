@@ -155,6 +155,20 @@ export class SharedTimeline {
   /** Accounts whose inputs the server is not relaying to us, because of a block. */
   readonly mutedByBlock = new Set<string>();
 
+  /**
+   * This world has been advanced without the server's ordering.
+   *
+   * Set by `stepAlone`, which is what happens when the socket drops mid-roast.
+   * ARCHITECTURE §1.5 is not negotiable — the fire cannot stop burning because
+   * a network did — so the simulation carries on, and the moment it does it is
+   * no longer the session's world. It is *a* world, this player's, and saying
+   * so is the difference between a graceful degradation and a lie. On
+   * reconnect a strayed timeline asks for the whole snapshot rather than
+   * resuming, because splicing locally-invented ticks into a shared timeline
+   * would corrupt everybody's.
+   */
+  strayed = false;
+
   constructor(options: TimelineOptions) {
     this.options = options;
     this.ritual = this.build();
@@ -225,13 +239,18 @@ export class SharedTimeline {
     truncated: boolean;
   }): void {
     this.truncated = this.truncated || snapshot.truncated;
-    const resuming = snapshot.fromTick > 0 && snapshot.seed === this.options.seed && this.appliedTick > 0;
+    // A world that has been stepped on its own is not resumable: its ticks are
+    // this client's invention, not the session's. It starts again.
+    const resuming =
+      snapshot.fromTick > 0 && snapshot.seed === this.options.seed && this.appliedTick > 0 && !this.strayed;
     if (!resuming) {
       this.options = { ...this.options, seed: snapshot.seed, environmentId: snapshot.environmentId };
       this.ritual = this.build();
       this.appliedTick = 0;
+      this.safeTick = 0;
       this.queue = [];
       this.lateInputs = 0;
+      this.strayed = false;
     } else {
       // Anything at or past the resume point is about to be re-delivered.
       this.queue = this.queue.filter((input) => input.tick < snapshot.fromTick);
@@ -276,6 +295,21 @@ export class SharedTimeline {
     }
     if (this.backlog <= BULK_CATCH_UP_TICKS) this.catchingUp = false;
     return steps;
+  }
+
+  /**
+   * Carry on alone.
+   *
+   * No ordering, no relay, no claim: one step of the world this player is
+   * looking at, because a dropped connection means you are by yourself at a
+   * fire, not that the fire went out. `safeTick` is dragged along so the
+   * bookkeeping stays consistent, and `strayed` records that it happened.
+   */
+  stepAlone(dt: number = SIM_DT): void {
+    stepRitual(this.ritual, dt);
+    this.appliedTick += 1;
+    this.safeTick = this.appliedTick;
+    this.strayed = true;
   }
 
   /**
@@ -326,6 +360,9 @@ export class SharedTimeline {
     }
     if (this.lateInputs > 0) {
       notes.push(`${this.lateInputs} thing(s) arrived after their moment had passed, and were not applied.`);
+    }
+    if (this.strayed) {
+      notes.push('You carried on without the others for a while. When they come back, this fire will be theirs again.');
     }
     return notes;
   }

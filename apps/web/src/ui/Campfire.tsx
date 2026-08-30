@@ -127,24 +127,20 @@ export function CampfirePanel({ fire, textScale, highContrast, onClose }: Campfi
               </div>
 
               {/* Per-player volume. A slider, labelled, not a mystery icon. */}
-              <label style={{ fontFamily: FONT_STACK.mono, fontSize: font(9), color: soft }}>
-                <span className="sm-visually-hidden" style={{ position: 'absolute', left: -9999 }}>
-                  {`Volume for ${person.name}`}
-                </span>
-                <input
-                  className="sm-focus"
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={person.volume}
-                  aria-label={`Volume for ${person.name}`}
-                  onChange={(event) =>
-                    fire.requestVoice('set_volume', { accountId: person.accountId, volume: Number(event.target.value) })
-                  }
-                  style={{ width: font(64) }}
-                />
-              </label>
+              <input
+                className="sm-focus"
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={person.volume}
+                aria-label={`Volume for ${person.name}`}
+                title={`How loud ${person.name} is, for you`}
+                onChange={(event) =>
+                  fire.requestVoice('set_volume', { accountId: person.accountId, volume: Number(event.target.value) })
+                }
+                style={{ width: font(64) }}
+              />
 
               <SmallButton
                 font={font}
@@ -358,9 +354,9 @@ function SmallButton({
 function statusLine(fire: Campfire): string {
   switch (fire.status) {
     case 'joined':
-      return fire.catchingUp
-        ? 'catching up with the fire…'
-        : `at the fire · ${Math.round(fire.latencyMs)} ms · tick ${fire.tick}`;
+      // A round trip, because a slow one is worth knowing about. Not a tick
+      // count: this is a campsite, and nobody wants a telemetry readout.
+      return fire.catchingUp ? 'catching up with the fire…' : `at the fire · ${Math.round(fire.latencyMs)} ms`;
     case 'joining':
       return 'walking in…';
     case 'connecting':

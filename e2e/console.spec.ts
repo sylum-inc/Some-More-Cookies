@@ -138,27 +138,37 @@ test.describe('the live-ops console', () => {
     await expect(page.getByTestId(`manifest-active-${slug}`)).toHaveText('ACTIVE');
     await page.screenshot({ path: `${SHOTS}/console-published.png`, fullPage: true });
 
-    // 5. Roll it back. Forward-only: this makes a *new* release that
-    //    reproduces an earlier one, and the console says which.
+    // 5. Take it down, then put it back — the actual launch-night sequence.
+    //    Retiring is a release of its own, not an un-publish; rolling back is
+    //    a *new* release that reproduces an earlier one, forward-only, so the
+    //    audit trail never loses a step.
+    const liveRelease = Number(await page.getByTestId('manifest-release-version').innerText());
+
+    await page.getByTestId(`transition-${slug}-retired`).click();
+    await expect(page.getByTestId('banner')).toContainText('is now retired', { timeout: 20_000 });
+    // A phone polling now gets its compiled-in world back.
+    await expect(page.getByTestId(`manifest-${slug}`)).toHaveCount(0, { timeout: 20_000 });
+
     await page.getByTestId('tab-releases').click();
     const releases = page.getByTestId('releases');
     await expect(releases).toBeVisible({ timeout: 20_000 });
+    await expect(releases.locator('tbody tr')).toHaveCount(2, { timeout: 20_000 });
     await page.screenshot({ path: `${SHOTS}/console-releases.png`, fullPage: true });
 
-    const rows = await releases.locator('tbody tr').count();
-    expect(rows).toBeGreaterThan(0);
-    if (rows > 1) {
-      await page.getByTestId('rollback-note').fill('published to the wrong environment list');
-      // The oldest release in view is the safe target: it predates this event.
-      const oldest = releases.locator('tbody tr').last();
-      await oldest.getByRole('button', { name: /roll back/i }).click();
-      await expect(page.getByTestId('banner')).toContainText('reproduces release', { timeout: 20_000 });
-      await page.screenshot({ path: `${SHOTS}/console-rolled-back.png`, fullPage: true });
+    await page.getByTestId('rollback-note').fill('taken down by mistake before the weekend');
+    await page.getByTestId(`rollback-${liveRelease}`).click();
+    await expect(page.getByTestId('banner')).toContainText(`reproduces release ${liveRelease}`, {
+      timeout: 20_000,
+    });
+    await page.screenshot({ path: `${SHOTS}/console-rolled-back.png`, fullPage: true });
 
-      // ...and the event is off. A phone polling now gets its compiled world.
-      await page.getByTestId('tab-content').click();
-      await expect(page.getByTestId(`manifest-${slug}`)).toHaveCount(0, { timeout: 20_000 });
-    }
+    // Forward-only: three releases now, and the newest says which it reproduces.
+    await expect(releases.locator('tbody tr')).toHaveCount(3, { timeout: 20_000 });
+    await expect(releases.locator('tbody tr').first()).toContainText(`reproduces ${liveRelease}`);
+
+    // ...and the event is live again, on a *new* document version.
+    await page.getByTestId('tab-content').click();
+    await expect(page.getByTestId(`manifest-active-${slug}`)).toHaveText('ACTIVE', { timeout: 20_000 });
   });
 
   test('opens a print run, mints it, and says the response is the only copy', async ({ page }) => {

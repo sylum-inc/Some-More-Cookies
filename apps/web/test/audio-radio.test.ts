@@ -206,7 +206,18 @@ describe('radio — hiss', () => {
 });
 
 describe('radio — programme material', () => {
-  it('renders bit-identical samples for the same segment seed', () => {
+  /*
+   * Rendering the same programme segment twice through a real
+   * `OfflineAudioContext` and comparing every sample takes about thirteen
+   * seconds on its own, and overran vitest's 5-second default under the full
+   * parallel suite — failing as a timeout, which reads like broken audio and
+   * is not.
+   *
+   * Raised rather than shortened. Determinism is the whole claim here: two
+   * players at the same campsite must hear the same broadcast, and the way to
+   * be sure is to compare the samples, all of them.
+   */
+  it('renders bit-identical samples for the same segment seed', { timeout: 90_000 }, () => {
     const render = (seed: number) => {
       const { ctx, kit } = rig();
       kit.setPower(true);

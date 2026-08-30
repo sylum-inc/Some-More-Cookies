@@ -155,6 +155,75 @@ async function edgeControlsWithoutInsets(page: Page): Promise<string[]> {
   });
 }
 
+/**
+ * Where the controls would actually be on the device, and whether any two of
+ * them would land on top of each other once they got there.
+ *
+ * The insets are zero in this browser, so every control anchored to an edge
+ * sits lower (or higher) here than it will in a hand. Moving each rectangle by
+ * the inset its own CSS asks for reconstructs the real layout well enough to
+ * find the one failure a screenshot cannot show: two controls that clear each
+ * other on a laptop and collide on a phone, because one of them rises with the
+ * home indicator and the other does not.
+ *
+ * This is how the bite ring and the "Make this real" corner were found sitting
+ * within a pixel of one another on a 393x852 screen.
+ */
+async function layoutUnderRealInsets(
+  page: Page,
+  insets: { top: number; bottom: number },
+): Promise<{ label: string; top: number; bottom: number; left: number; right: number }[]> {
+  return page.evaluate((inset) => {
+    const out: { label: string; top: number; bottom: number; left: number; right: number }[] = [];
+    for (const element of Array.from(document.querySelectorAll('button, [role="button"]'))) {
+      const box = element.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) continue;
+
+      let css = '';
+      let node: Element | null = element;
+      for (let depth = 0; depth < 8 && node; depth += 1) {
+        css += node.getAttribute('style') ?? '';
+        node = node.parentElement;
+      }
+
+      // A control anchored to the bottom rises by the bottom inset; one
+      // anchored to the top drops by the top inset. Percentages that include
+      // the inset move too, which is the whole point.
+      const shift =
+        (css.includes('safe-area-inset-bottom') ? -inset.bottom : 0) +
+        (css.includes('safe-area-inset-top') ? inset.top : 0);
+
+      out.push({
+        label: (element.getAttribute('aria-label') ?? element.textContent ?? '').trim().slice(0, 40),
+        top: Math.round(box.top + shift),
+        bottom: Math.round(box.bottom + shift),
+        left: Math.round(box.left),
+        right: Math.round(box.right),
+      });
+    }
+    return out;
+  }, insets);
+}
+
+/** Pairs that would sit on top of each other on the real device. */
+function collisions(
+  boxes: { label: string; top: number; bottom: number; left: number; right: number }[],
+): string[] {
+  const found: string[] = [];
+  for (let i = 0; i < boxes.length; i += 1) {
+    for (let j = i + 1; j < boxes.length; j += 1) {
+      const a = boxes[i]!;
+      const b = boxes[j]!;
+      const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+      const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (overlapX > 0 && overlapY > 0) {
+        found.push(`"${a.label}" and "${b.label}" overlap by ${overlapX}x${overlapY}px`);
+      }
+    }
+  }
+  return found;
+}
+
 /** The document itself must never scroll. A drag is a marshmallow, not a page. */
 async function assertNoDocumentScroll(page: Page, where: string): Promise<void> {
   const overflow = await page.evaluate(() => ({
@@ -354,6 +423,19 @@ for (const device of DEVICES) {
       await advanceUntil(page, "r.stage === 'eating'", 'eating', 120);
       await page.waitForTimeout(900);
       await shoot(page, 'eating', device);
+
+      // Eating is the one stage with something anchored to the bottom edge and
+      // something else just above it, so it is where the inset arithmetic
+      // matters. Reconstruct the real layout and look for a pile-up.
+      const eatingLayout = await layoutUnderRealInsets(page, device.insets);
+      const piled = collisions(eatingLayout);
+      expect(piled, `eating, with real insets applied:\n${piled.join('\n')}`).toEqual([]);
+      const lowest = eatingLayout
+        .slice()
+        .sort((a, b) => b.bottom - a.bottom)
+        .slice(0, 3)
+        .map((box) => `${box.label}@${box.top}-${box.bottom}`);
+      console.log(`  ${device.id} eating, insets applied, lowest controls: ${lowest.join(', ')}`);
 
       const biteTargets = (await controls(page)).filter((control) =>
         control.label.startsWith('Bite from side'),

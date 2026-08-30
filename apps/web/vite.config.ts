@@ -1,6 +1,7 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import {
@@ -212,6 +213,13 @@ function pwaPlugin(): Plugin {
         else if (entry) digest.update(Buffer.from(entry.source));
       }
       for (const asset of assets) digest.update(asset.fileName);
+      /*
+       * The HTML source, by hand, for the same reason it is precached by hand:
+       * it is not in `bundle` yet. Without this a build that changed only
+       * `index.html` — a meta tag, the first-paint stylesheet — would produce a
+       * byte-identical worker, and no device would ever pick the change up.
+       */
+      digest.update(readFileSync(pkg('./index.html')));
       const version = digest.digest('hex').slice(0, 16);
 
       this.emitFile({

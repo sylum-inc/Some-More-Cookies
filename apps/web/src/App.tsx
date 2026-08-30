@@ -443,6 +443,7 @@ export function App({ store }: AppProps): React.ReactElement {
     });
 
     bindCampfire(fire);
+    store.campfire = fire;
     setCampfire(fire);
     fire.connect();
     const handle = window.__someMore;
@@ -451,6 +452,7 @@ export function App({ store }: AppProps): React.ReactElement {
     return () => {
       if (subtitleTimer !== null) clearTimeout(subtitleTimer);
       bindCampfire(null);
+      store.campfire = null;
       setCampfire(null);
       fire.dispose();
     };
@@ -1410,7 +1412,7 @@ function BiteRing({
         style={{
           position: 'fixed',
           left: '50%',
-          bottom: '10%',
+          bottom: 'calc(10% + env(safe-area-inset-bottom, 0px))',
           transform: 'translateX(-50%)',
           fontFamily: FONT_STACK.hand,
           fontSize: `${18 * textScale}px`,
@@ -1427,7 +1429,15 @@ function BiteRing({
       style={{
         position: 'fixed',
         left: '50%',
-        bottom: '9%',
+        /*
+         * Nine per cent up, *plus* the home indicator.
+         *
+         * Without the inset the ring is fine on a laptop and lands within a
+         * pixel of the "Make this real" corner on a notched phone, because
+         * that corner rises by thirty-four and the ring does not. Both have to
+         * move or neither does.
+         */
+        bottom: 'calc(9% + env(safe-area-inset-bottom, 0px))',
         transform: 'translateX(-50%)',
         display: 'flex',
         gap: 6,

@@ -331,7 +331,17 @@ export function World({
    * around if the player happens to turn while roasting.
    */
   const anchorBearing = useRef(LAYOUT.playerBearing);
-  const anchored = isAnchored(ritual.stage);
+  /*
+   * The composed close-ups are framings of *your* hands.
+   *
+   * The ritual's stage is shared — it is part of the world — but the camera is
+   * not, and without the second half of this condition one person starting a
+   * roast dragged every other client into an arm's-length shot of somebody
+   * else's marshmallow: no fire, no machine, no person, just a stranger's
+   * stick. Alone at a campsite there is no campfire session and this is exactly
+   * `isAnchored(stage)`, as it always was.
+   */
+  const anchored = isAnchored(ritual.stage) && !(store.campfire?.spectating ?? false);
   const lastReach = useRef<string | null>(null);
   const lastStage = useRef<RitualStage>(ritual.stage);
   const shake = useRef(0);

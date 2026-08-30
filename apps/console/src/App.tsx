@@ -734,7 +734,7 @@ function ManifestPanel({ manifest }: { manifest: ContentManifest | null }): Reac
       ) : (
         <>
           <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12, fontSize: 12.5 }}>
-            <Stat label="Release" value={String(manifest.releaseVersion)} />
+            <Stat label="Release" value={String(manifest.releaseVersion)} testId="manifest-release-version" />
             <Stat label="Evaluated at" value={new Date(manifest.evaluatedAt).toLocaleString()} />
             <Stat label="ETag" value={manifest.etag} />
             <Stat label="Documents" value={String(manifest.documents.length)} />
@@ -1240,13 +1240,23 @@ function Pill({ value }: { value: string }): React.ReactElement {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }): React.ReactElement {
+function Stat({
+  label,
+  value,
+  testId,
+}: {
+  label: string;
+  value: string;
+  testId?: string;
+}): React.ReactElement {
   return (
     <div>
       <div style={{ fontSize: 10, letterSpacing: '0.14em', textTransform: 'uppercase', color: C.textFaint }}>
         {label}
       </div>
-      <div style={{ fontFamily: MONO, fontSize: 12.5 }}>{value}</div>
+      <div style={{ fontFamily: MONO, fontSize: 12.5 }} {...(testId === undefined ? {} : { 'data-testid': testId })}>
+        {value}
+      </div>
     </div>
   );
 }

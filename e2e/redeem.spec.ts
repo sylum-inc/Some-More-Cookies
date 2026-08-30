@@ -99,12 +99,20 @@ async function submitCode(page: Page, code: string): Promise<void> {
 
 test.describe('adding a code from a wrapper', () => {
   test('refuses a forged code on the device, with no request', async ({ page }) => {
-    // A real code, then one character of its signature changed. This is what a
-    // mistyped code and a forged one both look like from here.
+    /*
+     * A real code with one character of its signature changed — which is what a
+     * mistyped code and a forged one both look like from here.
+     *
+     * The *first* character, deliberately. 64 signature bytes encode to 86
+     * base64url characters, and the last one carries only four significant
+     * bits: changing it can decode to the identical 64 bytes, which made an
+     * earlier version of this test pass a real signature and fail intermittently.
+     */
     const real = await mintOne();
     const parts = real.token.split('.');
     const signature = parts[2] as string;
-    const flipped = signature.slice(0, -1) + (signature.endsWith('A') ? 'B' : 'A');
+    const flipped = (signature.startsWith('A') ? 'B' : 'A') + signature.slice(1);
+    expect(flipped).not.toBe(signature);
     const forged = `${parts[0]}.${parts[1]}.${flipped}`;
 
     const requests: string[] = [];

@@ -95,6 +95,15 @@ export const PRESENCE_SEND_HZ = 10;
  */
 const STEPS_PER_STEP_CALL = 12;
 
+/**
+ * How long a lost socket is treated as a hiccup rather than a departure.
+ *
+ * Under this the world holds its breath, which nobody notices and which keeps
+ * the resume path — the server replaying only the missed ticks — available.
+ * Over it, the fire carries on without the session (see `SharedTimeline.stepAlone`).
+ */
+const RECONNECT_GRACE_MS = 900;
+
 export interface ChatLine {
   readonly from: string;
   readonly name: string;
@@ -180,6 +189,18 @@ export class Campfire {
   private lastPresenceSendMs = 0;
   private predictedComponent: { offset: Vec3; rotation: number } | null = null;
   private autoRotateAccum = 0;
+  /** When the socket went, in local milliseconds. Zero while connected. */
+  private strandedSinceMs = 0;
+  /**
+   * Who last did the thing the ritual is currently doing.
+   *
+   * The ritual's stage is shared — it has to be, it is part of the world — but
+   * the *camera* is not. Without this, one person starting a roast pulled every
+   * other client into an arm's-length close-up of somebody else's marshmallow,
+   * which is the opposite of being at a campfire together: you could no longer
+   * see the fire, the machine, or the person doing it.
+   */
+  private lastActorAccountId: string | null = null;
   /** Set while this client's own `take_sandwich` is still in flight. */
   private pendingTake = false;
   /**
@@ -248,6 +269,36 @@ export class Campfire {
 
   get notes(): string[] {
     return this.timeline?.divergenceNotes() ?? [];
+  }
+
+  /**
+   * Somebody else is doing the thing the ritual is in the middle of.
+   *
+   * The composed close-ups (roasting, assembly, the SM-01) are framings of
+   * *your* hands. When they are not your hands you stay on your own feet, free
+   * to walk round the fire and watch — which is what being at somebody else's
+   * roast is.
+   */
+  get spectating(): boolean {
+    if (!this.joined || this.timeline === null || this.accountId === null) return false;
+    /*
+     * Whose hands, asked of the authority model rather than of who started it.
+     * A stick that has been handed over is in the other person's hands even
+     * though this player began the roast, and the camera has to follow the
+     * hands — that is what the close-up is a shot of.
+     */
+    const stage = this.timeline.ritual.stage;
+    if (stage === 'roasting') {
+      const holder = this.authority.holderOf(MARSHMALLOW_OBJECT_ID);
+      return holder !== null && holder !== this.accountId;
+    }
+    if (stage === 'machine' || stage === 'reveal') {
+      const holder = this.authority.holderOf(SM01_OBJECT_ID);
+      return holder !== null && holder !== this.accountId;
+    }
+    // Assembly and eating name no object on this wire, so the best available
+    // answer is who last moved the ritual on.
+    return this.lastActorAccountId !== null && this.lastActorAccountId !== this.accountId;
   }
 
   /** Now, on the server's clock. Everything about leases is asked of this. */
@@ -327,6 +378,7 @@ export class Campfire {
       }
       case 'input': {
         this.timeline?.enqueue(message.stamped);
+        if (changesStage(message.stamped.intent)) this.lastActorAccountId = message.stamped.accountId;
         if (message.stamped.intent.kind === 'gesture') {
           this.gestures.push({
             from: message.stamped.accountId,
@@ -349,6 +401,7 @@ export class Campfire {
         const intent = this.awaitingAck.get(message.seq);
         if (intent !== undefined) {
           this.awaitingAck.delete(message.seq);
+          if (changesStage(intent)) this.lastActorAccountId = this.accountId;
           this.timeline?.enqueue({
             tick: message.tick,
             serverSeq: message.serverSeq,
@@ -492,10 +545,32 @@ export class Campfire {
 
     if (predictedHand !== null) this.sendHand(predictedHand, dt);
 
-    // A slice, not a drain: `advance` may call this sixteen times in one frame
-    // after a stall, so the per-call budget is the frame budget divided by
-    // that ceiling, and the bulk path is refused. See `SharedTimeline.pump`.
-    timeline.pump(STEPS_PER_STEP_CALL, false);
+    if (this.joined) {
+      // A slice, not a drain: `advance` may call this sixteen times in one
+      // frame after a stall, so the per-call budget is the frame budget divided
+      // by that ceiling, and the bulk path is refused. See `SharedTimeline.pump`.
+      timeline.pump(STEPS_PER_STEP_CALL, false);
+    } else {
+      /*
+       * The socket has gone. The fire has not.
+       *
+       * ARCHITECTURE §1.5: a dropped connection means you are alone at your own
+       * fire, not that the world stops — so the simulation carries on
+       * unordered, every intent applies locally again, and the timeline records
+       * that it has strayed. When the socket comes back it asks for the whole
+       * snapshot rather than resuming, because the ticks invented here are this
+       * client's and must not be spliced into everybody else's.
+       *
+       * There is a moment's grace first. A hiccup of a few hundred milliseconds
+       * is a reconnect, not a departure, and pausing imperceptibly through it
+       * keeps the cheap resume path — where the server replays only the gap —
+       * available. Past the grace it is a real drop and the fire wins.
+       */
+      const now = this.now();
+      if (this.strandedSinceMs === 0) this.strandedSinceMs = now;
+      if (now - this.strandedSinceMs > RECONNECT_GRACE_MS) timeline.stepAlone(dt);
+    }
+    if (this.joined) this.strandedSinceMs = 0;
     this.authority.sweep(timeline.appliedTick);
     /*
      * Where to pick the story up if the socket drops.
@@ -506,7 +581,9 @@ export class Campfire {
      * session. The server answers with `fromTick` and the timeline resumes
      * instead of rebuilding.
      */
-    if (this.transport !== null) this.transport.resumeFromTick = timeline.appliedTick;
+    if (this.transport !== null) {
+      this.transport.resumeFromTick = timeline.strayed ? null : timeline.appliedTick;
+    }
 
     /*
      * Taking the sandwich off the tray is two things: a machine control, which
@@ -975,6 +1052,21 @@ function toMachineControl(action: MachineAction): { control: MachineControl; pro
       return { control: 'reset' };
     default:
       return null;
+  }
+}
+
+/** Intents that move the ritual from one stage to another. */
+function changesStage(intent: InputIntent): boolean {
+  switch (intent.kind) {
+    case 'begin_roast':
+    case 'finish_roast':
+    case 'hold_component':
+    case 'place_component':
+    case 'machine_control':
+    case 'tend_fire':
+      return true;
+    default:
+      return false;
   }
 }
 

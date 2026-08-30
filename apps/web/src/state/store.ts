@@ -312,6 +312,15 @@ export class Store {
   private listeners = new Set<Listener>();
   state: AppState;
 
+  /**
+   * The shared fire, when a link brought this session to one.
+   *
+   * Deliberately not in `AppState`: it changes many times a second and nothing
+   * in React should re-render for it. The scene reads it inside the frame loop
+   * and the interface reads it through the campfire's own `onChange`.
+   */
+  campfire: import('../net/campfire.js').Campfire | null = null;
+
   constructor(options: {
     environmentId: string;
     campsiteSeed: string;

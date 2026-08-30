@@ -150,11 +150,11 @@ interface Slot {
   torch: THREE.Mesh;
   torchGlow: THREE.Sprite;
   lamp: THREE.Sprite;
-  plate: THREE.Sprite;
+  plate: THREE.Mesh;
   jacketMaterial: THREE.MeshStandardMaterial;
   trouserMaterial: THREE.MeshStandardMaterial;
   skinMaterial: THREE.MeshStandardMaterial;
-  plateMaterial: THREE.SpriteMaterial;
+  plateMaterial: THREE.MeshBasicMaterial;
   glowMaterial: THREE.SpriteMaterial;
   lampMaterial: THREE.SpriteMaterial;
   accountId: string | null;
@@ -268,15 +268,27 @@ export function CampfireScene({
       const lamp = new THREE.Sprite(lampMaterial);
       lamp.scale.set(1.4, 1.4, 1.4);
 
-      const plateMaterial = new THREE.SpriteMaterial({
+      /*
+       * A quad turned toward the camera, not a `Sprite`.
+       *
+       * The same thing the eyeshine in `Wildlife.tsx` does, and for the same
+       * reason: it is the pattern in this renderer that is known to come
+       * through the PS1 pass. `fog: false` because a name is a label rather
+       * than a thing in the world, and the campsite's short exponential fog was
+       * taking it away at exactly the distance across a fire.
+       */
+      const plateMaterial = new THREE.MeshBasicMaterial({
         transparent: true,
         depthWrite: false,
         depthTest: true,
         toneMapped: false,
+        fog: false,
         opacity: 0,
       });
-      const plate = new THREE.Sprite(plateMaterial);
-      plate.scale.set(0.9, 0.225, 1);
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.29), plateMaterial);
+      // Named so the end-to-end suite can assert a name is actually legible
+      // rather than take a picture and hope.
+      plate.name = 'nameplate';
 
       const body = new THREE.Group();
       body.add(legs, torso, arms, head, torch, torchGlow);
@@ -312,6 +324,7 @@ export function CampfireScene({
         slot.arms.geometry.dispose();
         slot.head.geometry.dispose();
         slot.torch.geometry.dispose();
+        slot.plate.geometry.dispose();
         for (const material of [slot.jacketMaterial, slot.trouserMaterial, slot.skinMaterial]) {
           releasePs1Material(material);
           material.dispose();
@@ -538,8 +551,11 @@ function pose(slot: Slot, person: RemotePlayer, camera: THREE.Camera, ritual: Ri
    * across, so that is the band the name has to survive.
    */
   const nearness = 1 - Math.min(1, Math.max(0, (distance - 4) / 7));
-  slot.plateMaterial.opacity = nearness * 0.72 * legible;
+  slot.plateMaterial.opacity = nearness * 0.85 * legible;
   slot.plate.visible = slot.plateMaterial.opacity > 0.03;
+  // Face the camera, and stay upright: a name that rolls with the view is a
+  // billboard, and one that tips with the terrain is unreadable.
+  slot.plate.quaternion.copy(camera.quaternion);
   // Speaking is a *visible* thing too (spec §12): the name brightens rather
   // than a microphone icon appearing, which is quieter and needs no legend.
   if (person.speaking) slot.plateMaterial.opacity = Math.min(1, slot.plateMaterial.opacity + 0.25);

@@ -20,7 +20,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { capture } from './helpers.js';
+import { advanceUntil, capture, runMachine } from './helpers.js';
 import { driveRitual, openWorld, readRoast, type StageId } from './stages.js';
 
 /** Waits until a worker is installed, activated and actually in charge. */
@@ -369,7 +369,35 @@ test.describe('offline', () => {
         actions['placeComponent']!();
       });
     }
-    await page.evaluate(() => window.__someMore!.actions['advanceSeconds']!(4 as never));
+    await advanceUntil(page, "r.stage === 'machine'", 'machine', 120);
     await expect(notice, 'nothing at the SM-01').toHaveCount(0);
+
+    await runMachine(page);
+    await expect(notice, 'nothing at the reveal — that moment is the product').toHaveCount(0);
+
+    // --- And now, afterwards, it may ask once --------------------------
+    // Restraint is only restraint if the thing does eventually happen. The
+    // sandwich is out and in hand: this is the first moment where "would you
+    // like to keep this?" is a question rather than an interruption.
+    await page.evaluate(() => window.__someMore!.actions['takeSandwich']!());
+    await advanceUntil(page, "r.stage === 'eating'", 'eating', 120);
+    await expect(notice, 'a dwell before it speaks').toHaveCount(0);
+    await expect(notice).toHaveCount(1, { timeout: 20_000 });
+    await expect(notice).toContainText('Keep the campsite');
+
+    // "Not now" means gone, and stays gone.
+    await page.locator('[data-testid="pwa-notice-dismiss"]').click();
+    await expect(notice).toHaveCount(0);
+    await page.evaluate(() => window.__someMore!.actions['advanceSeconds']!(20 as never));
+    await page.waitForTimeout(1500);
+    await expect(notice, '"not now" is not "ask again in a moment"').toHaveCount(0);
+
+    // And it is remembered across a reload rather than reset by one.
+    await page.reload();
+    await page.waitForFunction(() => Boolean(window.__someMore));
+    const dismissed = await page.evaluate(() =>
+      localStorage.getItem('some-more/install-invite/v1'),
+    );
+    expect(dismissed, 'the refusal should be written down').toBeTruthy();
   });
 });

@@ -23,6 +23,7 @@ import {
   operateMachine,
   placeComponent,
   stepRitual,
+  takeSandwich,
   summariseRoast,
   tendFire,
   type MachineAction,
@@ -91,6 +92,21 @@ export function applyIntent(ritual: RitualState, intent: InputIntent): void {
       placeComponent(ritual);
       return;
     case 'machine_control': {
+      /*
+       * `take_sandwich` is a *ritual* intent, not a machine control.
+       *
+       * `operateMachine` moves the machine and nothing else: the bite state is
+       * never created, `sandwichAge` never resets, and the stage never becomes
+       * `eating`. Both mappings had the same gap, so they agreed with each
+       * other and the drift test passed — but a player taking their own
+       * sandwich calls `takeSandwich`, so the acting client did one thing and
+       * every other client did another, at exactly the moment the ritual
+       * hands the product over. ADR-0006 replicates intents; this is one.
+       */
+      if (intent.control === 'take_sandwich') {
+        takeSandwich(ritual);
+        return;
+      }
       const action = toMachineAction(intent.control, intent.program);
       if (action !== null) operateMachine(ritual, action);
       return;

@@ -22,6 +22,7 @@ export * from './locomotion.js';
 export * from './activity.js';
 export * from './water.js';
 export * from './skipping.js';
+export * from './survey.js';
 export * from './torch.js';
 export * from './sitting.js';
 export * from './stargazing.js';

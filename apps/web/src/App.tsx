@@ -13,6 +13,7 @@ import {
   approachPoint,
   basinFor,
   bearingFromFire,
+  surveySurroundings,
   castLine,
   clamp01,
   createPlayer,
@@ -848,6 +849,29 @@ export function App({ store }: AppProps): React.ReactElement {
       // Escape is excluded on purpose: dismissing an overlay is not a
       // statement about how somebody intends to play.
       store.setControls('keyboard');
+      /*
+       * What is around me (audit A5).
+       *
+       * Everything else the interface says is about something that just
+       * changed. This is the one thing you can *ask*, and the campsite is a
+       * place rather than a sequence of prompts partly because of it. It never
+       * volunteers — a world that describes itself unprompted is one nobody is
+       * standing in — and it is delivered on the screen as well as to the live
+       * region, because a survey that only some people can have is the §12 rule
+       * broken by the feature written to keep it.
+       */
+      if (event.key === 'q') {
+        // `store.state` rather than the `state` this handler closed over: the
+        // effect does not re-register when the survey changes, so the captured
+        // copy still says `null` after the first press and the toggle would
+        // only ever open.
+        store.setSurvey(
+          store.state.survey === null
+            ? surveySurroundings(ritual, player, walkable, { places: ritual.presence.places })
+            : null,
+        );
+        return;
+      }
       // Who is at the fire. A key as well as a button, because every social
       // act at a shared fire needs a non-gestural path (spec §12).
       if (event.key === 'k' && campfire !== null) {
@@ -1404,6 +1428,7 @@ export function App({ store }: AppProps): React.ReactElement {
         controls={state.controls}
         notice={state.notice}
         withdraw={withdraw}
+        survey={state.survey}
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}

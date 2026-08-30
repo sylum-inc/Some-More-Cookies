@@ -261,6 +261,14 @@ export interface AppState {
    * that it is there.
    */
   controls: 'pointer' | 'keyboard';
+  /**
+   * The last survey the player asked for, or null.
+   *
+   * Asked for and never volunteered — a campsite that describes itself
+   * unprompted is a campsite nobody is standing in. See `surveySurroundings`
+   * and audit A5.
+   */
+  survey: readonly string[] | null;
 }
 
 type Listener = () => void;
@@ -485,6 +493,7 @@ export class Store {
       liveEvents: options.liveEvents ? [...options.liveEvents] : [],
       overlaySource: options.overlaySource ?? 'none',
       controls: 'pointer',
+      survey: null,
     };
 
     // Written immediately, not at the end of the session: the visit happened
@@ -576,6 +585,11 @@ export class Store {
   setNotice(line: string | null): void {
     if (this.state.notice === line) return;
     this.set({ notice: line });
+  }
+
+  /** What is around you, on request. Null puts it away. */
+  setSurvey(survey: readonly string[] | null): void {
+    this.set({ survey });
   }
 
   setControls(controls: AppState['controls']): void {

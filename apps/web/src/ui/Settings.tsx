@@ -249,6 +249,7 @@ export function Settings({
               ['Stone: wind up, spin, throw', 'Arrow keys, [ and ], T'],
               ['— while a stone is in your hand, the arrows wind it up', ''],
               ['The rod: cast, strike, put it back', 'R'],
+              ['What is around you', 'Q'],
               ['Who is at the fire', 'K'],
               ['Close anything that is open', 'Escape'],
             ]}

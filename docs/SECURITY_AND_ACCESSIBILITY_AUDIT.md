@@ -475,7 +475,7 @@ one.
 | A2 | Assembly and the entire SM-01 ritual had no non-pointer path at all | **critical for §12** | fixed |
 | A3 | Every keyboard path was undocumented; nothing told a player any key existed | high | fixed |
 | A4 | Overlays are `role="dialog"` with names, but nothing moves focus into them and nothing traps it | medium | fixed |
-| A5 | The canvas has no accessible alternative, and the SM-01's state is colour plus a display texture | medium | partly fixed |
+| A5 | The canvas has no accessible alternative, and the SM-01's state is colour plus a display texture | medium | fixed |
 | A6 | A settings-gated subtitle is the only channel for some failure messages | low | fixed |
 | A7 | A keyboard player could not turn their head at all, so every aimed activity in §5.2 was behind a pointer | **critical for §12** | fixed |
 | A8 | A pointer look delta was applied once per *simulation step* rather than once, so one drag turned the player as far as the renderer was slow | medium | fixed |
@@ -658,7 +658,7 @@ Two tests, one per overlay shape: focus lands inside, survives forty Tabs and
 eight Shift+Tabs — more presses than either panel has controls, so a trap that
 only holds for one lap fails — and comes back to the button on Escape.
 
-### A5 — The canvas, and the machine's colour · PARTLY FIXED
+### A5 — The canvas, and the machine's colour · FIXED
 
 **Verified by reading; the fix is verified by test.** The `<canvas>` had no
 `aria-label`, no role, and no textual alternative: everything a player does in
@@ -678,10 +678,30 @@ because the panel is the display for everyone who can see it, and a caption
 repeating it would be noise. The canvas now carries a role and a name, so the
 largest element on the page is no longer anonymous.
 
-**Still open, and it is not a bug:** there is no way to *survey* the world —
-to ask what is around you. The live regions carry state changes; they do not
-carry a map. How legible a 3D campsite intends to be without sight is a design
-question, and it stays in §7 rather than being quietly answered here.
+**And the half that was left open is closed too.** There is now a survey: `Q`
+asks what is around you, and the campsite answers in prose — what is in reach,
+how the fire is actually burning, what is close enough to walk to and in which
+direction relative to your own body, where you are standing, the weather, and
+whether anything is at the edge of the light.
+
+Three things about it are deliberate. It is **asked for and never volunteered**,
+because a world that describes itself unprompted is one nobody is standing in.
+It is **shown as well as announced** — a survey only a screen reader receives
+would be the §12 single-channel rule broken by the feature written to keep it.
+And it is **prose**: bearings are "behind you and to the left" rather than
+degrees, distances are paces rather than metres, and a place with no phrasing is
+left out rather than mangled. The first version read an identifier straight into
+a sentence — "You are in water-edge." — which is the difference between a survey
+and a data dump.
+
+It is composed from the same world the renderer draws: the walkable world's own
+interactables, the fire's own state, the animals the simulation reports. Nothing
+in it is a second description that could drift from the first.
+
+What remains is a judgement rather than a gap: a survey is not a map, and
+whether somebody could *navigate* this campsite without sight — as opposed to
+knowing what is in it — has not been tested, because testing it needs a person
+who does that.
 
 ### A6 — Subtitles as a single channel · FIXED
 
@@ -793,7 +813,7 @@ Playwright project), plus cases added to
 | --- | --- |
 | S12 `block` row growth | Small, and `realtime/` is under active work by another workstream. |
 | S13 card-scan recursion cap | Argued above: the schema rejects the shape anyway, and raising it costs every request. |
-| A5 surveying the world without sight | The narration of *state changes* is there; what is still missing is any way to ask "what is around me". That is a design question about how legible a 3D world intends to be without sight, and it is the honest remainder of A5. |
+| A5 navigating without sight | The survey says what is here; whether somebody could *navigate* by it has not been tested, because that needs a person who does. |
 | Memory repositories do not enforce claim-once | They are for tests and dev, the HTTP path cannot race on them, and the schema comment that says otherwise is the thing to fix. |
 
 ---

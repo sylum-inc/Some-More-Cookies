@@ -29,6 +29,8 @@ export interface HudProps {
   notice: string | null;
   /** How far the roasting stick has been pulled back toward the plate, 0..1. */
   withdraw: number;
+  /** What is around the player, when they have asked. Null when they have not. */
+  survey: readonly string[] | null;
   textScale: number;
   highContrast: boolean;
   subtitlesEnabled: boolean;
@@ -626,6 +628,47 @@ export function Hud(props: HudProps): React.ReactElement {
           }}
         >
           {props.notice}
+        </div>
+      )}
+
+      {/*
+        What is around you, when you ask (audit A5).
+
+        Shown *and* announced. A survey that only a screen reader receives
+        would be the §12 single-channel rule broken by the feature written to
+        keep it — and a sighted player on a keyboard, or anybody who has just
+        walked somewhere in the dark, wants the same answer.
+
+        `assertive`, unusually: this is the one line in the product the player
+        explicitly asked for, so interrupting whatever else was being read is
+        the correct behaviour rather than a rudeness.
+      */}
+      {props.survey !== null && props.survey.length > 0 && (
+        <div
+          role="status"
+          aria-live="assertive"
+          aria-atomic="true"
+          data-testid="survey"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            top: '18%',
+            transform: 'translateX(-50%)',
+            maxWidth: 'min(46ch, 88vw)',
+            background: 'rgba(10,9,8,0.86)',
+            border: `1px solid ${TOKENS.inkSoft}`,
+            borderRadius: 3,
+            padding: `${scale(10)} ${scale(14)}`,
+            fontSize: scale(12),
+            lineHeight: 1.65,
+            color: '#f0e9d8',
+            textAlign: 'left',
+            pointerEvents: 'none',
+          }}
+        >
+          {props.survey.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
         </div>
       )}
 

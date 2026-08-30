@@ -294,6 +294,49 @@ test.describe('the assists a player can actually reach', () => {
  * Tab straight back out into the campsite behind a panel covering the screen.
  * `Scan` and `Terminal` are the sharp cases: a code entry form and a checkout.
  */
+/*
+ * Audit A5, the half that was left open: the product narrated every *change*
+ * and had no way to answer "what is here". A campsite you can only learn about
+ * by bumping into things is not a place you can be in.
+ */
+test.describe('asking what is around you', () => {
+  test('answers in prose, in both channels, and differently from somewhere else', async ({
+    page,
+  }) => {
+    await boot(page);
+    await page.keyboard.press('Enter');
+    await waitForWorld(page, "r.stage === 'at-fire'", 'arrival', 40_000);
+
+    // Never volunteered. A world that describes itself unprompted is one
+    // nobody is standing in.
+    await expect(page.getByTestId('survey')).toHaveCount(0);
+
+    await page.keyboard.press('q');
+    const survey = page.getByTestId('survey');
+    await expect(survey).toHaveCount(1);
+    // Asked for, so interrupting whatever else is being read is correct.
+    await expect(survey).toHaveAttribute('aria-live', 'assertive');
+
+    const here = (await survey.textContent()) ?? '';
+    expect(here.length, 'the survey said nothing').toBeGreaterThan(40);
+    // Prose, not a data dump: no raw ids, no metres.
+    expect(here, 'an identifier leaked into the survey').not.toMatch(/water-edge|log-seat/);
+    expect(here, 'a survey should not read out metres').not.toMatch(/\d+(\.\d+)? ?m\b/);
+    expect(here).toMatch(/fire/i);
+
+    // Put it away, walk, and ask again: it is about where you are now.
+    await page.keyboard.press('q');
+    await expect(survey).toHaveCount(0);
+    await page.keyboard.down('w');
+    await page.waitForTimeout(2200);
+    await page.keyboard.up('w');
+    await page.keyboard.press('q');
+    await expect(survey).toHaveCount(1);
+    const there = (await survey.textContent()) ?? '';
+    expect(there, 'the survey is the same wherever you stand').not.toBe(here);
+  });
+});
+
 test.describe('an overlay is a place you are taken to', () => {
   for (const [button, name] of [
     ['Passport', 'Campfire Passport'],

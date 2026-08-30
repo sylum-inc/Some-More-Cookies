@@ -219,6 +219,38 @@ picture badly, and both would have been recorded as evidence about multiplayer
 if nobody had looked at them. The lesson from #17 generalises — a screenshot is
 only worth what the pose behind it is worth.
 
+### Session 5: you can ask the campsite what is around you
+
+The audit's last open accessibility item, and the one it had deliberately not
+answered: everything in the product narrates *change*, and there was no way to
+ask what is *here*. A campsite you can only learn about by bumping into things
+is not a place you can be in.
+
+`Q` now asks, and it answers in prose — what is in reach, how the fire is
+actually burning, what is close enough to walk to and in which direction
+relative to your own body, where you are standing, the weather, and whether
+anything is at the edge of the light. Composed from the world the renderer
+draws, so nothing in it can drift from what is on screen.
+
+Three deliberate restraints, and one mistake worth keeping:
+
+* **Asked for, never volunteered.** A world that describes itself unprompted is
+  one nobody is standing in.
+* **Shown as well as announced.** A survey only a screen reader receives would
+  be the §12 single-channel rule broken by the feature written to keep it.
+* **Prose, not a readout.** Bearings are "behind you and to the left" rather
+  than degrees; distances are paces rather than metres.
+* The first version said **"You are in water-edge."** — an identifier read
+  straight into a sentence, which is the whole difference between a survey and
+  a data dump. Places with no phrasing are now left out rather than mangled.
+
+The toggle was also wrong on its first run, in a way this session has now seen
+three times: it read `state.survey` from the value the key handler closed over,
+and the effect does not re-register when the survey changes, so the second press
+saw a stale `null` and re-opened instead of closing. Reading `store.state`
+directly is the fix. Correct about the thing it was looking at, wrong about
+when.
+
 ### Session 5: the last two buttons
 
 §1.3 rules out a "Roast" button and a "Build" button. Two acts had held out as

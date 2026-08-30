@@ -119,13 +119,43 @@ thing correctly.
 | 13 | **The SM-01 said nothing for 11.9 seconds of a 50-second run**, right after the lever comes down | The amber pull-down had three scheduled beats in its first two seconds and none after. It now narrates the pull-down, scaled to the program |
 | 14 | **Frost ticked like a metronome** — 129 crackles, evenly spaced at four a second for the back half | The rate was proportional to how much frost there was. It is now driven by how fast frost is *forming* and metal *contracting*, clumped by value noise, so it nucleates and then settles |
 | 15 | **The machine could be permanently wedged by looking inside it.** Opening the empty SM-01 and closing it left it in a state whose only legal action led to a lever that refuses to run empty | An empty machine that is shut now returns to `idle`, where its door eases open again |
-| 16 | **Seventy seconds of browning was invisible on screen.** A marshmallow the model called "scorching" rendered cream on the fire side and cold blue-grey on the other | Self-inflicted. Raising the night so the campsite was navigable at all (defect #11's fix) also raised a *cool* ambient sevenfold, which swamped the marshmallow's 0.35 warm fill. Fixing the world broke the close-up, and only looking at it afterwards showed that |
+| 16 | **The renderer had no tone mapping at all**, so every value above 1.0 clipped straight to white — and next to a fire a great deal is above 1.0 | Found while chasing #17. It had already cost the project once undiagnosed: the fire-ring stones carry a hand-darkened albedo and a comment reading "raw stone albedo next to a fire blows out to paper white", which is this bug worked around one object at a time. Reinhard rather than ACES, because ACES desaturates highlights toward white — the thing being fixed |
+| 17 | ~~Seventy seconds of browning was invisible on screen.~~ **Not a defect. I was wrong.** | Recorded because being wrong in a particular way is worth keeping. See below |
 
-Number 16 is the one worth dwelling on: it was **caused by an earlier fix in
-this same document**, it made the feedback loop of the longest interaction in
-the product invisible, and every test stayed green throughout — including the
-visual regression suite, which compared the new frame against a baseline
-captured under the same broken lighting.
+**Number 17 is a false positive, and the most instructive entry here.**
+
+I spent a long time convinced that the marshmallow's browning was not
+reaching the screen. Three screenshots showed it black, then cream-white, then
+cold blue-grey, while the model reported it browned and the HUD said
+"SCORCHING". I diagnosed it four times and was wrong every time: first that a
+rock was occluding it (it was a burning log), then that vertex colours were not
+reaching the shader, then that it was over-exposed — and I *added* light, which
+made it worse.
+
+It was none of those. Forcing every vertex to pure red rendered red, which
+proved the colour pipeline end to end. Then, with a genuinely hot ember bed —
+three oak logs and 150 seconds — the model reached brown 0.911 and the
+marshmallow rendered `206,140,66`: a warm toasted amber, exactly right.
+
+Every earlier reading was an artefact of my own test pose:
+
+| What I saw | What it actually was |
+| --- | --- |
+| Black | A burning log between the camera and the marshmallow |
+| Cream-white | A marshmallow browned to 0.05–0.35, which *is* pale |
+| Cold blue-grey | A marshmallow over a nearly-dead fire on a moonlit night, which *is* blue-grey |
+
+The lesson is not "measure rather than reason" — this project already knew
+that, and I was measuring the whole time. It is that **a measurement of a
+badly-set-up scene is worth less than no measurement**, because it carries the
+authority of evidence. I built the pose myself, it never had a real fire in it,
+and I read four different conclusions out of it before checking the one thing
+that would have settled it in a minute.
+
+Two real improvements came out of the hunt and are kept: the tone-mapping curve
+(#16), which was genuinely missing, and a properly-sized warm fill on the
+marshmallow, which the raised night ambient had left undersized. Neither was
+what I set out to fix.
 
 Two things measured and found *not* to be defects, which is worth recording so
 they are not re-litigated: the spin control is right (a still marshmallow comes
@@ -281,9 +311,11 @@ audio ─────┘        protocol ──► api ──► commerce/reward
 | No object storage | Photo upload | Photo metadata modelled with storage keys; blobs held locally |
 | No email provider | Magic-link login | `Mailer` interface with a console implementation |
 | No WebRTC/LiveKit account | Spatial voice | Abstraction defined; panner path built so a `MediaStream` attaches later |
-| No Apple/Google developer accounts | Native shells, native auth, Apple/Google Pay | Web-first; payment method types modelled in the domain |
+| No Apple/Google developer accounts | Store submission, native auth, Apple/Google Pay | **Installable PWA shipped instead**: manifest, procedurally generated icons and launch images, a service worker, and a proven cold offline boot to a finished sandwich (`e2e/offline.spec.ts`). Capacitor is configured in `apps/mobile/capacitor.config.ts` and its native assets are generated from the same code as the web icons; the `ios/` and `android/` projects are deliberately **not** generated or committed — see `apps/mobile/README.md` for the argument. Payment method types modelled in the domain |
 | No art assets / no artist | Authored 3D content | ADR-0002 procedural generation behind swap-in interfaces |
-| No real device lab | Touch validation, true device profiling | Touch input paths implemented and unit-tested; adaptive tiers implemented; real-device validation explicitly outstanding |
+| No real device lab | Touch validation, true device profiling, notch and safe-area behaviour | Touch input paths implemented and unit-tested; adaptive tiers implemented; `e2e/mobile.spec.ts` drives three real phone sizes in both orientations and screenshots them. **Headless Chromium resolves every `env(safe-area-inset-*)` to zero**, so that suite cannot measure whether a control clears a Dynamic Island — it checks instead that every edge-hugging control *asks* for the inset, and paints the bands on the screenshots for a person to look at. Real-device validation explicitly outstanding |
+| No macOS, Xcode or iOS simulator | Generating, building or running the iOS shell | Configuration written and reviewable; nothing about the iOS project has been executed, and the README says so rather than implying otherwise |
+| No Android SDK (a JDK 21 and Gradle 8.14 are present) | Generating, building or running the Android shell | As above. `apps/mobile/scripts/native-assets.mjs` *is* verified here, against a scratch directory |
 
 **None of these block the Priority 1 experience.**
 

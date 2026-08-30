@@ -75,8 +75,24 @@ export function parseJoin(search: string): JoinIntent | null {
  */
 export function realtimeUrl(apiBaseUrl: string, path = '/v1/realtime', origin?: string): string {
   const base = apiBaseUrl.replace(/\/$/, '');
-  const source = base.length > 0 ? base : (origin ?? (typeof location === 'undefined' ? 'http://127.0.0.1' : location.origin));
-  const url = new URL(path, source);
+  const root = origin ?? (typeof location === 'undefined' ? 'http://127.0.0.1' : location.origin);
+
+  /*
+   * The base is one of three things, and all three have to work:
+   *
+   *  - empty, meaning "wherever this page came from" (the ordinary case);
+   *  - a full URL, meaning a service on another origin (`VITE_API_URL`);
+   *  - a *path*, meaning this app is served from a subdirectory and its
+   *    service is behind the same prefix.
+   *
+   * The last is why the path is joined relatively rather than as a
+   * root-absolute one. `new URL('/v1/realtime', 'http://host/prefix')` throws
+   * away `/prefix` — silently, and the socket then opens against a service
+   * that is not there.
+   */
+  const absolute = base.length === 0 ? root : base.includes('://') ? base : new URL(base, root).toString();
+  const source = absolute.endsWith('/') ? absolute : `${absolute}/`;
+  const url = new URL(path.replace(/^\//, ''), source);
   url.protocol = url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
   return url.toString();
 }

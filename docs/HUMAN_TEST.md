@@ -30,6 +30,38 @@ On a phone, run the preview with `--host` and open the LAN address it prints:
 npm run preview --workspace @somemore/web -- --host
 ```
 
+**Know what this does and does not give you.** A `http://192.168.…` address is
+not a secure context, and Chrome and Safari both withhold the whole service
+worker API from one — `'serviceWorker' in navigator` is literally `false`, not
+merely unavailable. Measured, not assumed. So over the LAN you get the game and
+none of the install: no Add to Home Screen, no fullscreen, no launch image, no
+offline. Nothing breaks — registration is guarded — but §9b cannot be tested
+this way.
+
+For the whole thing, put HTTPS in front of it. A tunnel is the least ceremony:
+
+```bash
+cloudflared tunnel --url http://localhost:4173     # or: ngrok http 4173
+```
+
+Open the `https://…` address on the phone. **iOS:** Safari only — Chrome on iOS
+cannot install a web app — then Share → Add to Home Screen. **Android:** Chrome
+offers it, or ⋮ → Install app.
+
+Hosting it somewhere permanent instead works too, and needs no backend at all:
+the ritual is local-first and the service is optional. Anywhere serving the
+build at the **root** of an origin needs nothing special. For a **subdirectory**
+— a GitHub project page at `https://<account>.github.io/Some-More-Cookies/` —
+build with the base:
+
+```bash
+BASE_PATH=/Some-More-Cookies/ npm run build --workspace @somemore/web
+```
+
+That one variable decides the asset URLs, the manifest's identity and scope, the
+service worker's scope and every entry in its precache list. `.github/workflows/pages.yml`
+does it for you; it is manual-trigger only, because publishing is a decision.
+
 Optionally, with the service running (`npm run api` in another terminal) the
 Passport syncs and the order terminal reaches a real backend. Without it,
 everything still works — the world is local-first and never waits on the

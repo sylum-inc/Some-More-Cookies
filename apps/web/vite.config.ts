@@ -12,6 +12,7 @@ import {
   splashLinkAttributes,
   type Bitmap,
 } from './src/pwa/icon.ts';
+import { normaliseBase, withBase } from './src/pwa/base.ts';
 import { buildManifest } from './src/pwa/manifest.ts';
 import { encodePng as toPng } from './src/pwa/png.ts';
 import { serviceWorkerSource } from './src/pwa/serviceWorkerSource.ts';
@@ -41,7 +42,7 @@ interface GeneratedAsset {
  * Everything except the service worker, which needs the bundle's own filenames
  * and so is built later.
  */
-function staticPwaAssets(): GeneratedAsset[] {
+function staticPwaAssets(base: string): GeneratedAsset[] {
   const assets: GeneratedAsset[] = ICON_SPECS.map((spec) => ({
     fileName: spec.file,
     source: encodePng(renderIcon(spec.size, spec.purpose === 'maskable' ? { scale: 0.78, lift: 0.045 } : {})),
@@ -54,7 +55,7 @@ function staticPwaAssets(): GeneratedAsset[] {
 
   assets.push({
     fileName: 'manifest.webmanifest',
-    source: JSON.stringify(buildManifest(), null, 2),
+    source: JSON.stringify(buildManifest(base), null, 2),
     precache: true,
     mime: 'application/manifest+json',
   });
@@ -79,18 +80,23 @@ function staticPwaAssets(): GeneratedAsset[] {
 }
 
 /** The tags the platforms read, derived from the same specs the build emits. */
-function headTags(): { tag: string; attrs: Record<string, string> }[] {
+function headTags(base: string): { tag: string; attrs: Record<string, string> }[] {
   const favicons = ICON_SPECS.filter((spec) => [16, 32, 48, 192].includes(spec.size)).map(
     (spec) => ({
       tag: 'link',
-      attrs: { rel: 'icon', type: 'image/png', sizes: `${spec.size}x${spec.size}`, href: `/${spec.file}` },
+      attrs: {
+        rel: 'icon',
+        type: 'image/png',
+        sizes: `${spec.size}x${spec.size}`,
+        href: withBase(base, spec.file),
+      },
     }),
   );
 
   return [
-    { tag: 'link', attrs: { rel: 'manifest', href: '/manifest.webmanifest' } },
+    { tag: 'link', attrs: { rel: 'manifest', href: withBase(base, 'manifest.webmanifest') } },
     ...favicons,
-    { tag: 'link', attrs: { rel: 'apple-touch-icon', href: '/icons/apple-touch-icon.png' } },
+    { tag: 'link', attrs: { rel: 'apple-touch-icon', href: withBase(base, 'icons/apple-touch-icon.png') } },
     // iOS reads these instead of the manifest. `black-translucent` draws the
     // page under the status bar, which is what `viewport-fit=cover` and the
     // HUD's safe-area insets are already arranged for, and is the only value
@@ -103,23 +109,23 @@ function headTags(): { tag: string; attrs: Record<string, string> }[] {
     { tag: 'meta', attrs: { name: 'color-scheme', content: 'dark' } },
     ...SPLASH_SPECS.map((spec) => ({
       tag: 'link',
-      attrs: { rel: 'apple-touch-startup-image', ...splashLinkAttributes(spec) },
+      attrs: { rel: 'apple-touch-startup-image', ...splashLinkAttributes(spec, base) },
     })),
   ];
 }
 
-function pwaPlugin(): Plugin {
+function pwaPlugin(base: string): Plugin {
   let assets: GeneratedAsset[] = [];
 
   return {
     name: 'some-more:pwa',
 
     buildStart() {
-      assets = staticPwaAssets();
+      assets = staticPwaAssets(base);
     },
 
     transformIndexHtml() {
-      return headTags().map((entry) => ({
+      return headTags(base).map((entry) => ({
         tag: entry.tag,
         attrs: entry.attrs,
         injectTo: 'head' as const,
@@ -136,7 +142,7 @@ function pwaPlugin(): Plugin {
      * with it.
      */
     configureServer(server) {
-      if (assets.length === 0) assets = staticPwaAssets();
+      if (assets.length === 0) assets = staticPwaAssets(base);
       server.middlewares.use((req, res, next) => {
         const path = (req.url ?? '').split('?')[0]?.replace(/^\//, '') ?? '';
         if (path === 'sw.js') {
@@ -184,12 +190,17 @@ function pwaPlugin(): Plugin {
        * no shell to hang them on. That is an offline boot that fetches the
        * page it cannot fetch, and nothing but actually going offline finds it.
        * Both spellings are listed because a host may serve either.
+       *
+       * Every entry carries the base. Under a project page a precache list of
+       * root paths is not a subtle mistake: install fetches `/index.html` from
+       * the account's *other* site, caches whatever that returns, and serves
+       * it as this app's shell.
        */
       const precache = [
-        '/',
-        '/index.html',
-        ...emitted.map((name) => `/${name}`),
-        ...assets.filter((asset) => asset.precache).map((asset) => `/${asset.fileName}`),
+        base,
+        withBase(base, 'index.html'),
+        ...emitted.map((name) => withBase(base, name)),
+        ...assets.filter((asset) => asset.precache).map((asset) => withBase(base, asset.fileName)),
       ];
 
       if (!emitted.some((name) => name.endsWith('.js'))) {
@@ -222,19 +233,49 @@ function pwaPlugin(): Plugin {
       digest.update(readFileSync(pkg('./index.html')));
       const version = digest.digest('hex').slice(0, 16);
 
+      /*
+       * GitHub Pages runs Jekyll over whatever it is handed unless told not
+       * to, and Jekyll drops every file and directory whose name begins with
+       * an underscore. Nothing this build emits does today, which is exactly
+       * why the marker belongs here rather than in a deploy script: the day a
+       * chunk is named `_shared-…js`, the failure is a blank page on a host
+       * nobody can debug from, and not one test would have gone red.
+       */
+      this.emitFile({ type: 'asset', fileName: '.nojekyll', source: '' });
+
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
-        // The shell is `/`: it is the URL a launch actually requests, and it
-        // is the one spelling every host agrees on.
-        source: serviceWorkerSource({ version, precache, shell: '/' }),
+        // The shell is the base: it is the URL a launch actually requests, and
+        // it is the one spelling every host agrees on.
+        source: serviceWorkerSource({
+          version,
+          precache,
+          shell: base,
+          swPath: withBase(base, 'sw.js'),
+        }),
       });
     },
   };
 }
 
+/*
+ * Where this build will be served from.
+ *
+ * `/` unless `BASE_PATH` says otherwise, so every existing command, every test
+ * and every local preview is untouched. A project page sets it:
+ *
+ *     BASE_PATH=/Some-More-Cookies/ npm run build --workspace @somemore/web
+ *
+ * It is one value because it has to be: it decides the asset URLs, the
+ * manifest's identity and scope, the service worker's registration scope and
+ * every entry in its precache list. See `src/pwa/base.ts`.
+ */
+const BASE = normaliseBase(process.env['BASE_PATH']);
+
 export default defineConfig({
-  plugins: [react(), pwaPlugin()],
+  base: BASE,
+  plugins: [react(), pwaPlugin(BASE)],
   resolve: {
     alias: {
       '@somemore/sim': pkg('../../packages/sim/src/index.ts'),

@@ -133,14 +133,25 @@ class PwaController {
   }
 
   /** Registers the worker once the first frames are out of the way. */
-  register(scriptUrl = '/sw.js'): void {
+  /**
+   * `import.meta.env.BASE_URL` rather than a literal, and the scope with it.
+   *
+   * Vite fills this in from the build's `base`, so it is `/` for every
+   * ordinary build and `/Some-More-Cookies/` for a project page — one value,
+   * decided once, that the client never has to be told separately. A
+   * hard-coded `/sw.js` under a project page asks the account's *other* site
+   * for a worker; a hard-coded scope of `/` is refused outright by the browser
+   * for a script served from a subdirectory, which would leave the app
+   * permanently uninstallable with a console warning as the only clue.
+   */
+  register(scriptUrl = `${import.meta.env.BASE_URL}sw.js`): void {
     if (!this.state.supported) return;
     if (this.registration) return;
 
     const start = (): void => {
       void navigator.serviceWorker
         .register(scriptUrl, {
-          scope: '/',
+          scope: import.meta.env.BASE_URL,
           // Never take the worker script itself from the HTTP cache. This is
           // the single setting that decides whether a stale build can become
           // permanent, because everything else keys off noticing new bytes.

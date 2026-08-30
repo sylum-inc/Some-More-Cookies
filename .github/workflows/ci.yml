@@ -420,6 +420,7 @@ jobs:
           - mobile       # it no longer fits in a hand
           - redeem       # the physical bridge stopped connecting
           - console      # whoever schedules a meteor shower is back on curl
+          - subpath      # it works everywhere except where it is published
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

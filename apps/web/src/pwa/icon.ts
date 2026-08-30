@@ -448,9 +448,9 @@ export const SPLASH_SPECS: readonly SplashSpec[] = SPLASH_DEVICES.flatMap((devic
 ]);
 
 /** The `<link>` tags iOS needs, as data rather than as pasted HTML. */
-export function splashLinkAttributes(spec: SplashSpec): { media: string; href: string } {
+export function splashLinkAttributes(spec: SplashSpec, base = '/'): { media: string; href: string } {
   const media =
     `(device-width: ${spec.cssWidth}px) and (device-height: ${spec.cssHeight}px) ` +
     `and (-webkit-device-pixel-ratio: ${spec.ratio}) and (orientation: ${spec.orientation})`;
-  return { media, href: `/${spec.file}` };
+  return { media, href: `${base}${spec.file}` };
 }

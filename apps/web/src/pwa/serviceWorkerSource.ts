@@ -34,10 +34,20 @@ export interface ServiceWorkerSourceOptions {
   precache: readonly string[];
   /** The navigation shell, which must also appear in `precache`. */
   shell: string;
+  /**
+   * Where this script is served from.
+   *
+   * Needed because the worker must never serve *itself* out of its own cache,
+   * and under a project page it is at `/Some-More-Cookies/sw.js` rather than
+   * at `/sw.js`. At the root the two spellings coincide, which is exactly why
+   * a hard-coded `/sw.js` survived so long: it is right until the day the app
+   * moves, and then it is a build that can never be updated.
+   */
+  swPath: string;
 }
 
 export function serviceWorkerSource(options: ServiceWorkerSourceOptions): string {
-  const { version, precache, shell } = options;
+  const { version, precache, shell, swPath } = options;
   return `/*
  * Some More — generated service worker. Do not edit; see
  * apps/web/src/pwa/serviceWorkerSource.ts.
@@ -45,6 +55,11 @@ export function serviceWorkerSource(options: ServiceWorkerSourceOptions): string
 const VERSION = ${JSON.stringify(version)};
 const CACHE = 'some-more-' + VERSION;
 const SHELL = ${JSON.stringify(shell)};
+const SW_PATH = ${JSON.stringify(swPath)};
+/* The service lives under the app's own base, because the client asks for it
+   there — see defaultApiBaseUrl in net/client.ts. At the root this is "/v1",
+   which is what it always was. */
+const API_PREFIX = SHELL + 'v1';
 const PRECACHE = ${JSON.stringify([...precache], null, 2)};
 
 /* Shown only if a navigation happens with no cache and no network at all,
@@ -128,11 +143,17 @@ self.addEventListener('fetch', (event) => {
 
   /* The service, left strictly alone. A cached or synthesised reply here
      would turn "no signal" into "wrong answer", and the whole local-first
-     design depends on the client being told the truth. */
-  if (url.pathname === '/v1' || url.pathname.startsWith('/v1/')) return;
+     design depends on the client being told the truth.
+
+     Under the app's base, not the origin's root. The client asks for its
+     service relative to the app (see defaultApiBaseUrl), so on a project
+     page those requests land inside this worker's scope — where, without this,
+     they would be cached like any other asset and replayed offline as a
+     confident wrong answer. At the root the two spellings are the same. */
+  if (url.pathname === API_PREFIX || url.pathname.startsWith(API_PREFIX + '/')) return;
 
   /* The worker script itself is never served from the cache. */
-  if (url.pathname === '/sw.js') return;
+  if (url.pathname === SW_PATH) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(handleNavigation(request));

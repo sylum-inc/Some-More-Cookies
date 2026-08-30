@@ -300,6 +300,28 @@ Both figures are pinned in `tools/budgets.mjs` so neither can quietly drift.
 
 Settings live in one observable store consumed by simulation (assists), rendering (dither, motion, contrast, fire brightness), audio (per-bus volume, transient taming), and UI (text scale, subtitles). Nothing reads device settings directly, so every knob is testable. Assists change dexterity requirements only, never outcomes.
 
+### Where the app is served from
+
+`BASE_PATH` (default `/`) is one value threaded through everything that writes a
+path: Vite's `base`, the manifest's `id`, `start_url`, `scope` and icon `src`,
+the service worker's registration scope, its precache list, its own script path,
+and the API base the client falls back to. The client half reads
+`import.meta.env.BASE_URL`, which Vite fills from the same `base`, so there is
+no second place to keep in step.
+
+It exists because a GitHub project page serves the app from a subdirectory, and
+a build that assumes the origin root does not degrade there — it does not start.
+The failures are also worse than a broken picture: a worker registered with a
+scope of `/` from a subdirectory is refused outright, and a precache list of
+root paths installs *another site on that origin* as this app's offline shell.
+Both are invisible until somebody deploys, which is why `e2e/subpath.spec.ts`
+builds under a base, serves it there, and asserts that no request is ever made
+outside it.
+
+The API base follows the app rather than the origin, for the same reason: an app
+that has been moved should take its service with it. `VITE_API_URL` still
+overrides, for a service somewhere else entirely.
+
 Overlays share one `useDialog` hook (`apps/web/src/ui/useDialog.ts`) rather than
 six copies of the same contract: `aria-modal`, focus moved in on open, Tab and
 Shift+Tab cycling inside, focus restored to the opener on close. Anything the

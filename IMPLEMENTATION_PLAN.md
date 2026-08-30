@@ -219,6 +219,38 @@ picture badly, and both would have been recorded as evidence about multiplayer
 if nobody had looked at them. The lesson from #17 generalises — a screenshot is
 only worth what the pose behind it is worth.
 
+### Session 4: the app could only ever be served from a root
+
+Asked to host it on a GitHub project page, which serves from a subdirectory.
+Nothing about that had ever been considered, and the result would not have been
+a wonky layout — it would have been a site that does not start.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 40 | **Every path in the build was root-absolute.** Assets, the manifest link, the favicons, the apple-touch icon, twenty-two launch images, the manifest's `id`/`start_url`/`scope`/icons, the worker's registration scope, its precache list and its own script path | One value, `BASE_PATH`, now threaded through all of them, with the client half reading `import.meta.env.BASE_URL` so there is no second place to keep in step |
+| 41 | **The client asked the origin root for its service.** On a project page `/v1/auth/anonymous` is not this app's service — it is whatever else that account publishes at its root | The API base now falls back to the app's own base, so an app that has been moved takes its service with it. `VITE_API_URL` still overrides |
+| 42 | **`realtimeUrl` silently discarded a path.** `new URL('/v1/realtime', 'http://host/prefix')` is `http://host/v1/realtime` | Found while fixing #41 — it also means a configured `VITE_API_URL` with a path has always been ignored. The path is joined relatively now |
+
+Three things are worth keeping from how this went.
+
+**The test found #41, not me.** The spec records every request the page makes
+and asserts none falls outside the base — written that way precisely to catch
+the paths nobody thought of, rather than the ones the test remembered to look
+for. It immediately produced three I had not considered.
+
+**Then my next assertion was wrong.** With #41 fixed, the API calls moved inside
+the base and 404ed, and "nothing 404s" went red. But a static host *has* no
+service, and the whole product is built to shrug at that. Asserting no 404s was
+asserting that a GitHub Pages deployment has a backend. The suite now separates
+a missing asset (a broken deploy) from a missing service (Tuesday), and asserts
+the campsite reaches the fire anyway — which is the actual claim.
+
+**The dangerous failures here are the quiet ones.** A worker registered with a
+scope of `/` from a subdirectory is refused outright, and a precache list of
+root paths installs another site on that origin as this app's offline shell.
+Neither shows up as a broken picture, and both are found by deploying, which is
+the worst place to find anything.
+
 ### Session 4: closing the audit's accessibility findings
 
 The adversarial pass left three §12 findings written up rather than fixed,

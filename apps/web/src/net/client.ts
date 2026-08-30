@@ -117,6 +117,23 @@ export function idempotencyKey(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/**
+ * Where the service is, when nobody has said.
+ *
+ * The app's own base with the trailing slash off — so `''` for every ordinary
+ * build, which is byte-for-byte what it was, and `/Some-More-Cookies` for one
+ * served from a subdirectory. An app that carries its own base should ask for
+ * its service relative to itself: a root-absolute `/v1/...` from a project
+ * page is not this app's service, it is whatever else that account publishes
+ * at its root.
+ *
+ * `VITE_API_URL` still wins, for a service on another origin entirely.
+ */
+export function defaultApiBaseUrl(): string {
+  const base = typeof import.meta.env === 'undefined' ? '/' : (import.meta.env.BASE_URL ?? '/');
+  return base.replace(/\/$/, '');
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;

@@ -156,6 +156,15 @@ export default defineConfig({
      * and its own two services — one configured, one deliberately not.
      */
     { name: 'console', testMatch: /console\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * The app served from a subdirectory, which is where a GitHub project page
+     * puts it. Its own project because it fails on its own thing: not "the
+     * ritual stopped working" but "the ritual works everywhere except where it
+     * is published". It runs its own `vite build` with a base and serves it
+     * under that base, because the thing under test is the build configuration
+     * and a prebuilt artifact would beg the question.
+     */
+    { name: 'subpath', testMatch: /subpath\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     command: 'npm run preview --workspace @somemore/web',

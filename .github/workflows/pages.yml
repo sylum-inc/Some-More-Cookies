@@ -1,0 +1,89 @@
+name: Pages
+
+# Manual only, on purpose.
+#
+# Publishing is a decision, not a build step: a Pages site on a public
+# repository is world-readable and indexable from the moment it goes up, and
+# nobody should discover that by pushing a commit. Run it from the Actions tab
+# when you mean to.
+#
+# To make it automatic once that decision is made, add:
+#
+#     push:
+#       branches: [main]
+#
+# below `workflow_dispatch:`.
+on:
+  workflow_dispatch:
+    inputs:
+      base_path:
+        description: >-
+          Where the site is served from. A project page is /<repo>/ ; a user or
+          organisation page (<account>.github.io) and a custom domain are both /.
+        required: true
+        default: /Some-More-Cookies/
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time, and never cancel one halfway: a half-uploaded site is
+# a broken site, and the next run would replace it anyway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  build:
+    name: build for ${{ inputs.base_path }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      # The player build only. `apps/console` is the operator app and has no
+      # business on a public URL — `e2e/console.spec.ts` asserts it never ships
+      # from the player build, and this keeps that true of the deploy as well.
+      - name: Build
+        run: npm run build --workspace @somemore/web
+        env:
+          BASE_PATH: ${{ inputs.base_path }}
+
+      # Cheap, and it catches the one mistake this whole workflow can make. A
+      # base that does not match where Pages will actually serve the site
+      # produces a build that looks perfect and 404s on its first asset.
+      - name: Check the build carries the base it was given
+        run: |
+          set -euo pipefail
+          BASE='${{ inputs.base_path }}'
+          echo "expecting assets under: $BASE"
+          grep -q "src=\"${BASE}assets/" apps/web/dist/index.html \
+            || { echo "index.html does not reference ${BASE}assets/"; exit 1; }
+          grep -q "\"scope\": \"${BASE}\"" apps/web/dist/manifest.webmanifest \
+            || { echo "the manifest scope is not ${BASE}"; exit 1; }
+          test -f apps/web/dist/.nojekyll || { echo ".nojekyll is missing"; exit 1; }
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/web/dist
+
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -615,5 +615,18 @@ describe('arriving from a link', () => {
     expect(realtimeUrl('https://api.somemore.test')).toBe('wss://api.somemore.test/v1/realtime');
     expect(realtimeUrl('http://127.0.0.1:8787')).toBe('ws://127.0.0.1:8787/v1/realtime');
     expect(realtimeUrl('', '/v1/realtime', 'https://play.somemore.test')).toBe('wss://play.somemore.test/v1/realtime');
+    /*
+     * A path base: the app served from a subdirectory, with its service behind
+     * the same prefix. The prefix has to survive — joining a root-absolute
+     * path to it silently discards it and opens the socket against nothing.
+     */
+    expect(realtimeUrl('/Some-More-Cookies', '/v1/realtime', 'https://acct.github.io')).toBe(
+      'wss://acct.github.io/Some-More-Cookies/v1/realtime',
+    );
+    // And a configured base that has a path of its own keeps it, for the same
+    // reason.
+    expect(realtimeUrl('https://api.somemore.test/edge', '/v1/realtime')).toBe(
+      'wss://api.somemore.test/edge/v1/realtime',
+    );
   });
 });

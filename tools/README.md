@@ -52,6 +52,41 @@ is the only way the workflow's correctness is checkable here.
 
 ---
 
+## One suite at a time, and never build while one is up
+
+Two separate investigations in this repository lost real time to the same
+cause, and it is worth stating as a rule rather than rediscovering a third
+time.
+
+**Playwright runs share a single `vite preview` on port 4173.** The config says
+`reuseExistingServer: true`, which is right for a developer iterating and
+wrong the moment two suites overlap. Running `npm run build` while a suite is
+up rewrites `apps/web/dist` — new content hashes, new filenames — underneath
+that server, so a page mid-test asks for an asset that no longer exists.
+Playwright also wipes `test-results/` when it starts, so the diff images from
+the *other* run vanish while somebody is reading them.
+
+What that looks like when it bites you: a scatter of failures across unrelated
+projects, each individually plausible, none reproducible in isolation. Both
+times, the failures were read as real regressions first and diagnosed
+correctly only afterwards. One of those runs reported ten failures across four
+projects and every one of them was an artefact.
+
+So:
+
+- **Run one Playwright suite at a time.** In CI this is free — the workflow
+  runs each project as its own job on its own machine. Locally it is a
+  discipline.
+- **Never run `npm run build` while a suite is up.** Build first, then test.
+- **A suite that fails in a scatter across unrelated projects is contaminated
+  until proven otherwise.** Re-run the failing project alone before believing
+  it. `activities` "failing" 7 tests and passing 7/7 on its own is the
+  signature.
+- A spec that needs its own service should spawn it directly on an
+  OS-assigned port rather than through `npm run` — which does not forward
+  signals, so the server outlives the run and the next one dies on
+  `EADDRINUSE`. `e2e/campfire.spec.ts` is the pattern.
+
 ## The individual tools
 
 ### `npm run perf:sim` — simulation benchmark

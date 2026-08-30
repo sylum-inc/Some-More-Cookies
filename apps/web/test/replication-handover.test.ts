@@ -51,7 +51,7 @@ describe('replicating the moment the sandwich changes hands', () => {
     expect(ritual.sandwich).not.toBeNull();
     expect(ritual.stage).toBe('reveal');
 
-    applyIntent(ritual, { kind: 'machine_control', control: 'take_sandwich' });
+    applyIntent(ritual, { kind: 'machine_control', objectId: 'sm01', control: 'take_sandwich' });
 
     // The whole point: everyone watching sees the ritual move on, not just a
     // tray that quietly emptied.
@@ -72,7 +72,7 @@ describe('replicating the moment the sandwich changes hands', () => {
 
     // Opening the door is a machine control and only a machine control: it
     // must not carry the ritual forward the way taking the sandwich does.
-    applyIntent(ritual, { kind: 'machine_control', control: 'open_door' });
+    applyIntent(ritual, { kind: 'machine_control', objectId: 'sm01', control: 'open_door' });
     expect(ritual.stage).toBe('reveal');
     expect(ritual.sandwichAge).toBe(0);
   });
@@ -82,7 +82,7 @@ describe('replicating the moment the sandwich changes hands', () => {
     for (let i = 0; i < Math.round(20 / SIM_DT); i += 1) stepRitual(ritual, SIM_DT);
 
     // A replayed intent must never be able to fabricate a stage transition.
-    applyIntent(ritual, { kind: 'machine_control', control: 'take_sandwich' });
+    applyIntent(ritual, { kind: 'machine_control', objectId: 'sm01', control: 'take_sandwich' });
     expect(ritual.stage).not.toBe('eating');
     expect(ritual.sandwich).toBeNull();
   });

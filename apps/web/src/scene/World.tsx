@@ -117,6 +117,8 @@ const MACHINE_FRONT: [number, number] = [Math.sin(LAYOUT.machineRotation), Math.
 
 /** Field of view while exploring on foot. */
 const EXPLORE_FOV = 68;
+/** Leaning in over something small. The old anchored roast pose used 44°. */
+const CLOSE_WORK_FOV = 48;
 
 /** A player who is mid-interaction takes no movement input. */
 const EMPTY_INTENT: MoveIntent = {};
@@ -187,13 +189,27 @@ interface CameraPose {
  * settles into place when you actually start doing something.
  */
 const ANCHORED_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>([
-  'roasting',
   'assembling',
   'machine',
   'reveal',
   'eating',
   'after',
 ]);
+
+/**
+ * Stages you do from your knees rather than from a camera that flew there.
+ *
+ * Roasting used to be an anchored stage: the camera left the player's eyes and
+ * eased to a composed pose 0.78 m from the fire at 0.54 m high, and the player
+ * became a cursor. The framing was good and the cost was the whole product —
+ * with six stages doing this, the game read as a slideshow of screens instead
+ * of one campsite, which is the first thing a person said about it.
+ *
+ * The framing is worth keeping; taking the camera to get it is not. Kneeling
+ * buys the same eye height honestly, and you can still look around, walk round
+ * the fire, or stand up and leave.
+ */
+const KNEELING_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>(['roasting']);
 
 export function isAnchored(stage: RitualStage): boolean {
   return ANCHORED_STAGES.has(stage);
@@ -423,6 +439,9 @@ export function World({
     advance(clock, delta, (dt) => {
       // The player moves in every stage; the anchored stages simply stop
       // taking movement input, so the world keeps simulating around them.
+      // Posture is decided by what the player is doing, not by a key they hold:
+      // starting to roast kneels you down, finishing stands you back up.
+      intentRef.current.kneel = KNEELING_STAGES.has(ritual.stage);
       stepPlayer(player, walkable, anchored ? EMPTY_INTENT : intentRef.current, dt);
 
       if (ritual.stage === 'roasting') {
@@ -528,8 +547,17 @@ export function World({
         eyeScratch.y + lookScratch.y,
         eyeScratch.z + lookScratch.z,
       );
-      if (Math.abs(perspective.fov - EXPLORE_FOV) > 0.05) {
-        perspective.fov += (EXPLORE_FOV - perspective.fov) * (1 - Math.exp(-6 * delta));
+      /*
+       * Close work narrows the lens, and nothing else.
+       *
+       * The old anchored roast pose bought its readability with a 44° framing
+       * the camera flew to. The lens can do that part on its own while the
+       * camera stays where it belongs — on the player's eyes — so what is left
+       * of that composed shot is the part that never needed to cost agency.
+       */
+      const fovTarget = KNEELING_STAGES.has(ritual.stage) ? CLOSE_WORK_FOV : EXPLORE_FOV;
+      if (Math.abs(perspective.fov - fovTarget) > 0.05) {
+        perspective.fov += (fovTarget - perspective.fov) * (1 - Math.exp(-4 * delta));
         perspective.updateProjectionMatrix();
       }
       camera.lookAt(targetRef.current);

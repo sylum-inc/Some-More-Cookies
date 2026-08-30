@@ -200,8 +200,26 @@ export const LOCOMOTION = {
   damping: 9,
   /** Turn rate when walking to a tapped point, radians/second. */
   turnRate: 5.5,
-  /** Eye height above the ground. */
+  /** Eye height above the ground, standing. */
   eyeHeight: 1.58,
+  /**
+   * Stance heights, as a fraction of `eyeHeight`.
+   *
+   * These exist so that getting close to something is a thing the *body* does.
+   * The first playtest of this game found the opposite: six of the eight ritual
+   * stages took the camera off the player entirely and eased it to a composed
+   * pose, and the result read as a slideshow of screens rather than one
+   * campsite. Every one of those framings was defensible on its own and the
+   * aggregate was not, which is the sort of thing only a person can notice.
+   *
+   * So the camera stays on the player's eyes always, and closeness is bought by
+   * kneeling: down to roast, down to work at the table. You can still look
+   * around from down there, and standing up is always available.
+   */
+  seatedStance: 0.62,
+  kneelingStance: 0.36,
+  /** How quickly a stance change eases, per second. */
+  stanceRate: 3.4,
   /** Body radius for collision. */
   bodyRadius: 0.28,
   /** How close to a tapped point counts as arrived. */
@@ -239,6 +257,19 @@ export interface PlayerState {
   bobPhase: number;
   /** Whether the player is currently seated by the fire. */
   seated: boolean;
+  /**
+   * Whether the player is knelt down over something they are working on.
+   *
+   * Set by whatever the player is doing rather than by a movement key: you
+   * kneel because you started roasting, and you stand because you stopped.
+   */
+  kneeling: boolean;
+  /**
+   * Eye height right now, as a fraction of standing, eased toward the stance
+   * the flags above ask for. Continuous on purpose — a snap between heights is
+   * a cut, and cuts are the thing this is here to remove.
+   */
+  stance: number;
 }
 
 export function createPlayer(position: Vec3, facing = 0): PlayerState {
@@ -254,7 +285,16 @@ export function createPlayer(position: Vec3, facing = 0): PlayerState {
     stillnessSeconds: 0,
     bobPhase: 0,
     seated: false,
+    kneeling: false,
+    stance: 1,
   };
+}
+
+/** The stance the player's current posture asks for. Seated wins over kneeling. */
+export function stanceTarget(player: PlayerState): number {
+  if (player.seated) return LOCOMOTION.seatedStance;
+  if (player.kneeling) return LOCOMOTION.kneelingStance;
+  return 1;
 }
 
 /**
@@ -294,6 +334,8 @@ export interface MoveIntent {
   noise?: number;
   /** Sitting still by the fire. */
   sit?: boolean;
+  /** Knelt over something being worked on. Set by the activity, not by a key. */
+  kneel?: boolean;
 }
 
 const scratchDirection = vec3();
@@ -320,6 +362,12 @@ export function stepPlayer(player: PlayerState, world: WalkableWorld, intent: Mo
   }
 
   if (intent.sit !== undefined) player.seated = intent.sit;
+  if (intent.kneel !== undefined) player.kneeling = intent.kneel;
+
+  // Ease the body toward the posture it has been asked for. Frame-rate
+  // independent, so a slow device kneels at the same speed as a fast one.
+  const wanted = stanceTarget(player);
+  player.stance += (wanted - player.stance) * (1 - Math.exp(-LOCOMOTION.stanceRate * dt));
   if (intent.target !== undefined) {
     player.moveTarget = intent.target ? vec3(intent.target.x, intent.target.y, intent.target.z) : null;
   }
@@ -444,7 +492,7 @@ export function stepPlayer(player: PlayerState, world: WalkableWorld, intent: Mo
 /** Eye position, including head bob. Read by the camera. */
 export function eyePosition(player: PlayerState, out: Vec3 = vec3()): Vec3 {
   const bob = Math.sin(player.bobPhase) * LOCOMOTION.bobAmplitude * clamp01(player.speed / LOCOMOTION.walkSpeed);
-  const height = player.seated ? LOCOMOTION.eyeHeight * 0.62 : LOCOMOTION.eyeHeight;
+  const height = LOCOMOTION.eyeHeight * player.stance;
   out.x = player.position.x;
   out.y = player.position.y + height + bob;
   out.z = player.position.z;

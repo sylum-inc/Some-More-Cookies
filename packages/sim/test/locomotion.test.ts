@@ -355,11 +355,42 @@ describe('camera support', () => {
     expect(eye.y - player.position.y).toBeCloseTo(LOCOMOTION.eyeHeight, 2);
   });
 
-  it('lowers the eye when seated', () => {
+  it('lowers the eye when seated, and takes a moment doing it', () => {
+    /*
+     * The easing is the point, not an implementation detail.
+     *
+     * Posture used to be a boolean the eye read directly, so sitting moved the
+     * camera between two heights within a frame. That is a cut, and cuts are
+     * what made this game read as a slideshow of screens rather than one place.
+     * So the eye follows a stance that eases, and this asserts both halves: it
+     * has not jumped on the frame the flag was set, and it does arrive.
+     */
     const player = createPlayer(vec3(2, 0, 0));
+    const world = WORLD;
     const standing = eyePosition(player).y;
+
     player.seated = true;
-    expect(eyePosition(player).y).toBeLessThan(standing);
+    expect(eyePosition(player).y, 'posture snapped instead of easing').toBeCloseTo(standing, 5);
+
+    for (let i = 0; i < 120; i += 1) stepPlayer(player, world, {}, SIM_DT);
+    const seated = eyePosition(player).y;
+    expect(seated).toBeLessThan(standing);
+    expect(seated - player.position.y).toBeCloseTo(LOCOMOTION.eyeHeight * LOCOMOTION.seatedStance, 2);
+  });
+
+  it('kneels lower than it sits, and stands back up when the work is done', () => {
+    // Kneeling is what replaced the anchored roasting camera: the body buys
+    // the close framing that the camera used to take.
+    const player = createPlayer(vec3(2, 0, 0));
+    const world = WORLD;
+
+    for (let i = 0; i < 120; i += 1) stepPlayer(player, world, { kneel: true }, SIM_DT);
+    const knelt = eyePosition(player).y - player.position.y;
+    expect(knelt).toBeCloseTo(LOCOMOTION.eyeHeight * LOCOMOTION.kneelingStance, 2);
+    expect(knelt).toBeLessThan(LOCOMOTION.eyeHeight * LOCOMOTION.seatedStance);
+
+    for (let i = 0; i < 120; i += 1) stepPlayer(player, world, { kneel: false }, SIM_DT);
+    expect(eyePosition(player).y - player.position.y).toBeCloseTo(LOCOMOTION.eyeHeight, 2);
   });
 
   it('bobs only while walking', () => {

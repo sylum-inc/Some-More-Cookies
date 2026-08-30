@@ -6,6 +6,7 @@ import { campsiteRoutes } from './campsites.js';
 import { codeRoutes } from './codes.js';
 import { contentRoutes } from './content.js';
 import { liveOpsRoutes } from './liveops.js';
+import { operatorRoutes } from './operators.js';
 import { commerceRoutes } from './commerce.js';
 import { healthRoutes } from './health.js';
 import { mediaRoutes } from './media.js';
@@ -31,6 +32,7 @@ export function buildRoutes(services: ServiceRegistry): AnyRoute[] {
     ...analyticsRoutes(services),
     ...contentRoutes(services),
     ...liveOpsRoutes(services),
+    ...operatorRoutes(services),
     ...codeRoutes(services),
   ];
 }

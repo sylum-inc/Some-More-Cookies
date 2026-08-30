@@ -18,7 +18,9 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getEnvironment } from '@somemore/content';
-import { bootstrap, key, startTestApi, type Player, type TestHarness } from '../../services/api/test/harness.js';
+import { bootstrap, key, startTestApi, type Player, type TestHarness,
+  grantOperator,
+} from '../../services/api/test/harness.js';
 import { OPS_TOKEN_HEADER } from '../../services/api/src/routes/liveops.js';
 import {
   applyOverlay,
@@ -52,6 +54,8 @@ beforeEach(async () => {
   (globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage();
   api = await startTestApi({ LIVE_OPS_TOKEN: OPS_TOKEN });
   operator = await bootstrap(api, 'Live Ops');
+  // A real operator account with real capabilities (README, Blocker 9).
+  await grantOperator(api, operator.accountId, { role: 'admin' });
   clearCachedOverlay();
 });
 
@@ -63,7 +67,6 @@ async function ops(path: string, body?: unknown): Promise<{ status: number; body
   return api.request(path, {
     method: body === undefined ? 'GET' : 'POST',
     token: operator.token,
-    headers: { [OPS_TOKEN_HEADER]: OPS_TOKEN },
     ...(body === undefined ? {} : { body }),
   });
 }
@@ -438,16 +441,21 @@ describe('rollback', () => {
 });
 
 describe('authoring is honest about not being configured', () => {
-  it('answers 503 naming the variable, and keeps serving the manifest', async () => {
+  it('refuses an unappointed player by name, and keeps serving the manifest', async () => {
+    /*
+     * This used to assert a `503 service_not_configured` naming
+     * `LIVE_OPS_TOKEN`, because authoring was gated on that secret being set.
+     * That was authorization wearing a configuration's clothes: publishing
+     * content needs no credential and no external service. The real question is
+     * "may this person" (README, Blocker 9), and the answer names the
+     * capability rather than an environment variable.
+     */
     const bare = await startTestApi();
     try {
       const player = await bootstrap(bare, 'Live Ops');
 
       const status = await bare.request('/v1/live-ops/status', { token: player.token });
       expect(status.status).toBe(200);
-      expect(status.body.liveOps.status).toBe('not_configured');
-      expect(status.body.liveOps.reason).toContain('LIVE_OPS_TOKEN');
-      expect(status.body.liveOps.fallback).toBe('read_only');
 
       const attempt = await bare.request('/v1/live-ops/documents', {
         method: 'POST',
@@ -463,9 +471,8 @@ describe('authoring is honest about not being configured', () => {
           notes: '',
         },
       });
-      expect(attempt.status).toBe(503);
-      expect(attempt.body.error.code).toBe('service_not_configured');
-      expect(attempt.body.error.message).toContain('LIVE_OPS_TOKEN');
+      expect(attempt.status).toBe(403);
+      expect(attempt.body.error.message).toContain('content:draft');
 
       // Reads still work, and a client is still a working client.
       const overlay = await refreshOverlay({ environmentId: 'pine_hollow', baseUrl: bare.baseUrl });

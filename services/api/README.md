@@ -187,7 +187,7 @@ npx tsc -b packages/protocol services/api
 | `MAGIC_LINKS_PER_WINDOW` | no | `5` | Sign-in links per email address per hour. |
 | `ANONYMOUS_SIGNUPS_PER_HOUR` | no | `30` | New anonymous accounts minted per client address per hour. Only *new* ones: a device that already has an account keeps finding it however often it re-bootstraps, because a reinstall must never lose a Passport (spec §6.1). Every per-account budget in this service is otherwise one HTTP request away from a fresh allowance. |
 | `EVENT_BATCHES_PER_HOUR` | no | `600` | Telemetry batches accepted per client address per hour. `POST /v1/events` is unauthenticated by necessity and writes a row per event. |
-| `LIVE_OPS_TOKEN` | for authoring | — | Shared secret presented as `x-somemore-ops-token` *alongside* a normal bearer token. Absent ⇒ the content service is read-only and every authoring route answers `503 service_not_configured`. Not RBAC; see Blocker 9. |
+| `LIVE_OPS_TOKEN` | to appoint the first operator | — | Bootstrap secret presented as `x-somemore-ops-token` on `POST /v1/operators/grants`, *alongside* a normal bearer token. It opens nothing else, and it is spent the moment any account holds `operators:grant`. Absent ⇒ there is no way to appoint a first operator on a fresh database; every other authoring route is gated by capability, not by this. |
 | `CODE_SIGNING_KEY_ID` | for minting | — | Which key new codes are signed with, e.g. `k1`. |
 | `CODE_SIGNING_PRIVATE_KEY` | for minting | — | Base64 Ed25519 private key (a raw 32-byte seed or a PKCS8 DER blob). Absent ⇒ codes can still be *verified* if public keys are set, but none can be minted. |
 | `CODE_VERIFY_PUBLIC_KEYS` | for scanning | — | `keyId:base64,keyId:base64`. Old print runs keep verifying after a rotation. Absent *and* no private key ⇒ scanning is disabled with a structured `not_configured`, never permissively. |
@@ -677,14 +677,26 @@ gifts and a missed window must strand nobody.
 
 ### Authoring authentication, and what it is not
 
-Every `/v1/live-ops/*` route requires a valid bearer token **and** the
-`x-somemore-ops-token` header, compared in constant time over sha256 digests so
-neither the value nor its length leaks. Two credentials, one of which is a real
-account in the audit trail, is meaningfully better than a shared secret alone.
+Every `/v1/live-ops/*` route requires a valid bearer token whose account holds
+the capability that route needs — `content:draft` to write a document,
+`content:publish` to put one in front of players, `codes:mint` to press a batch.
+Reads keep working for anyone.
 
-It is still not RBAC, and it does not pretend to be — there is no staff identity
-provider (Blocker 9). With `LIVE_OPS_TOKEN` unset, reads keep working and every
-authoring route answers `503 service_not_configured` naming the variable.
+Capabilities live in `operator_capabilities`, one row per (account, capability),
+and are granted either individually or through a role that expands into them
+(`author`, `editor`, `printer`, `fulfilment`, `support`, `admin`). Granting is
+itself a capability (`operators:grant`), so an editor cannot promote a friend.
+Revoking sets `revoked_at` rather than deleting the row, because a missing row
+cannot say when a permission was taken away or by whom; re-granting clears the
+revocation.
+
+The first operator is the only thing `LIVE_OPS_TOKEN` still does. It is compared
+in constant time over sha256 digests, so neither the value nor its length leaks,
+it must arrive alongside a real account so the appointment is attributable, and
+it stops working the moment anybody holds `operators:grant` — which is what
+makes it safe to leave set in a running deployment. On a fresh database with the
+variable unset, there is no way to make a first operator; that is the one thing
+it blocks.
 
 ---
 
@@ -1002,14 +1014,27 @@ these is a credential, a provisioned service or a contract.
 * ~~*"Persistence is in memory"*~~ has moved out of **What is mocked** — it is
   now a supported mode rather than a placeholder.
 
-Two blockers are *narrowed* rather than removed:
+* ~~*Blocker 9, staff identity and roles.*~~ **Closed**, and closed without the
+  external identity provider it was waiting for. The premise was wrong: what
+  the service needed was not somebody else's directory of humans but its own
+  model of what a human may do. `operator_capabilities` is that — eight named
+  capabilities, six roles that expand into them, granting gated by a capability
+  of its own, and revocation stored rather than deleted. Accounts already exist
+  and are already attributable; wiring capabilities to them needed no purchase
+  order. If an SSO provider is bought later it federates *into* this model
+  rather than replacing it.
+* ~~*Blocker 11, shared cache / distributed rate limiting.*~~ **Closed**, also
+  without the purchase. Reward-claim claim-once was already a partial unique
+  index. The *velocity* limiter in `src/ratelimit.ts` is now
+  `rate_limit_windows` in Postgres, counted by one atomic upsert that decides in
+  a single statement whether the current window is live or expired — so two
+  instances share one allowance instead of getting one each. Redis was the
+  assumed answer; the database was already there, already durable, and already
+  the thing both instances agree on. Memory remains the adapter when
+  `DATABASE_URL` is unset, exactly as everywhere else.
 
-* **Blocker 11, shared cache / distributed rate limiting.** Reward-claim
-  claim-once no longer depends on process memory: it is a partial unique index,
-  so it holds across instances today. What still does not is the *velocity*
-  limiter in `src/ratelimit.ts`, which remains in-process. The consequence is
-  smaller than it was — a second instance can no longer let a player claim two
-  free kits, only claim slightly faster than intended.
+One blocker is *narrowed* rather than removed:
+
 * **Blocker 12, secrets and deployment.** `DATABASE_URL` joins
   `AUTH_TOKEN_SECRET` and `IP_HASH_SALT` on the list of things the secret store
   has to hold.
@@ -1134,9 +1159,10 @@ Two blockers are *narrowed* rather than removed:
     configured at build time — there is deliberately no `VITE_LIVE_OPS_TOKEN`.
     *Still needed:* previewing the manifest a given release would produce **at a
     chosen time** (today it previews *now*), a diff between two versions of a
-    document, and a deployment target behind an operator network. And the whole
-    thing still sits on one shared secret with no roles — Blocker 9 is what
-    makes this a stopgap.
+    document, and a deployment target behind an operator network. It no longer
+    sits on one shared secret: the console signs in as an account and the
+    service answers `/v1/operators/me`, so a tab only ever shows the authoring
+    surfaces that account may actually use.
 
 ### Not blockers, but decisions someone owes us
 

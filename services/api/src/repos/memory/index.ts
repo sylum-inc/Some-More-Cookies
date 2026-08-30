@@ -33,6 +33,7 @@ import {
   createMemoryContentReleaseRepository,
 } from './liveops.js';
 import { createMemoryModerationRepository } from './moderation.js';
+import { createMemoryOperatorGrantRepository } from './operators.js';
 import { createMemoryAnalyticsRepository } from './analytics.js';
 
 export interface MemoryRepositorySeed {
@@ -62,6 +63,7 @@ export function createInMemoryRepositories(seed: MemoryRepositorySeed = {}): Rep
     authority: createMemoryAuthorityRepository(),
     sandwiches: createMemorySandwichRepository(),
     rewardDefinitions: createMemoryRewardDefinitionRepository(seed.rewards ?? []),
+    operatorGrants: createMemoryOperatorGrantRepository(),
     rewardGrants: createMemoryRewardGrantRepository(),
     rewardClaims: createMemoryRewardClaimRepository(),
     contentDocuments: createMemoryContentDocumentRepository(),

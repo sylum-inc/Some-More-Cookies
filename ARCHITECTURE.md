@@ -239,11 +239,11 @@ the listener basis it shares with the fire and the wildlife.
 
 ## 8. Backend (`services/api`)
 
-Node 22 + TypeScript on `node:http` with a small typed router (ADR-0005). Domains: identity · passport · campsites · sessions · worldState · rewards · commerce · moderation · analytics. Every storage edge is a repository interface with an in-memory implementation for tests/dev and a PostgreSQL schema (`services/api/sql/schema.sql`) ready for the adapter.
+Node 22 + TypeScript on `node:http` with a small typed router (ADR-0005). Domains: identity · passport · campsites · sessions · worldState · rewards · commerce · moderation · analytics. Every storage edge is a repository interface with two implementations — in-memory for tests and dev, PostgreSQL for everything else — chosen at boot by whether `DATABASE_URL` is set. The whole suite runs against both.
 
 **Commerce** uses a custom domain model with a `PaymentProvider` abstraction (Stripe first, fake provider for tests). Raw card data never enters our systems — only provider tokens and intent ids. Every mutating commerce operation requires an idempotency key: same key + same payload replays the original result; same key + different payload is a conflict.
 
-**Security:** HMAC-signed tokens, authorization checked at every resource boundary, high-value rewards validated server-side with claim-once semantics and rate limiting, no secrets in the repository.
+**Security:** HMAC-signed tokens, authorization checked at every resource boundary, high-value rewards validated server-side with claim-once semantics and rate limiting, no secrets in the repository. Staff actions are gated by named per-account capabilities rather than a shared secret (ADR-0011), and rate-limit windows are counted in the database so two instances share one allowance rather than getting one each.
 
 ---
 
@@ -391,3 +391,4 @@ observation about this minute rather than a preference.
 | [0008](./docs/adr/0008-signed-offline-verifiable-codes.md) | One signed, offline-verifiable code format for wrappers, events and campfires |
 | [0009](./docs/adr/0009-media-storage-behind-an-interface.md) | Photo bytes behind a `MediaStorage` interface, with a real local-disk adapter |
 | [0010](./docs/adr/0010-campsite-memory-sync.md) | Campsite memory syncs as per-device counters; the significance score has nowhere to ride |
+| [0011](./docs/adr/0011-operator-capabilities.md) | Operators hold named capabilities; the shared ops secret becomes a spent bootstrap |

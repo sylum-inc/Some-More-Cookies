@@ -24,3 +24,4 @@ export * from './liveops.js';
 export * from './commerce.js';
 export * from './events.js';
 export * from './moderation.js';
+export * from './operators.js';

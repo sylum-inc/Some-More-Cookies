@@ -284,6 +284,33 @@ The test for this was wrong twice before it was right, which is worth keeping:
    hit-testing follows painting, and that is exactly the claim: reachable by a
    screen reader and by Tab, not there for a thumb.
 
+### Session 5: the operator model, and what only a real database says
+
+Closing Blocker 9 — one shared `LIVE_OPS_TOKEN` replaced by named capabilities
+— and Blocker 11, moving the velocity limiter out of process memory. Four of
+the five defects below were found by running the thing rather than by reading
+it.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 45 | **Revoking a capability was a 500 against PostgreSQL and a pass against everything else.** The `UPDATE` bound one placeholder twice — `SET revoked_at = $3` (a `timestamptz`) and `to_jsonb($3::text)` — and Postgres rejects a parameter inferred as two types (`42P08`) | It passed in memory because there is no planner, and it passed when the same SQL was pasted into `psql` because literals are not parameters. Only a *parameterised* statement against a real server produces it. Two hours went into the array parameter that was not the problem; the fix is the `$3::text::timestamptz` pin two sibling adapters already used |
+| 46 | **The concurrency suite asserted the old permission model as a feature.** Five cases in `postgres.test.ts` minted codes and published documents by presenting `LIVE_OPS_TOKEN`, which Blocker 9 had just stopped meaning anything | The suite is about races in the database, so the credential was setup nobody re-read. They now grant the capability the route actually checks, which is also a clearer statement of what each case needs |
+| 47 | **The console gated every control on the spent bootstrap secret.** `canAuthor` read `credentials.opsToken.length > 0`, so after Blocker 9 it was wrong in both directions: an operator holding real capabilities but no bootstrap string saw everything greyed out, and anybody holding the spent string saw everything live until the service said 403 | The change landed in the service and the screen was never re-derived from it. Each control is now disabled from the capability its route checks, and the banner names what the account holds instead of telling everyone to paste `LIVE_OPS_TOKEN` |
+| 48 | **`vite preview` served a stale console build, and the suite passed anyway.** The banner's wording changed, the *previous* wording was served, and every assertion stayed green | Two failures compounding: `preview` never rebuilds, and the assertion was `/Authoring enabled\|not configured/` against the whole panel — which the code-signing line satisfied on its own, so it had stopped saying anything about authoring. The assertion now names a capability, and the fixture refuses to run when `dist` is older than `src` |
+| 49 | **`liveOps.status()` could no longer return `not_configured`.** Its `ready` branch became unconditional when authoring moved to capabilities, leaving a protocol state nothing can produce | Recorded rather than removed: the discriminated union is still the right shape for a credential-gated subsystem, and code signing still uses both branches |
+
+Blocker 11 went the same way. Redis was the assumed answer and stayed unbought;
+the database was already there, already durable, and already the thing two
+instances agree on. `rate_limit_windows` counts a shared window in one atomic
+upsert that decides in a single statement whether the current window is live or
+expired — so no read-then-write between two instances can lose a count.
+
+Both blockers were waiting on a purchase that turned out not to be the
+dependency. Blocker 9 was framed as needing a staff identity provider; what it
+actually needed was the service's own model of what a person may do, and
+accounts already existed. Worth remembering the next time a blocker names
+somebody else's product.
+
 ### Session 5: the service had no way to run
 
 Asked to give the shared campfire somewhere to live. There was not a single
@@ -529,9 +556,9 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 | S1 | **Two affordances are still HUD buttons.** Taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The woodpile and the ember bed are now touched directly, and which log you reach for decides what wood goes on the fire. | The remaining two are transitions rather than manipulations, so they read less wrongly — but the spec's spirit is that you carry the marshmallow, not press "take". | Drag the roasting stick to the plate; pick the sandwich off the tray. Both buttons stay as an accessibility fallback for anyone who cannot drag. |
 | S2 | **Never run on a touch device.** | Roasting is a two-axis drag; risk R7 is unresolved without a thumb on real glass. | A device lab, or at minimum a phone. |
 | S3 | **Never profiled on real hardware.** | The 60 FPS target is unverified; SwiftShader here cannot answer it. | Real device profiling against the budgets in ARCHITECTURE §10. |
-| S4 | ~~Multiplayer is architected, not built.~~ **Built.** RFC 6455 framing, handshake, rooms, authority hand-off with fencing, blocks and anti-grief, all with no new dependencies. Voice is behind a LiveKit adapter that reports "not configured" without credentials. | — | Remaining: proximity mixing applies no gain yet, and participant truth is in-process rather than read from the provider. |
+| S4 | ~~Multiplayer is architected, not built.~~ **Built.** RFC 6455 framing, handshake, rooms, authority hand-off with fencing, blocks and anti-grief, all with no new dependencies. Voice is behind a LiveKit adapter that reports "not configured" without credentials. Proximity mixing now applies `proximityGain` per track per frame, with the panner's own distance model turned off so the two curves cannot multiply. | — | Remaining: participant truth is in-process rather than read from a provider, because there is no provider and no WebRTC SDK in this build. `attach(accountId, stream)` is the seam it arrives through. |
 | S5 | ~~Wildlife, radio, secrets and traces are data, not behaviour.~~ **Wired.** `stepRitual` steps all three every step; their cue field is derived from state that actually exists — the fire that is burning, the marshmallow that is browning, the compressor that is running. Animals render with eyeshine; the radio is an object you walk to and tune. | — | Remaining: a human has neither seen the animals nor heard the dial. |
-| S6 | ~~The significance model is not wired to storage.~~ **Wired locally.** Wildlife and discovery events become traces, and traces, resident visit counts and found secrets are folded into the Passport per campsite and handed back on the next visit. | — | Remaining: campsite memory is local-only; the world-state domain exists server-side but the client does not yet sync traces to it. |
+| S6 | ~~The significance model is not wired to storage.~~ **Wired, and now synced.** Wildlife and discovery events become traces, and traces, resident visit counts and found secrets are folded into the Passport per campsite. The client pushes that memory to the service on join, every 30 seconds, and on `pagehide`, and merges what comes back — so losing the phone no longer loses every place that had met you. The significance score stays on the device: the protocol has nowhere to put one. | — | — |
 | S8 | **The order terminal now reaches a real service, but no human has bought anything.** The whole sequence runs against the API in tests, including the payment intent and confirmation through the fake provider. | Nobody has typed a real address into it on a phone. | A person, and eventually a processor. |
 | S9 | **Nothing has run on a real phone.** Every safe-area inset is zero in headless Chromium, so no test here has seen a real notch; `beforeinstallprompt` is dispatched by hand; no home-screen install, no launch image and no wake lock has ever been exercised; and there is no iOS anything — no macOS, no Safari, no simulator. | The three mobile defects found this session were found by *reasoning about* insets and painting them onto screenshots, not by measuring them. | A phone. `docs/HUMAN_TEST.md` §9b is written for exactly this. |
 | S9b | ~~One visual baseline is stale, and one verification number is unmeasured.~~ **Closed.** Every one of the sixteen baselines was regenerated from scratch rather than updated — a tolerance wide enough to hide the fire's flicker is wide enough to hide a stale picture, and `roasted.png` was still showing the one-sided marshmallow from before the input fix while matching happily. `perf` was re-run serially on an idle machine: 83/120 draw calls, 10,370/60,000 triangles, 1.605/24 MB textures. | — | — |

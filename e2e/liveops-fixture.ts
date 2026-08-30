@@ -26,6 +26,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
+import { readdirSync, statSync } from 'node:fs';
 
 /**
  * A shared operator secret for the fixture.
@@ -147,6 +148,45 @@ export async function startApi(options: { configured: boolean; corsOrigin?: stri
 }
 
 /**
+ * Refuse to test a build older than the source it was built from.
+ *
+ * `vite preview` serves `dist` and never rebuilds it, so a console change with
+ * no rebuild is tested as the *previous* version — silently, and with every
+ * assertion still green if it happens not to touch what changed. That is
+ * exactly what happened once: a banner's wording changed, the old wording was
+ * served, and the suite passed because the assertion was loose enough to match
+ * a different line entirely. CI builds the console before running this project,
+ * so this only ever fires locally — which is precisely where it is needed.
+ */
+function assertConsoleBuildIsCurrent(): void {
+  const root = resolve(process.cwd(), 'apps/console');
+  const dist = resolve(root, 'dist/index.html');
+  let builtAt: number;
+  try {
+    builtAt = statSync(dist).mtimeMs;
+  } catch {
+    throw new Error('apps/console/dist is missing. Run: npm run build --workspace @somemore/console');
+  }
+
+  const newest = (dir: string): number => {
+    let latest = 0;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = resolve(dir, entry.name);
+      latest = Math.max(latest, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs);
+    }
+    return latest;
+  };
+  const sourceAt = Math.max(newest(resolve(root, 'src')), statSync(resolve(root, 'index.html')).mtimeMs);
+
+  if (sourceAt > builtAt) {
+    throw new Error(
+      'apps/console/dist is older than apps/console/src, so these tests would run against the ' +
+        'previous build. Run: npm run build --workspace @somemore/console',
+    );
+  }
+}
+
+/**
  * The console's own preview server.
  *
  * A separate build on a separate origin — which is the console's entire
@@ -155,6 +195,7 @@ export async function startApi(options: { configured: boolean; corsOrigin?: stri
  * specs exercise the CORS path a real deployment needs.
  */
 export async function startConsole(): Promise<RunningService> {
+  assertConsoleBuildIsCurrent();
   const port = await freePort();
   /*
    * Its own process group, killed as a group.
@@ -213,11 +254,58 @@ export async function bearerToken(baseUrl: string, displayName = 'Live Ops'): Pr
       displayName,
     }),
   });
-  const body = (await response.json()) as { auth?: { token?: string } };
+  const body = (await response.json()) as { auth?: { token?: string }; account?: { id?: string } };
   const token = body.auth?.token;
   if (response.status !== 201 || token === undefined) {
     throw new Error(`bootstrap failed: ${response.status} ${JSON.stringify(body)}`);
   }
+  return token;
+}
+
+/**
+ * One appointed operator per service, made once and reused.
+ *
+ * The shared token appoints the *first* operator on a deployment and then
+ * refuses, which is the whole difference between a bootstrap and a standing
+ * permission (README, Blocker 9). So this caches: signing in as a brand new
+ * anonymous person for every mint and expecting to still be an administrator
+ * only ever worked while the shared secret *was* the permission.
+ */
+const appointed = new Map<string, string>();
+
+export async function operatorToken(baseUrl: string): Promise<string> {
+  const cached = appointed.get(baseUrl);
+  if (cached !== undefined) return cached;
+
+  const account = await fetch(`${baseUrl}/v1/auth/anonymous`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      device: { deviceId: key('device'), platform: 'web', appVersion: '0.3.0' },
+      displayName: 'Live Ops',
+    }),
+  });
+  const body = (await account.json()) as { auth?: { token?: string }; account?: { id?: string } };
+  const token = body.auth?.token;
+  const accountId = body.account?.id;
+  if (account.status !== 201 || token === undefined || accountId === undefined) {
+    throw new Error(`bootstrap failed: ${account.status} ${JSON.stringify(body)}`);
+  }
+
+  const granted = await fetch(`${baseUrl}/v1/operators/grants`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+      'x-somemore-ops-token': OPS_TOKEN,
+    },
+    body: JSON.stringify({ idempotencyKey: key('grant'), accountId, role: 'admin' }),
+  });
+  if (granted.status !== 201) {
+    throw new Error(`appointing an operator failed: ${granted.status} ${await granted.text()}`);
+  }
+
+  appointed.set(baseUrl, token);
   return token;
 }
 
@@ -227,11 +315,11 @@ export async function mintCodes(
   count = 1,
   overrides: Record<string, unknown> = {},
 ): Promise<{ batchId: string; codes: { ref: string; token: string; uri: string }[] }> {
-  const bearer = await bearerToken(baseUrl);
+  // An appointed operator, not a shared string: minting needs `codes:mint`.
+  const bearer = await operatorToken(baseUrl);
   const headers = {
     'content-type': 'application/json',
     authorization: `Bearer ${bearer}`,
-    'x-somemore-ops-token': OPS_TOKEN,
   };
 
   const batch = await fetch(`${baseUrl}/v1/live-ops/code-batches`, {

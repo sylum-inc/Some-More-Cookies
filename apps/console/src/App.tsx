@@ -12,11 +12,11 @@
  *
  * Three things this screen refuses to do:
  *
- *  - **Look broken when it is not.** A deployment with no `LIVE_OPS_TOKEN`
- *    answers `503 service_not_configured` naming the variable, and that is a
- *    fact about the deployment, not a failure. It is rendered as a standing
- *    banner that says which variable is missing and what still works, and the
- *    authoring controls are disabled rather than firing requests that cannot
+ *  - **Look broken when it is not.** An account that holds no operator
+ *    capabilities, or a subsystem with no credentials, is a fact about the
+ *    deployment rather than a failure. Both are rendered as a standing banner
+ *    that says what is missing and what still works, and every control the
+ *    account may not use is disabled rather than firing a request that cannot
  *    succeed.
  *  - **Hide a validation error.** Issues come back as dotted paths
  *    (`pine_hollow.secrets[2].rarity`) and appear beside the editor, all of
@@ -97,8 +97,31 @@ export function App(): React.ReactElement {
   const [batches, setBatches] = useState<CodeBatch[]>([]);
   const [manifest, setManifest] = useState<ContentManifest | null>(null);
 
+  /**
+   * What this account may actually do (README, Blocker 9).
+   *
+   * Empty until asked, and empty for an ordinary player. Every authoring
+   * control on this screen is disabled from this set rather than from the
+   * presence of a secret, which is the whole point of the change: the console
+   * shows an operator the surfaces they hold and greys out the rest, instead of
+   * offering everything to whoever pasted the right string.
+   */
+  const [capabilities, setCapabilities] = useState<ReadonlySet<string>>(new Set());
+
   const connected = credentials.bearer.length > 0;
-  const canAuthor = connected && authoring?.ready === true && credentials.opsToken.length > 0;
+  /**
+   * The bootstrap token deliberately does not appear here.
+   *
+   * Before Blocker 9 it did, and after Blocker 9 that was wrong in both
+   * directions: an operator holding real capabilities but no bootstrap string
+   * saw every control greyed out, and anybody holding the spent string saw
+   * every control live and learned it meant nothing only when the service said
+   * 403. The service checks a capability, so this checks the same capability.
+   */
+  const can = useCallback(
+    (capability: string): boolean => connected && capabilities.has(capability),
+    [capabilities, connected],
+  );
 
   const run = useCallback(
     async <T,>(action: () => Promise<{ ok: true; value: T } | { ok: false; error: OpsFailure }>): Promise<T | null> => {
@@ -146,16 +169,27 @@ export function App(): React.ReactElement {
     // this whole console exists to answer.
     const live = await client.manifest();
     if (live.ok) setManifest(live.value);
-    // Both credentials, or none of these can succeed. Asking anyway would only
+    // An account, or none of the rest can succeed. Asking anyway would only
     // fill the service's log with 401s an operator did nothing to cause.
-    if (!connected || credentials.opsToken.length === 0) return;
-    const docs = await client.listDocuments();
-    if (docs.ok) setDocuments(docs.value);
-    const rels = await client.listReleases();
-    if (rels.ok) setReleases(rels.value);
-    const runs = await client.listBatches();
-    if (runs.ok) setBatches(runs.value);
-  }, [client, connected, credentials.opsToken, refreshStatus]);
+    if (!connected) return;
+    const held = await client.capabilities();
+    const may = new Set(held.ok ? held.value.capabilities : []);
+    setCapabilities(may);
+    // And each list only if this account may read it, for the same reason: a
+    // 403 an operator cannot act on is noise in somebody's log, not feedback.
+    if (may.has('content:draft')) {
+      const docs = await client.listDocuments();
+      if (docs.ok) setDocuments(docs.value);
+    }
+    if (may.has('content:publish')) {
+      const rels = await client.listReleases();
+      if (rels.ok) setReleases(rels.value);
+    }
+    if (may.has('codes:mint')) {
+      const runs = await client.listBatches();
+      if (runs.ok) setBatches(runs.value);
+    }
+  }, [client, connected, refreshStatus]);
 
   useEffect(() => {
     void refreshAll();
@@ -170,7 +204,28 @@ export function App(): React.ReactElement {
         onChange={setCredentials}
         onSignIn={async () => {
           const session = await run(() => client.signInAnonymously());
-          if (session) setCredentials((current) => ({ ...current, bearer: session.token }));
+          if (!session) return;
+          setCredentials((current) => ({ ...current, bearer: session.token }));
+
+          /*
+           * Spend the bootstrap token, once (README, Blocker 9).
+           *
+           * It used to be the permission itself: every authoring call carried
+           * it, and holding the string was holding the power. Now it can make
+           * the first operator on a deployment that has none, and nothing else
+           * — so signing in appoints this account if nobody has been appointed,
+           * and from then on the console works on capabilities that can be
+           * revoked from one person.
+           *
+           * A refusal here is not an error to show: on a deployment that
+           * already has an operator it means somebody else has to grant you,
+           * which the capability check will say plainly at the first action.
+           */
+          const signedIn = new OpsClient({ ...credentials, bearer: session.token });
+          const held = await signedIn.capabilities();
+          if (held.ok && held.value.capabilities.length === 0) {
+            await signedIn.appointSelf(session.accountId);
+          }
         }}
         onForget={() => {
           forgetCredentials();
@@ -182,7 +237,7 @@ export function App(): React.ReactElement {
         busy={busy}
       />
 
-      <ConfigurationBanner authoring={authoring} signing={signing} connected={connected} opsToken={credentials.opsToken} />
+      <ConfigurationBanner authoring={authoring} signing={signing} connected={connected} capabilities={capabilities} />
 
       {banner !== null && <BannerStrip banner={banner} onDismiss={() => setBanner(null)} />}
 
@@ -222,7 +277,8 @@ export function App(): React.ReactElement {
             client={client}
             documents={documents}
             manifest={manifest}
-            canAuthor={canAuthor}
+            canDraft={can('content:draft')}
+            canPublish={can('content:publish')}
             run={run}
             onChanged={() => void refreshAll()}
             setBanner={setBanner}
@@ -233,7 +289,7 @@ export function App(): React.ReactElement {
             client={client}
             releases={releases}
             manifest={manifest}
-            canAuthor={canAuthor}
+            canPublish={can('content:publish')}
             run={run}
             onChanged={() => void refreshAll()}
             setBanner={setBanner}
@@ -244,7 +300,7 @@ export function App(): React.ReactElement {
             client={client}
             batches={batches}
             signing={signing}
-            canAuthor={canAuthor}
+            canMintCodes={can('codes:mint')}
             run={run}
             onChanged={() => void refreshAll()}
             setBanner={setBanner}
@@ -312,12 +368,13 @@ function Header({
             spellCheck={false}
           />
         </Field>
-        <Field label="Ops token">
+        {/* Needed once per deployment, to appoint its first operator. */}
+        <Field label="Bootstrap token">
           <input
             data-testid="cred-ops"
             type="password"
             value={credentials.opsToken}
-            placeholder="LIVE_OPS_TOKEN"
+            placeholder="LIVE_OPS_TOKEN (first operator only)"
             onChange={(event) => onChange({ ...credentials, opsToken: event.target.value })}
             spellCheck={false}
           />
@@ -346,16 +403,27 @@ function Header({
  * it is a property, and an operator who scrolled past a toast should not have
  * to guess why the publish button is grey.
  */
+/**
+ * What this tab can do, in the service's own words (README, Blocker 9).
+ *
+ * This used to report on a secret: no ops token meant "paste LIVE_OPS_TOKEN".
+ * That is the wrong advice for the ordinary case now — an operator who was
+ * granted capabilities by an admin never sees the bootstrap string and should
+ * never be told to go looking for one. So the banner names the capabilities
+ * this account actually holds, and mentions the bootstrap only in the one
+ * situation where it is still the answer: a deployment that has no operators
+ * at all, where somebody has to be first.
+ */
 function ConfigurationBanner({
   authoring,
   signing,
   connected,
-  opsToken,
+  capabilities,
 }: {
   authoring: null | { ready: true; releaseVersion: number } | { ready: false; reason: string };
   signing: null | { ready: true; keyIds: string[]; canMint: boolean } | { ready: false; reason: string };
   connected: boolean;
-  opsToken: string;
+  capabilities: ReadonlySet<string>;
 }): React.ReactElement {
   const lines: { tone: Banner['tone']; text: string }[] = [];
 
@@ -365,13 +433,20 @@ function ConfigurationBanner({
     lines.push({ tone: 'warn', text: 'Have not asked the service about itself yet.' });
   } else if (!authoring.ready) {
     lines.push({ tone: 'warn', text: authoring.reason });
-  } else if (opsToken.length === 0) {
+  } else if (capabilities.size === 0) {
     lines.push({
       tone: 'warn',
-      text: `The service can author (release ${authoring.releaseVersion}), but this tab has no ops token. Paste LIVE_OPS_TOKEN above.`,
+      text:
+        `The service is up (release ${authoring.releaseVersion}), but this account holds no operator ` +
+        'capabilities, so everything below is read-only. Ask an operator to grant them — or, if this ' +
+        'deployment has no operators at all yet, paste LIVE_OPS_TOKEN above and sign in again to ' +
+        'appoint yourself as the first one.',
     });
   } else {
-    lines.push({ tone: 'ok', text: `Authoring enabled · release ${authoring.releaseVersion} is live.` });
+    lines.push({
+      tone: 'ok',
+      text: `Authoring as ${[...capabilities].sort().join(', ')} · release ${authoring.releaseVersion} is live.`,
+    });
   }
 
   if (signing !== null) {
@@ -455,7 +530,6 @@ function IssueList({ issues }: { issues: { path: string; message: string }[] }):
 
 interface TabProps {
   client: OpsClient;
-  canAuthor: boolean;
   run: <T>(action: () => Promise<{ ok: true; value: T } | { ok: false; error: OpsFailure }>) => Promise<T | null>;
   onChanged: () => void;
   setBanner: (banner: Banner | null) => void;
@@ -465,11 +539,17 @@ function ContentTab({
   client,
   documents,
   manifest,
-  canAuthor,
+  canDraft,
+  canPublish,
   run,
   onChanged,
   setBanner,
-}: TabProps & { documents: ContentDocument[]; manifest: ContentManifest | null }): React.ReactElement {
+}: TabProps & {
+  documents: ContentDocument[];
+  manifest: ContentManifest | null;
+  canDraft: boolean;
+  canPublish: boolean;
+}): React.ReactElement {
   const [kind, setKind] = useState<ContentKind>('seasonal_event');
   const [slug, setSlug] = useState('perseids_weekend');
   const [title, setTitle] = useState('Perseids Weekend');
@@ -611,7 +691,7 @@ function ContentTab({
         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
           <Button
             data-testid="validate"
-            disabled={!canAuthor || !parsed.ok}
+            disabled={!canDraft || !parsed.ok}
             onClick={async () => {
               if (!parsed.ok) return;
               setBanner(null);
@@ -626,7 +706,7 @@ function ContentTab({
           <Button
             data-testid="draft"
             tone="primary"
-            disabled={!canAuthor || !parsed.ok}
+            disabled={!canDraft || !parsed.ok}
             onClick={async () => {
               if (!parsed.ok) return;
               setBanner(null);
@@ -685,7 +765,7 @@ function ContentTab({
                           key={next}
                           data-testid={`transition-${document.slug}-${next}`}
                           tone={next === 'published' ? 'primary' : next === 'retired' ? 'danger' : 'quiet'}
-                          disabled={!canAuthor}
+                          disabled={!canPublish}
                           onClick={async () => {
                             setBanner(null);
                             const moved = await run(() => client.transition(document.id, next as ContentStatus));
@@ -802,11 +882,15 @@ function ReleasesTab({
   client,
   releases,
   manifest,
-  canAuthor,
+  canPublish,
   run,
   onChanged,
   setBanner,
-}: TabProps & { releases: ContentRelease[]; manifest: ContentManifest | null }): React.ReactElement {
+}: TabProps & {
+  releases: ContentRelease[];
+  manifest: ContentManifest | null;
+  canPublish: boolean;
+}): React.ReactElement {
   const [note, setNote] = useState('');
   const liveVersion = manifest?.releaseVersion ?? 0;
 
@@ -864,7 +948,7 @@ function ReleasesTab({
                   <Button
                     data-testid={`rollback-${release.version}`}
                     tone="danger"
-                    disabled={!canAuthor || release.version === liveVersion}
+                    disabled={!canPublish || release.version === liveVersion}
                     onClick={async () => {
                       setBanner(null);
                       const created = await run(() => client.rollback(release.version, note));
@@ -897,13 +981,14 @@ function CodesTab({
   client,
   batches,
   signing,
-  canAuthor,
+  canMintCodes,
   run,
   onChanged,
   setBanner,
 }: TabProps & {
   batches: CodeBatch[];
   signing: null | { ready: true; keyIds: string[]; canMint: boolean } | { ready: false; reason: string };
+  canMintCodes: boolean;
 }): React.ReactElement {
   const [label, setLabel] = useState('Spring 26 wrapper, print order 4471');
   const [size, setSize] = useState('1000');
@@ -912,7 +997,7 @@ function CodesTab({
   const [mintCount, setMintCount] = useState('10');
   const [minted, setMinted] = useState<MintCodesResult | null>(null);
 
-  const canMint = canAuthor && signing?.ready === true && signing.canMint;
+  const canMint = canMintCodes && signing?.ready === true && signing.canMint;
 
   return (
     <>
@@ -1043,7 +1128,7 @@ function CodesTab({
                     <Button
                       data-testid={`retire-${batch.id}`}
                       tone="danger"
-                      disabled={!canAuthor || batch.status === 'retired'}
+                      disabled={!canMintCodes || batch.status === 'retired'}
                       onClick={async () => {
                         const reason = window.prompt('Why is this run being retired?');
                         if (reason === null || reason.trim().length === 0) return;

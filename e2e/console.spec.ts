@@ -60,14 +60,42 @@ const EVENT = {
   note: 'Authored end to end through the console.',
 };
 
-/** Sign in and hand over the ops token, the way an operator starts a shift. */
+/**
+ * One operator, signing in once, working across a shift.
+ *
+ * The bootstrap token appoints the *first* operator on a deployment and then
+ * refuses — that is the whole difference between a bootstrap and a standing
+ * permission (README, Blocker 9). So the first connection here appoints an
+ * account and every later one reuses that account's bearer, which is what an
+ * operator actually does. Signing in as a brand new anonymous person each time
+ * and expecting to still be an administrator was only ever going to work while
+ * the shared secret *was* the permission.
+ */
+let shiftBearer: string | null = null;
+
 async function connect(page: Page, options: { api?: string } = {}): Promise<void> {
   await page.goto(console_.baseUrl);
   await page.getByTestId('cred-base-url').fill(options.api ?? api.baseUrl);
   await page.getByTestId('cred-ops').fill(OPS_TOKEN);
-  await page.getByTestId('sign-in').click();
-  // Signing in changes the credentials, which re-reads everything.
-  await expect(page.getByTestId('configuration-banner')).toContainText(/Authoring enabled|not configured/i, {
+
+  if (shiftBearer === null || options.api !== undefined) {
+    await page.getByTestId('sign-in').click();
+    // Named, not matched loosely: the banner has a code-signing line as well,
+    // and `/…|not configured/` over the whole panel was satisfied by that line
+    // alone — so it went on passing no matter what the authoring line said.
+    // This asserts the capability the account actually holds.
+    await expect(page.getByTestId('configuration-banner')).toContainText(/Authoring as .*content:draft/i, {
+      timeout: 20_000,
+    });
+    if (options.api === undefined) {
+      shiftBearer = await page.getByTestId('cred-bearer').inputValue();
+      expect(shiftBearer, 'signing in produced no bearer token').not.toBe('');
+    }
+    return;
+  }
+
+  await page.getByTestId('cred-bearer').fill(shiftBearer);
+  await expect(page.getByTestId('configuration-banner')).toContainText(/Authoring as .*content:draft/i, {
     timeout: 20_000,
   });
 }
@@ -88,6 +116,70 @@ test.describe('the live-ops console', () => {
     await expect(page.getByTestId('validate')).toBeDisabled();
 
     await page.screenshot({ path: `${SHOTS}/console-not-configured.png`, fullPage: true });
+  });
+
+  test('gives an author the surfaces they hold, and greys out the ones they do not', async ({ page, request }) => {
+    /*
+     * The point of the operator model, seen from the screen (README, Blocker 9).
+     *
+     * Before it, one shared string enabled every control on this console, so a
+     * person brought in to write copy was one mis-click from minting a hundred
+     * thousand wrappers. `content:draft` alone should light up drafting and
+     * leave publishing and printing dark — and it should do so *before* the
+     * click, not as a 403 afterwards.
+     */
+    await connect(page);
+    const admin = shiftBearer;
+    expect(admin, 'no administrator to grant from').not.toBeNull();
+
+    // A second person, granted exactly one capability by the administrator.
+    const signUp = await request.post(`${api.baseUrl}/v1/auth/anonymous`, {
+      data: {
+        device: {
+          deviceId: `console-author-${Date.now().toString(36)}`,
+          platform: 'web',
+          appVersion: '0.1.0',
+        },
+        displayName: 'Author',
+      },
+    });
+    expect(signUp.status()).toBe(201);
+    const author = await signUp.json();
+
+    const granted = await request.post(`${api.baseUrl}/v1/operators/grants`, {
+      headers: { authorization: `Bearer ${admin}` },
+      data: {
+        idempotencyKey: `console-grant-${Date.now().toString(36)}`,
+        accountId: author.account.id,
+        capabilities: ['content:draft'],
+      },
+    });
+    const grantBody = await granted.text();
+    expect(granted.status(), grantBody).toBe(201);
+
+    // Signed in as that person, with no bootstrap token anywhere in the tab.
+    await page.goto(console_.baseUrl);
+    await page.getByTestId('cred-base-url').fill(api.baseUrl);
+    await page.getByTestId('cred-ops').fill('');
+    await page.getByTestId('cred-bearer').fill(author.auth.token);
+    // Reload rather than trusting the keystroke: credentials are persisted per
+    // tab, so a fresh boot is what an operator opening the console actually
+    // gets, and it removes any doubt about which bearer the screen asked with.
+    await page.reload();
+
+    const banner = page.getByTestId('configuration-banner');
+    await expect(banner).toContainText('Authoring as content:draft', { timeout: 20_000 });
+    // Named capabilities, not a secret: nobody is told to go find a string.
+    await expect(banner).not.toContainText('LIVE_OPS_TOKEN');
+
+    await expect(page.getByTestId('draft')).toBeEnabled();
+    await expect(page.getByTestId('validate')).toBeEnabled();
+
+    // Printing is somebody else's job, and the screen says so by being dark.
+    await page.getByTestId('tab-codes').click();
+    await expect(page.getByTestId('create-batch')).toBeDisabled();
+
+    await page.screenshot({ path: `${SHOTS}/console-partial-capabilities.png`, fullPage: true });
   });
 
   test('shows a validation failure as dotted paths the author can act on', async ({ page }) => {

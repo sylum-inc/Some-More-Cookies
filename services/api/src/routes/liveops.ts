@@ -13,37 +13,51 @@ import {
   TransitionContentDocumentRequestSchema,
 } from '@somemore/protocol';
 import { ApiError } from '../errors.js';
+import type { OperatorCapability } from '@somemore/protocol';
 import { defineRoute, type AnyRoute, type RequestContext } from '../http/router.js';
 import type { ServiceRegistry } from '../services.js';
 
-/** The header an operator presents alongside their ordinary bearer token. */
+/**
+ * The bootstrap header, used by `routes/operators.ts` and nothing here.
+ *
+ * It lives in this module for history: it used to be the credential every
+ * route below demanded. Since ADR-0011 it appoints the first operator on a
+ * deployment that has none, and opens nothing else.
+ */
 export const OPS_TOKEN_HEADER = 'x-somemore-ops-token';
 
 /**
  * Live-ops authoring: the write side of the content service, and the mint.
  *
- * Every route here needs **two** things: a valid player bearer token (so the
- * action has a real account attached to it in the audit trail) and the shared
- * `LIVE_OPS_TOKEN`. That is not RBAC and is not pretending to be — there is no
- * staff identity provider yet (README, Blocker 9). It is deliberately more than
- * a shared secret alone, and the blocker stays open until it is a role model.
+ * Every route here needs a valid player bearer token whose account holds the
+ * capability that route names — `content:draft` to write a document,
+ * `content:publish` to put one in front of players, `codes:mint` to press a
+ * batch (ADR-0011). The capability is checked in the handler, next to the work
+ * it guards, so the permission a reader sees here is the permission the service
+ * enforces.
  *
- * With no `LIVE_OPS_TOKEN` set, these routes answer `503
- * service_not_configured` with the missing variable named, exactly as the
- * payment and voice adapters do. They never quietly succeed and never quietly
- * no-op.
+ * This replaces one shared `LIVE_OPS_TOKEN` that authorized all of it at once,
+ * for everybody who had the string, with no way to take it back from one
+ * person. A refusal names the capability that was missing, because the person
+ * reading it is usually an operator who needs to know which one to ask for.
  */
 export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
-  const { liveOps, codes, operators } = services;
+  const { liveOps, codes, operatorDirectory } = services;
 
-  /** Both credentials, or a 401/503 that says which one is missing. */
-  function operator(ctx: RequestContext<unknown, unknown>): string {
+  /**
+   * The account, once it has been established it may do this particular thing.
+   *
+   * This used to take a shared secret and grant *everything* — draft, publish,
+   * mint, all one permission held by everybody who had the string. Now each
+   * route names the capability it needs, which is what makes "may draft" and
+   * "may mint a hundred thousand codes" different jobs (README, Blocker 9).
+   */
+  async function operator(
+    ctx: RequestContext<unknown, unknown>,
+    capability: OperatorCapability,
+  ): Promise<string> {
     const auth = ctx.requireAuth();
-    const reason = operators.unavailableReason();
-    if (reason !== null) throw new ApiError('service_not_configured', reason);
-    if (!operators.matches(ctx.headers[OPS_TOKEN_HEADER])) {
-      throw new ApiError('unauthorized', `A valid ${OPS_TOKEN_HEADER} header is required for live ops.`);
-    }
+    await operatorDirectory.require(auth.accountId, capability);
     return auth.accountId;
   }
 
@@ -69,7 +83,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Dry-run the publish gate against a body without storing anything.',
       body: z.object({ kind: ContentKindSchema, body: JsonValueSchema }),
       async handle(ctx) {
-        operator(ctx);
+        await operator(ctx, 'content:draft');
         return { status: 200, body: await liveOps.validate(ctx.body.kind, ctx.body.body) };
       },
     }),
@@ -82,7 +96,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Draft a new version of a content document.',
       body: CreateContentDocumentRequestSchema,
       async handle(ctx) {
-        const actor = operator(ctx);
+        const actor = await operator(ctx, 'content:draft');
         return { status: 201, body: await liveOps.createDocument(actor, ctx.body) };
       },
     }),
@@ -93,7 +107,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       auth: 'required',
       summary: 'List content documents, optionally filtered by kind, slug or status.',
       async handle(ctx) {
-        operator(ctx);
+        await operator(ctx, 'content:draft');
         const kind = ContentKindSchema.safeParse(ctx.query.get('kind'));
         const slug = ContentSlugSchema.safeParse(ctx.query.get('slug'));
         const status = ContentStatusSchema.safeParse(ctx.query.get('status'));
@@ -118,7 +132,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Read one content document at one version, in any status.',
       params: z.object({ documentId: IdSchema }),
       async handle(ctx) {
-        operator(ctx);
+        await operator(ctx, 'content:draft');
         return { status: 200, body: await liveOps.getDocument(ctx.params.documentId) };
       },
     }),
@@ -132,7 +146,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       params: z.object({ documentId: IdSchema }),
       body: TransitionContentDocumentRequestSchema,
       async handle(ctx) {
-        const actor = operator(ctx);
+        const actor = await operator(ctx, 'content:publish');
         return {
           status: 200,
           body: await liveOps.transition(actor, ctx.params.documentId, ctx.body),
@@ -146,7 +160,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       auth: 'required',
       summary: 'The append-only release history: what was live, and when.',
       async handle(ctx) {
-        operator(ctx);
+        await operator(ctx, 'content:publish');
         const limit = Number.parseInt(ctx.query.get('limit') ?? '50', 10);
         return {
           status: 200,
@@ -166,7 +180,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Undo a bad publish by republishing an earlier release, with no deploy.',
       body: RollbackReleaseRequestSchema,
       async handle(ctx) {
-        const actor = operator(ctx);
+        const actor = await operator(ctx, 'content:publish');
         return { status: 201, body: await liveOps.rollback(actor, ctx.body) };
       },
     }),
@@ -181,7 +195,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Open a print run: what it entitles you to, how big, and when it is live.',
       body: CreateCodeBatchRequestSchema,
       async handle(ctx) {
-        const actor = operator(ctx);
+        const actor = await operator(ctx, 'codes:mint');
         return { status: 201, body: await codes.createBatch(actor, ctx.body) };
       },
     }),
@@ -192,7 +206,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       auth: 'required',
       summary: 'Every print run, with minted and redeemed counts.',
       async handle(ctx) {
-        operator(ctx);
+        await operator(ctx, 'codes:mint');
         return { status: 200, body: { items: await codes.listBatches(), nextCursor: null } };
       },
     }),
@@ -206,7 +220,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       params: z.object({ batchId: IdSchema }),
       body: MintCodesRequestSchema,
       async handle(ctx) {
-        const actor = operator(ctx);
+        const actor = await operator(ctx, 'codes:mint');
         return {
           status: 201,
           body: await codes.mint(actor, ctx.params.batchId, ctx.body),
@@ -225,7 +239,7 @@ export function liveOpsRoutes(services: ServiceRegistry): AnyRoute[] {
       params: z.object({ batchId: IdSchema }),
       body: RetireCodeBatchRequestSchema,
       async handle(ctx) {
-        const actor = operator(ctx);
+        const actor = await operator(ctx, 'codes:mint');
         return { status: 200, body: await codes.retire(actor, ctx.params.batchId, ctx.body) };
       },
     }),

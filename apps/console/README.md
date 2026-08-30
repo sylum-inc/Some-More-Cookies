@@ -47,26 +47,38 @@ The cost is a second deployment target. That is the right trade: it goes
 behind whatever the operator network is, and a player never receives a byte of
 it.
 
-## What it is not
+## Who may do what
 
-Not RBAC. Every action needs an ordinary bearer token **and** the shared
-`LIVE_OPS_TOKEN` — two things, one of which is a real account in the audit
-trail, which is meaningfully better than a shared secret alone and is still one
-shared secret with no roles, no per-person revocation, and no separation
-between "may draft" and "may mint 100,000 codes". That is `services/api`
-Blocker 9 and it stays open until there is an operator identity provider.
+Every action is gated by a named capability the signed-in account holds —
+`content:draft` to write, `content:publish` to put something in front of
+players, `codes:mint` to press a print run — and the screen reads them from
+`/v1/operators/me` at boot. The separation this used to lack is the visible
+part: an account granted `content:draft` gets a live editor and a dark
+**Create run** button, rather than an enabled button and a 403 after the click.
+
+This replaces the previous arrangement, where every action needed a bearer
+token **and** the shared `LIVE_OPS_TOKEN`, with no roles, no per-person
+revocation, and no separation between "may draft" and "may mint 100,000 codes".
+That was `services/api` Blocker 9, and it is closed.
+
+`LIVE_OPS_TOKEN` still has exactly one job here. On a deployment where nobody
+is an operator yet, signing in with the bootstrap token in the credentials
+panel appoints that account as the first administrator; from then on the string
+is spent and the console works entirely on granted capabilities. An operator
+who was granted their capabilities by somebody else never needs it, and the
+banner no longer tells them to go and find one.
 
 Against a dev service there is nothing to sign into, so **Sign in** bootstraps
 an ordinary anonymous account. It is labelled as the stopgap it is.
 
 ## What is on the screen, and why
 
-**A standing configuration banner, never a toast.** Whether this deployment can
-author is a *property*, not an event. With no `LIVE_OPS_TOKEN` the service
-answers `503 service_not_configured` naming the variable; the console renders
-that as a statement of fact, disables the authoring controls rather than firing
-requests that cannot succeed, and says what still works. An unconfigured
-deployment must never read as a broken one.
+**A standing configuration banner, never a toast.** What this tab may do is a
+*property*, not an event. The banner names the capabilities the signed-in
+account holds, or says plainly that it holds none and who to ask — and the
+authoring controls are disabled to match, rather than firing requests that
+cannot succeed. An account without permission must never read as a broken
+deployment.
 
 **Every validation issue at once, as the dotted path it came as.**
 `pine_hollow.secrets[2].rarity` is precise enough to point at one line in the

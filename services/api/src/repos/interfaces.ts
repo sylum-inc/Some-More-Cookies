@@ -1,4 +1,5 @@
 import type {
+  OperatorGrant,
   Account,
   CodeBatch,
   CodeRedemption,
@@ -225,6 +226,24 @@ export interface RewardGrantRepository {
   reassignAccount(fromAccountId: string, toAccountId: string): Promise<number>;
 }
 
+/**
+ * Who may do operator things, and who took it away (README, Blocker 9).
+ *
+ * One row per account per capability, kept rather than deleted on revoke: a
+ * revocation is a fact about a person and a moment, and a missing row cannot
+ * say when or by whom.
+ */
+export interface OperatorGrantRepository {
+  /** Live capabilities only — revoked ones are history, not permission. */
+  listFor(accountId: string): Promise<OperatorGrant[]>;
+  /** Everybody who holds anything. For the "who has the keys" question. */
+  listAll(): Promise<OperatorGrant[]>;
+  /** Idempotent: granting what somebody already holds is not an error. */
+  grant(grant: OperatorGrant): Promise<OperatorGrant>;
+  /** Returns how many were actually live. Revoking nothing is not an error. */
+  revoke(accountId: string, capabilities: readonly string[], atIso: string): Promise<number>;
+}
+
 export interface RewardClaimRepository {
   create(claim: RewardClaim): Promise<RewardClaim>;
   get(claimId: string): Promise<RewardClaim | null>;
@@ -390,6 +409,7 @@ export interface Repositories {
   readonly sessions: SessionRepository;
   readonly authority: AuthorityRepository;
   readonly sandwiches: SandwichRepository;
+  readonly operatorGrants: OperatorGrantRepository;
   readonly rewardDefinitions: RewardDefinitionRepository;
   readonly rewardGrants: RewardGrantRepository;
   readonly rewardClaims: RewardClaimRepository;

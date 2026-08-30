@@ -19,7 +19,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { codeSigningInput, formatSomeMoreCode, type CodeBody } from '@somemore/protocol';
-import { bootstrap, key, startTestApi, type Player, type TestHarness } from '../../services/api/test/harness.js';
+import { bootstrap, key, startTestApi, type Player, type TestHarness,
+  grantOperator,
+} from '../../services/api/test/harness.js';
 import { OPS_TOKEN_HEADER } from '../../services/api/src/routes/liveops.js';
 import { ed25519PrivateKeyFrom, generateCodeKeyPair } from '../../services/api/src/codes/signing.js';
 import { ApiClient, deviceId } from '../../apps/web/src/net/client.js';
@@ -58,6 +60,9 @@ beforeEach(async () => {
   (globalThis as { localStorage?: unknown }).localStorage = new MemoryStorage();
   api = await startTestApi(opsEnv());
   operator = await bootstrap(api, 'Live Ops');
+  // A real operator account with real capabilities (README, Blocker 9), rather
+  // than a shared string that granted everything to whoever had it.
+  await grantOperator(api, operator.accountId, { role: 'admin' });
 });
 
 afterEach(async () => {
@@ -68,7 +73,6 @@ async function ops(path: string, body?: unknown): Promise<{ status: number; body
   return api.request(path, {
     method: body === undefined ? 'GET' : 'POST',
     token: operator.token,
-    headers: { [OPS_TOKEN_HEADER]: OPS_TOKEN },
     ...(body === undefined ? {} : { body }),
   });
 }

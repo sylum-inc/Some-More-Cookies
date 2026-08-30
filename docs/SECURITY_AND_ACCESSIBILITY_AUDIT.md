@@ -279,10 +279,29 @@ The four existing tests that drove fulfillment on a customer's token now present
 the operator credential — that they did not is what made this finding easy to
 miss, since the suite asserted the hole as a feature.
 
-It is still not RBAC and does not pretend to be — one shared secret, no roles,
-no per-person revocation. **Blocker 9 stays open**, and it is now the only thing
-standing between this product and an operator model it will need before it
-takes a real order.
+That was as far as one shared secret could be taken, and **Blocker 9 is now
+closed**: `operator_capabilities` replaces the string with eight named
+capabilities (`content:draft`, `content:publish`, `codes:mint`,
+`commerce:fulfill`, `commerce:refund`, `moderation:action`, `rewards:review`,
+`operators:grant`) and six roles that expand into them. `LIVE_OPS_TOKEN` no
+longer opens a single route: it appoints the *first* operator and is spent the
+moment anybody holds `operators:grant`, which is what makes it safe to leave the
+variable set. Granting is itself a capability, so an editor cannot promote a
+friend. A revocation is stored rather than deleted — `revoked_at` on the row,
+mirrored into the document — because a missing row cannot say when a permission
+was taken away or by whom, and a re-grant clears the revocation instead of
+leaving a live row that says it was withdrawn.
+
+One bug on that path is worth recording, because only a real server produced it.
+The revoke statement bound one placeholder twice, once against a `timestamptz`
+column and once through `to_jsonb(...::text)`; Postgres infers a parameter's
+type from its use and rejects a parameter inferred two ways (`42P08`,
+"inconsistent types deduced for parameter $3"). It passed against the in-memory
+repositories and passed when the same SQL was run by hand in `psql`, because
+literals are not parameters — it failed only when a parameterised statement met
+a real planner. The fix is the pin the session and magic-link adapters already
+used, `$3::text::timestamptz`. Every other reused placeholder in
+`repos/postgres/` was then checked by hand; all were already consistent.
 
 ### S10 and S11 — The two doors that are open on purpose · fixed
 
@@ -314,28 +333,45 @@ household touches the first a handful of times a day and a whole campsite
 session is a few dozen of the second — and both are refusals a client can act
 on (`429` with `Retry-After`) rather than silent drops.
 
-**What is still owed.** Both are in-process (README Blocker 11), so a second
-instance doubles both numbers, and both are only as good as `TRUSTED_PROXY_HOPS`
-makes the address. Redis remains the fix and remains unbought.
+**Now shared.** Both were in-process (README Blocker 11), so a second instance
+doubled both numbers. `createPostgresRateLimiter` moves the window into
+`rate_limit_windows`, counted by a single atomic upsert that decides in one
+statement whether the existing window is still live or has expired — so two
+instances share one allowance rather than one each, and no read-then-write
+between them can lose a count. Redis was the assumed fix and stayed unbought;
+the database was already there, already durable, and already the thing both
+instances agree on. The limiter is chosen the same way every other adapter is:
+Postgres when `DATABASE_URL` is set, memory otherwise.
 
-### S12 — `block` writes a row per message · low · not fixed
+Both remain only as good as `TRUSTED_PROXY_HOPS` makes the address, which is
+S2's business and unchanged.
 
-`SessionRoom.handleBlock` writes a moderation row for an arbitrary account id,
-metered only by the 90/s global message bucket. It needs an account id to be
-interesting and produces nothing but rows, so it is a storage-growth nuisance
-rather than an attack. A dedicated bucket alongside `chat` and `authority` in
-`ConnectionMeters` would close it; it was left alone because
-`services/api/src/realtime/` is under active work by another workstream and this
-is not worth a conflict.
+### S12 — `block` writes a row per message · low · fixed
 
-### S13 — The recursion cap in the card scan · low · not fixed, argued
+`SessionRoom.handleBlock` wrote a moderation row for an arbitrary account id,
+metered only by the 90/s global message bucket — a storage-growth nuisance
+rather than an attack, since it needs a real account id to be interesting and
+produces nothing but rows. It now has its own bucket in `ConnectionMeters`
+alongside `chat` and `authority`. It was deferred last pass to avoid a conflict
+with work in `services/api/src/realtime/`; that work has landed, so the reason
+to leave it expired.
 
-`containsRawCardData` returns `false` past twelve levels of nesting, so card
-data nested deeper is not seen. Deliberately left: the scan runs before schema
-validation, and a body nested thirteen levels deep is not a shape any route's
-Zod schema accepts, so the data is rejected either way. Raising the cap trades a
-theoretical gap for a real recursion budget on every request. Recorded so it is
-not re-litigated.
+### S13 — The recursion cap in the card scan · low · fixed
+
+`containsRawCardData` returned `false` past twelve levels of nesting, so card
+data nested deeper was not seen. The original argument — that no route's Zod
+schema accepts a body thirteen levels deep, so such a body is rejected anyway —
+is still true, and raising the cap would still buy a theoretical gap for a real
+recursion budget on every request. So the cap stayed and the *answer* changed.
+
+The scan now returns three states rather than a boolean: `clean`, `card-data`,
+and `too-deep`. The difference matters because "I looked and found nothing" and
+"I stopped looking" are not the same claim, and a guard whose refusal to answer
+is indistinguishable from a clean bill of health is one refactor away from
+being wrong. `containsRawCardData` keeps its boolean shape for its callers by
+asking for `card-data` explicitly, so nothing silently reads `too-deep` as
+safe. The constraint this protects is absolute — never store raw card data —
+and a guard on an absolute constraint should not be able to shrug.
 
 ### What was attacked and found sound
 
@@ -366,12 +402,12 @@ All **verified** unless marked.
   grant, on **both** backends. On Postgres that is
   `reward_grants_one_live_per_account_reward`; on the in-memory repositories it
   is that no `await` in the path yields to a real I/O boundary, so the two
-  handlers cannot interleave. **The second of those is an accident of the
-  runtime, not an invariant** — the memory repositories do not enforce
-  claim-once themselves, although `sql/schema.sql` line 9 says they do. Recorded
-  rather than fixed: the memory repositories are for tests and dev, and the
-  cheap fix (a uniqueness check in `createMemoryRewardGrantRepository`) is worth
-  doing the next time that file is open.
+  handlers cannot interleave. The second of those was **an accident of the
+  runtime rather than an invariant** — the memory repositories did not enforce
+  claim-once themselves, though `sql/schema.sql` line 9 said they did. That file
+  is open now, so `createMemoryRewardGrantRepository` enforces it, and the two
+  backends make the same promise for the same reason instead of one of them
+  passing because nothing happened to interleave.
 * **CORS.** Credentialed routes echo only an exact configured origin, never a
   reflected one, never `*`; public GETs answer `*` with no credentials; the
   preflight is answered before authentication with the *intended* method, so a

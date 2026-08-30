@@ -11,6 +11,7 @@ import type { Mailer, OutboundMail } from '../src/mailer.js';
 import { createDatabase, parseDatabaseUrl, PgPool, truncateData, type Database } from '../src/db/index.js';
 import { seedPostgresCatalog } from '../src/repos/postgres/index.js';
 import { seedProducts, seedPromotions, seedRewards } from '../src/domain/seed.js';
+import type { OperatorCapability, OperatorRole } from '@somemore/protocol';
 
 export const TEST_START = '2026-08-29T12:00:00.000Z';
 
@@ -140,6 +141,25 @@ export interface TestHarness {
   readonly mailer: TestMailer;
   request<T = any>(path: string, options?: RequestOptions): Promise<ApiResponse<T>>;
   close(): Promise<void>;
+}
+
+/**
+ * Makes an account an operator (README, Blocker 9).
+ *
+ * Straight through the directory rather than over HTTP, because almost every
+ * test that needs this is testing something else and the grant is setup. The
+ * bootstrap route and the capability check on the grant route have their own
+ * tests in `operators.test.ts`, which is where that path is the subject.
+ */
+export async function grantOperator(
+  api: TestHarness,
+  accountId: string,
+  request: { role?: OperatorRole; capabilities?: OperatorCapability[] },
+): Promise<void> {
+  await api.app.services.operatorDirectory.grant(
+    { accountId, ...request } as never,
+    'acct_test_bootstrap',
+  );
 }
 
 export interface StartTestApiOptions {

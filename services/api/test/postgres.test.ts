@@ -2,17 +2,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   bootstrap,
   createCampsite,
+  grantOperator,
   key,
   sandwichPayload,
   startTestApi,
   PERSISTENCE,
+  type Player,
   type TestHarness,
 } from './harness.js';
+import type { OperatorCapability } from '@somemore/protocol';
 import { listApplied, loadMigrations, migrate, truncateData } from '../src/db/index.js';
 import { generateCodeKeyPair } from '../src/codes/signing.js';
 import { createPostgresRateLimiter } from '../src/ratelimit.js';
 import { systemClock } from '../src/clock.js';
-import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 
 /*
  * The tests a single-threaded Map cannot fail.
@@ -508,7 +510,26 @@ describePostgres('durability', () => {
 /* -------------------------------------------------------------------------- */
 
 const CODE_KEYS = generateCodeKeyPair();
-const OPS_TOKEN = 'ops-token-for-tests-only';
+
+/**
+ * An account that holds the capabilities a case needs (README, Blocker 9).
+ *
+ * These cases are about races in the database, not about authorization, so the
+ * capability is granted through the directory rather than over the bootstrap
+ * route — `operators.test.ts` is where that path is the subject. Before Blocker
+ * 9 this was a shared `LIVE_OPS_TOKEN` header on every request; that string now
+ * opens nothing but the first appointment, so asking for the capability by name
+ * is both what the service checks and a clearer statement of what the case
+ * needs.
+ */
+async function operatorWith(
+  harness: TestHarness,
+  ...capabilities: OperatorCapability[]
+): Promise<Player> {
+  const operator = await bootstrap(harness, 'Operator');
+  await grantOperator(harness, operator.accountId, { capabilities });
+  return operator;
+}
 
 /**
  * A harness with code signing and live-ops authoring switched on.
@@ -520,7 +541,10 @@ const OPS_TOKEN = 'ops-token-for-tests-only';
 async function withCodeApi<T>(run: (harness: TestHarness) => Promise<T>): Promise<T> {
   const harness = await startTestApi(
     {
-      LIVE_OPS_TOKEN: OPS_TOKEN,
+      // Still set, exactly as a real deployment sets it: after Blocker 9 the
+      // bootstrap secret opens the first appointment and nothing else, so it
+      // has no bearing on anything these cases do.
+      LIVE_OPS_TOKEN: 'ops-token-for-tests-only',
       CODE_SIGNING_KEY_ID: 'k1',
       CODE_SIGNING_PRIVATE_KEY: CODE_KEYS.privateKeyBase64,
       CODE_VERIFY_PUBLIC_KEYS: `k1:${CODE_KEYS.publicKeyBase64}`,
@@ -540,11 +564,9 @@ async function mintRun(
   count: number,
   overrides: Record<string, unknown> = {},
 ) {
-  const headers = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
   const batch = await harness.request('/v1/live-ops/code-batches', {
     method: 'POST',
     token: operatorToken,
-    headers,
     body: {
       idempotencyKey: key('batch'),
       label: 'Concurrency run',
@@ -558,7 +580,6 @@ async function mintRun(
   const minted = await harness.request(`/v1/live-ops/code-batches/${batch.body.id}/mint`, {
     method: 'POST',
     token: operatorToken,
-    headers,
     body: { idempotencyKey: key('mint'), count },
   });
   expect(minted.status, JSON.stringify(minted.body)).toBe(201);
@@ -568,7 +589,7 @@ async function mintRun(
 describePostgres('two people scanning the same wrapper', () => {
   it('produces one grant and one refusal, decided by the unique index', async () => {
     await withCodeApi(async (harness) => {
-      const operator = await bootstrap(harness, 'Operator');
+      const operator = await operatorWith(harness, 'codes:mint');
       const { batch, codes } = await mintRun(harness, operator.token, 2);
       const buyer = await bootstrap(harness, 'Buyer');
       const scraper = await bootstrap(harness, 'Scraper');
@@ -602,7 +623,7 @@ describePostgres('two people scanning the same wrapper', () => {
 
   it('holds across five simultaneous scans of one code', async () => {
     await withCodeApi(async (harness) => {
-      const operator = await bootstrap(harness, 'Operator');
+      const operator = await operatorWith(harness, 'codes:mint');
       const { batch, codes } = await mintRun(harness, operator.token, 1);
       const players = await Promise.all(
         Array.from({ length: 5 }, (_, i) => bootstrap(harness, `Scanner ${i}`)),
@@ -628,7 +649,7 @@ describePostgres('two people scanning the same wrapper', () => {
 
   it('lets one account redeem a one-per-account run exactly once, however it races', async () => {
     await withCodeApi(async (harness) => {
-      const operator = await bootstrap(harness, 'Operator');
+      const operator = await operatorWith(harness, 'codes:mint');
       const { batch, codes } = await mintRun(harness, operator.token, 3);
       const player = await bootstrap(harness, 'Enthusiast');
 
@@ -669,15 +690,13 @@ describePostgres('publishing content from two places at once', () => {
 
   it('leaves exactly one version of a slug live', async () => {
     await withCodeApi(async (harness) => {
-      const operator = await bootstrap(harness, 'Operator');
-      const headers = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+      const operator = await operatorWith(harness, 'content:draft', 'content:publish');
 
       const staged = await Promise.all(
         [1, 2].map(async (n) => {
           const created = await harness.request('/v1/live-ops/documents', {
             method: 'POST',
             token: operator.token,
-            headers,
             body: {
               idempotencyKey: key('doc'),
               kind: 'seasonal_event',
@@ -693,7 +712,6 @@ describePostgres('publishing content from two places at once', () => {
           await harness.request(`/v1/live-ops/documents/${created.body.id}/transitions`, {
             method: 'POST',
             token: operator.token,
-            headers,
             body: { idempotencyKey: key('tr'), to: 'staged' },
           });
           return created.body.id as string;
@@ -705,7 +723,6 @@ describePostgres('publishing content from two places at once', () => {
           harness.request(`/v1/live-ops/documents/${documentId}/transitions`, {
             method: 'POST',
             token: operator.token,
-            headers,
             body: { idempotencyKey: key('tr'), to: 'published' },
           }),
         ),
@@ -729,14 +746,12 @@ describePostgres('publishing content from two places at once', () => {
 
   it('gives every release a distinct version number under concurrent publishes', async () => {
     await withCodeApi(async (harness) => {
-      const operator = await bootstrap(harness, 'Operator');
-      const headers = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+      const operator = await operatorWith(harness, 'content:draft', 'content:publish');
 
       for (const slug of ['perseid_weekend', 'winter_dial_a', 'winter_dial_b']) {
         const created = await harness.request('/v1/live-ops/documents', {
           method: 'POST',
           token: operator.token,
-          headers,
           body: {
             idempotencyKey: key('doc'),
             kind: 'seasonal_event',
@@ -748,13 +763,11 @@ describePostgres('publishing content from two places at once', () => {
         await harness.request(`/v1/live-ops/documents/${created.body.id}/transitions`, {
           method: 'POST',
           token: operator.token,
-          headers,
           body: { idempotencyKey: key('tr'), to: 'staged' },
         });
         await harness.request(`/v1/live-ops/documents/${created.body.id}/transitions`, {
           method: 'POST',
           token: operator.token,
-          headers,
           body: { idempotencyKey: key('tr'), to: 'published' },
         });
       }

@@ -14,12 +14,12 @@
  *     every phone, whether or not it is reachable. "Inert without a token" is a
  *     runtime property; not being in the bundle is a build property, and only
  *     one of those survives somebody reading the JavaScript.
- *  2. **The ops token must never be in a player build.** In a single app the
- *     obvious mistake is one `VITE_LIVE_OPS_TOKEN` away, and a `VITE_` variable
- *     is a string in a static asset that gets served, cached and copied. Here
- *     there is no such variable at all: the token is typed in by a person and
- *     held in `sessionStorage` for the length of a tab. Look for it in
- *     `vite.config.ts` — the absence is the point.
+ *  2. **The bootstrap token must never be in a player build.** In a single app
+ *     the obvious mistake is one `VITE_LIVE_OPS_TOKEN` away, and a `VITE_`
+ *     variable is a string in a static asset that gets served, cached and
+ *     copied. Here there is no such variable at all: the token is typed in by a
+ *     person and held in `sessionStorage` for the length of a tab. Look for it
+ *     in `vite.config.ts` — the absence is the point.
  *  3. **They are different products.** The campfire is warm paper and stamped
  *     ink; this is a terminal that has to show a hundred documents, a dotted
  *     validation path and a release number at two in the morning. Sharing a
@@ -29,14 +29,19 @@
  * deployed behind whatever the operator network is, and a player never receives
  * a byte of it.
  *
- * ## Both credentials, honestly
+ * ## Capabilities, honestly
  *
- * Every authoring call needs a bearer token *and* `x-somemore-ops-token`
- * (README, "Authoring authentication, and what it is not"). With no
- * `LIVE_OPS_TOKEN` on the service, the routes answer `503
- * service_not_configured` naming the variable — so this client surfaces that as
- * its own state rather than as a failure, because a deployment that has not
- * been given a token is not broken, it is read-only.
+ * Every authoring call is authorised by a capability the signed-in account
+ * holds — `content:draft`, `content:publish`, `codes:mint` (ADR-0011). This
+ * client asks `/v1/operators/me` for that set and hands it to the screen, so
+ * controls are dark before the click rather than 403 after it.
+ *
+ * `x-somemore-ops-token` survives for exactly one call: appointing the *first*
+ * operator on a deployment that has none. It is spent as soon as anybody holds
+ * `operators:grant`, so a refusal there is expected rather than an error, and
+ * an operator granted their capabilities by somebody else never sends it at
+ * all. An account with no capabilities is not a broken deployment; it is a
+ * read-only one, and the console says which.
  */
 
 import {
@@ -65,9 +70,9 @@ export const OPS_TOKEN_HEADER = 'x-somemore-ops-token';
 
 /** Why a call did not succeed, in the shapes the console has to render. */
 export type OpsFailure =
-  /** No `LIVE_OPS_TOKEN` on the service. Reads still work; authoring does not. */
+  /** A credential-gated subsystem is unconfigured. Reads still work. */
   | { kind: 'not_configured'; message: string }
-  /** Bearer token or ops token wrong or missing. */
+  /** Not signed in, or the account lacks the capability the route requires. */
   | { kind: 'unauthorized'; message: string }
   /** A document did not pass the publish gate. Dotted paths, all of them. */
   | { kind: 'invalid'; message: string; issues: { path: string; message: string }[] }
@@ -96,7 +101,11 @@ export interface Credentials {
   baseUrl: string;
   /** An ordinary player bearer token. The audit trail hangs off its account. */
   bearer: string;
-  /** The shared `LIVE_OPS_TOKEN`. Never persisted beyond this tab. */
+  /**
+   * The bootstrap `LIVE_OPS_TOKEN`, for appointing the first operator on a
+   * deployment that has none. Needed once, if ever. Never persisted beyond
+   * this tab.
+   */
   opsToken: string;
 }
 
@@ -281,6 +290,42 @@ export class OpsClient {
     return result.ok
       ? { ok: true, value: { token: result.value.auth.token, accountId: result.value.account.id } }
       : result;
+  }
+
+  /**
+   * Appoint this account, using the bootstrap token (README, Blocker 9).
+   *
+   * The token in the credentials panel used to *be* the permission: every
+   * authoring call carried it and holding the string was holding the power.
+   * It is a bootstrap now — it can make the first operator on a deployment
+   * that has none, and nothing else — so the console spends it once, here, and
+   * afterwards works on the capabilities the account actually holds.
+   *
+   * Idempotent from the operator's point of view: on a deployment that already
+   * has an operator this refuses, which is correct and is why it is only
+   * attempted when `/v1/operators/me` comes back empty.
+   */
+  async appointSelf(accountId: string): Promise<OpsResult<{ capabilities: string[] }>> {
+    const granted = await this.request(
+      '/v1/operators/grants',
+      z.object({ items: z.array(z.object({ capability: z.string() })) }),
+      {
+        method: 'POST',
+        body: { idempotencyKey: idempotencyKey(), accountId, role: 'admin' },
+      },
+    );
+    return granted.ok
+      ? { ok: true, value: { capabilities: granted.value.items.map((i) => i.capability) } }
+      : granted;
+  }
+
+  /** What this account may actually do. Empty for an ordinary player. */
+  capabilities(): Promise<OpsResult<{ capabilities: string[] }>> {
+    return this.request(
+      '/v1/operators/me',
+      z.object({ capabilities: z.array(z.string()) }),
+      { ops: false },
+    );
   }
 
   /* --- status ----------------------------------------------------------- */

@@ -65,7 +65,7 @@ export function healthRoutes(services: ServiceRegistry): AnyRoute[] {
           identityProviders: services.capabilities.identityProviders,
           mailer: services.capabilities.mailer,
           persistence: services.capabilities.persistence,
-          liveOpsAuthoring: services.capabilities.liveOpsAuthoring,
+          operatorBootstrap: services.capabilities.operatorBootstrap,
           codeVerification: services.capabilities.codeVerification,
           codeMinting: services.capabilities.codeMinting,
           mediaStorage: services.capabilities.mediaStorage,

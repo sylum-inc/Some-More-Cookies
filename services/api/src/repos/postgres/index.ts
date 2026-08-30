@@ -37,6 +37,7 @@ import {
   createPostgresContentReleaseRepository,
 } from './liveops.js';
 import { createPostgresModerationRepository } from './moderation.js';
+import { createPostgresOperatorGrantRepository } from './operators.js';
 import { createPostgresAnalyticsRepository } from './analytics.js';
 
 export interface PostgresRepositorySeed {
@@ -68,6 +69,7 @@ export function createPostgresRepositories(pool: PgPool): Repositories {
     authority: createPostgresAuthorityRepository(pool),
     sandwiches: createPostgresSandwichRepository(pool),
     rewardDefinitions: createPostgresRewardDefinitionRepository(pool),
+    operatorGrants: createPostgresOperatorGrantRepository(pool),
     rewardGrants: createPostgresRewardGrantRepository(pool),
     rewardClaims: createPostgresRewardClaimRepository(pool),
     contentDocuments: createPostgresContentDocumentRepository(pool),

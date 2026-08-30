@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FAKE_DECLINE_TOKEN } from '../src/payments/fake.js';
-import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 import {
   US_ADDRESS,
   bootstrap,
@@ -8,6 +7,8 @@ import {
   key,
   sandwichPayload,
   startTestApi,
+  grantOperator,
+  type Player,
   type TestHarness,
 } from './harness.js';
 
@@ -16,16 +17,24 @@ let api: TestHarness;
 /*
  * Fulfillment is an operator action (audit S9). There is no staff identity
  * provider yet, so "operator" is the same two-credential gate live ops uses: a
- * real bearer token *and* the shared `LIVE_OPS_TOKEN`. These tests used to
+ * a real capability on a real account. These tests used to
  * drive `in_production → packed → shipped` on a customer's own token, which is
  * exactly the hole — a customer could ship their own order and then refund it
  * in full.
  */
-const OPS_TOKEN = 'commerce-ops-token-for-tests';
-const asOperator = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+/*
+ * Fulfillment is an operator action (audit S9), and an operator is now an
+ * account holding a capability rather than anybody with a shared string
+ * (README, Blocker 9). These tests used to drive `in_production → packed →
+ * shipped` on a customer's own token, which is exactly the hole — a customer
+ * could ship their own order and then refund it in full.
+ */
+let staff: Player;
 
 beforeEach(async () => {
-  api = await startTestApi({ LIVE_OPS_TOKEN: OPS_TOKEN });
+  api = await startTestApi();
+  staff = await bootstrap(api, 'Fulfilment');
+  await grantOperator(api, staff.accountId, { role: 'fulfilment' });
 });
 
 afterEach(async () => {
@@ -355,8 +364,7 @@ describe('the full commerce path', () => {
     ] as const) {
       const moved = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
         method: 'POST',
-        token: player.token,
-        headers: asOperator,
+        token: staff.token,
         body: { idempotencyKey: key('move'), to, note: `to ${to}`, ...(tracking === undefined ? {} : { tracking }) },
       });
       expect(moved.status, `${to}: ${JSON.stringify(moved.body)}`).toBe(200);
@@ -380,8 +388,7 @@ describe('the full commerce path', () => {
     // below for what a customer gets if they try it themselves.
     const refunded = await api.request(`/v1/commerce/orders/${order.body.id}/refunds`, {
       method: 'POST',
-      token: player.token,
-      headers: asOperator,
+      token: staff.token,
       body: { idempotencyKey: key('refund'), reason: 'melted' },
     });
     expect(refunded.status).toBe(201);
@@ -435,8 +442,7 @@ describe('order legality and authorization', () => {
 
     const skipping = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
       method: 'POST',
-      token: player.token,
-      headers: asOperator,
+      token: staff.token,
       body: { idempotencyKey: key('move'), to: 'shipped' },
     });
     expect(skipping.status).toBe(409);
@@ -444,16 +450,14 @@ describe('order legality and authorization', () => {
 
     const reserved = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
       method: 'POST',
-      token: player.token,
-      headers: asOperator,
+      token: staff.token,
       body: { idempotencyKey: key('move'), to: 'paid' },
     });
     expect(reserved.status).toBe(400);
 
     const bogus = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
       method: 'POST',
-      token: player.token,
-      headers: asOperator,
+      token: staff.token,
       body: { idempotencyKey: key('move'), to: 'incinerated' },
     });
     expect(bogus.status).toBe(422);
@@ -479,8 +483,7 @@ describe('order legality and authorization', () => {
     for (const to of ['in_production', 'packed', 'shipped'] as const) {
       await api.request(`/v1/commerce/orders/${shipped.id}/transitions`, {
         method: 'POST',
-        token: player.token,
-        headers: asOperator,
+        token: staff.token,
         body: { idempotencyKey: key('move'), to },
       });
     }
@@ -613,8 +616,7 @@ describe('a customer is not an operator', () => {
     for (const to of ['in_production', 'packed', 'shipped'] as const) {
       const moved = await api.request(`/v1/commerce/orders/${order.id}/transitions`, {
         method: 'POST',
-        token: player.token,
-        headers: asOperator,
+        token: staff.token,
         body: { idempotencyKey: key('move'), to },
       });
       expect(moved.status, `${to}: ${JSON.stringify(moved.body)}`).toBe(200);
@@ -631,8 +633,7 @@ describe('a customer is not an operator', () => {
     // theirs rather than as the customer's.
     const allowed = await api.request(`/v1/commerce/orders/${order.id}/refunds`, {
       method: 'POST',
-      token: player.token,
-      headers: asOperator,
+      token: staff.token,
       body: { idempotencyKey: key('refund'), reason: 'melted' },
     });
     expect(allowed.status).toBe(201);
@@ -653,17 +654,25 @@ describe('a customer is not an operator', () => {
     expect(refund.body.refunds[0].requestedBy).toBe('customer');
   });
 
-  it('does not accept a wrong ops token as an operator', async () => {
+  it('does not let one operator capability stand in for another', async () => {
+    /*
+     * The separation Blocker 9 asked for, at the commerce end: somebody who
+     * publishes content is not thereby somebody who can ship an order. Under
+     * the shared secret these were the same permission, held by everybody who
+     * had the string.
+     */
     const player = await bootstrap(api);
+    const editor = await bootstrap(api, 'Editor');
+    await grantOperator(api, editor.accountId, { role: 'editor' });
     const order = await paidOrder(player.token);
 
     const moved = await api.request(`/v1/commerce/orders/${order.id}/transitions`, {
       method: 'POST',
-      token: player.token,
-      headers: { [OPS_TOKEN_HEADER]: `${OPS_TOKEN}-nearly` },
+      token: editor.token,
       body: { idempotencyKey: key('move'), to: 'in_production' },
     });
     expect(moved.status).toBe(403);
+    expect(moved.body.error.message).toContain('commerce:fulfill');
   });
 });
 

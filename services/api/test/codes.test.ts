@@ -6,7 +6,7 @@ import {
   type CodeBody,
 } from '@somemore/protocol';
 import { createPrivateKey, generateKeyPairSync, sign } from 'node:crypto';
-import { bootstrap, createCampsite, key, startTestApi, type Player, type TestHarness } from './harness.js';
+import { bootstrap, createCampsite, key, startTestApi, type Player, type TestHarness, grantOperator } from './harness.js';
 import { generateCodeKeyPair, ed25519PrivateKeyFrom } from '../src/codes/signing.js';
 import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 
@@ -44,7 +44,6 @@ async function ops(path: string, body: unknown, method: 'POST' | 'GET' = 'POST')
   return api.request(path, {
     method,
     token: operator.token,
-    headers: { [OPS_TOKEN_HEADER]: OPS_TOKEN },
     ...(method === 'GET' ? {} : { body }),
   });
 }
@@ -89,6 +88,9 @@ function forge(body: CodeBody, privateKeyBase64: string): string {
 beforeEach(async () => {
   api = await startTestApi(opsEnv());
   operator = await bootstrap(api, 'Operator');
+  // A real operator account with real capabilities, rather than a shared
+  // string that granted everything to everybody who had it (Blocker 9).
+  await grantOperator(api, operator.accountId, { role: 'admin' });
 });
 
 afterEach(async () => {
@@ -553,6 +555,10 @@ describe('a deployment that can verify but not mint', () => {
     });
     try {
       const player = await bootstrap(readOnly, 'Operator');
+      // Allowed to mint, on a deployment that cannot: authorization is checked
+      // before configuration, so an unappointed caller is told nothing about
+      // how this deployment is set up.
+      await grantOperator(readOnly, player.accountId, { role: 'printer' });
       const status = await readOnly.request('/v1/live-ops/status', { token: player.token });
       expect(status.body.codes.status).toBe('ready');
       expect(status.body.codes.canMint).toBe(false);
@@ -560,7 +566,6 @@ describe('a deployment that can verify but not mint', () => {
       const attempt = await readOnly.request('/v1/live-ops/code-batches', {
         method: 'POST',
         token: player.token,
-        headers: { [OPS_TOKEN_HEADER]: OPS_TOKEN },
         body: {
           idempotencyKey: key('batch'),
           label: 'Nope',

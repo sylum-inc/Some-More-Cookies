@@ -104,9 +104,8 @@ argument is in `runtime/ts-resolve.mjs`.
 * **Nobody has run the image.** See the top of this file.
 * **No TLS and no backups** in `docker-compose.yml`. It is a development stack
   that happens to be the right shape, not a production one.
-* **One shared secret, no roles** (Blocker 9). `LIVE_OPS_TOKEN` gates authoring
-  and the operator-only commerce routes. It is not RBAC and does not pretend to
-  be.
-* **Rate limits are per-instance** (Blocker 11). Reward-claim limiting counts in
-  one process's memory, so two instances are two buckets. Claim-once is enforced
-  in the database and is safe; the *limit* is not.
+* **Set `LIVE_OPS_TOKEN` on a fresh database.** It no longer gates authoring —
+  named capabilities do (Blocker 9, now closed) — but it is the only way to
+  appoint the *first* operator, and it stops working the moment anybody holds
+  `operators:grant`. Without it, a brand-new deployment has no path to its first
+  administrator. It is safe to leave set afterwards.

@@ -303,10 +303,29 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
     };
   }
 
-  async function loadOrder(accountId: string, orderId: string): Promise<Order> {
+  /**
+   * The order, if this caller is allowed to see it.
+   *
+   * A customer may only ever load their own. An operator — somebody holding
+   * `commerce:fulfill` or `commerce:refund`, checked at the route — may load
+   * anybody's, because that is the entire job: the packing bench and the
+   * support desk act on other people's orders or they act on nothing.
+   *
+   * This is the last piece of Blocker 9's actual sentence, which asks that
+   * fulfillment and refunds "stop authorizing the customer". Gating the route
+   * without widening this would have produced an operator who is allowed to
+   * ship an order and cannot find one.
+   */
+  async function loadOrder(
+    accountId: string,
+    orderId: string,
+    actor: CommerceActor = 'customer',
+  ): Promise<Order> {
     const order = await repos.orders.get(orderId);
     if (order === null) throw notFound('No such order.');
-    if (order.accountId !== accountId) throw forbidden('That is not your order.');
+    if (actor !== 'operator' && order.accountId !== accountId) {
+      throw forbidden('That is not your order.');
+    }
     return order;
   }
 
@@ -671,7 +690,7 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
       if (actor !== 'operator') {
         throw forbidden('Fulfillment transitions are an operator action.');
       }
-      const order = await loadOrder(accountId, orderId);
+      const order = await loadOrder(accountId, orderId, actor);
       const restricted: OrderStatus[] = ['paid', 'refunded', 'partially_refunded', 'cancelled', 'awaiting_payment'];
       if (restricted.includes(request.to)) {
         throw badRequest(`Use the dedicated endpoint to move an order to ${request.to}.`);
@@ -701,7 +720,7 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
     },
 
     async refundOrder(accountId, orderId, request, actor = 'customer') {
-      const order = await loadOrder(accountId, orderId);
+      const order = await loadOrder(accountId, orderId, actor);
       if (order.payment === null || order.payment.status !== 'succeeded') {
         throw conflict('There is nothing to refund on that order.');
       }

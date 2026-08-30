@@ -37,6 +37,7 @@ import { Router } from './http/router.js';
 import { createApiServer } from './http/server.js';
 import { buildRoutes } from './routes/index.js';
 import type { ServiceRegistry } from './services.js';
+import { createOperatorDirectory } from './domain/operators.js';
 
 export interface AppOptions {
   readonly env?: NodeJS.ProcessEnv;
@@ -217,6 +218,7 @@ export function createApp(options: AppOptions = {}): App {
     liveOps,
     codes,
     operators,
+    operatorDirectory: createOperatorDirectory(deps),
     capabilities: {
       paymentProvider: payments.name,
       paymentsConfigured: payments.isConfigured(),
@@ -225,7 +227,7 @@ export function createApp(options: AppOptions = {}): App {
         : (['email'] as const),
       mailer: mailer.name,
       persistence: database === null ? 'memory' : 'postgres',
-      liveOpsAuthoring: operators.isConfigured(),
+      operatorBootstrap: operators.isConfigured(),
       codeVerification: codeSigner.isConfigured(),
       codeMinting: codeSigner.canMint(),
       mediaStorage: mediaStorage.name,

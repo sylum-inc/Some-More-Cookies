@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { validateSeasonalEvent, validateStationProgramming } from '@somemore/content';
-import { bootstrap, key, startTestApi, type Player, type TestHarness } from './harness.js';
+import { bootstrap, key, startTestApi, type Player, type TestHarness, grantOperator } from './harness.js';
 import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 
 /*
@@ -54,7 +54,6 @@ async function ops(path: string, body: unknown, method: 'POST' | 'GET' = 'POST')
   return api.request(path, {
     method,
     token: operator.token,
-    headers: { [OPS_TOKEN_HEADER]: OPS_TOKEN },
     ...(method === 'GET' ? {} : { body }),
   });
 }
@@ -87,6 +86,9 @@ async function publish(body: unknown, overrides: Record<string, unknown> = {}) {
 beforeEach(async () => {
   api = await startTestApi({ LIVE_OPS_TOKEN: OPS_TOKEN });
   operator = await bootstrap(api, 'Operator');
+  // A real operator account with real capabilities, rather than a shared
+  // string that granted everything to everybody who had it (Blocker 9).
+  await grantOperator(api, operator.accountId, { role: 'admin' });
 });
 
 afterEach(async () => {
@@ -372,39 +374,110 @@ describe('releases and rollback', () => {
 });
 
 describe('authoring authorization', () => {
-  it('refuses a player who has no operator token', async () => {
+  it('refuses an authenticated player who holds no capability', async () => {
     const player = await bootstrap(api, 'Camper');
     const attempt = await api.request('/v1/live-ops/documents', {
       method: 'POST',
       token: player.token,
       body: { idempotencyKey: key('doc'), kind: 'seasonal_event', slug: 'x', title: 'X', body: PERSEID },
     });
-    expect(attempt.status).toBe(401);
+    expect(attempt.status).toBe(403);
   });
 
-  it('refuses an operator token with no account behind it', async () => {
+  it('refuses the shared bootstrap token, which no longer authorizes anything here', async () => {
+    // The whole point of Blocker 9's fix: holding the string is not holding a
+    // permission any more. It bootstraps a first operator and does nothing else.
+    const player = await bootstrap(api, 'Camper');
     const attempt = await api.request('/v1/live-ops/documents', {
       method: 'POST',
+      token: player.token,
       headers: { [OPS_TOKEN_HEADER]: OPS_TOKEN },
       body: { idempotencyKey: key('doc'), kind: 'seasonal_event', slug: 'x', title: 'X', body: PERSEID },
     });
-    expect(attempt.status).toBe(401);
+    expect(attempt.status).toBe(403);
+    expect(attempt.body.error.message).toContain('content:draft');
   });
 
-  it('refuses a wrong operator token of the same length', async () => {
-    const player = await bootstrap(api, 'Camper');
-    const attempt = await api.request('/v1/live-ops/documents', {
+  it('separates drafting from publishing, which was the point', async () => {
+    /*
+     * The blocker's own complaint: "no separation between 'may draft' and 'may
+     * mint 100,000 codes'". An author can write and cannot publish, and the
+     * refusal names the capability they would need.
+     */
+    const author = await bootstrap(api, 'Author');
+    await grantOperator(api, author.accountId, { role: 'author' });
+
+    const drafted = await api.request('/v1/live-ops/documents', {
       method: 'POST',
-      token: player.token,
-      headers: { [OPS_TOKEN_HEADER]: 'ops-token-for-tests-onlZ' },
-      body: { idempotencyKey: key('doc'), kind: 'seasonal_event', slug: 'x', title: 'X', body: PERSEID },
+      token: author.token,
+      body: { idempotencyKey: key('doc'), kind: 'seasonal_event', slug: 'authored', title: 'X', body: PERSEID },
     });
-    expect(attempt.status).toBe(401);
+    expect(drafted.status).toBe(201);
+
+    const published = await api.request(`/v1/live-ops/documents/${drafted.body.id}/transitions`, {
+      method: 'POST',
+      token: author.token,
+      body: { idempotencyKey: key('pub'), to: 'published' },
+    });
+    expect(published.status).toBe(403);
+    expect(published.body.error.message).toContain('content:publish');
+
+    // And an author cannot open a print run either, which used to be the same
+    // permission as everything else.
+    const minted = await api.request('/v1/live-ops/code-batches', {
+      method: 'POST',
+      token: author.token,
+      body: {
+        idempotencyKey: key('batch'),
+        label: 'A print run',
+        kind: 'pkg',
+        entitlement: { type: 'reward', rewardCode: 'free_kit' },
+        plannedSize: 10,
+      },
+    });
+    expect(minted.status).toBe(403);
+    expect(minted.body.error.message).toContain('codes:mint');
+  });
+
+  it('takes a capability back from one person without touching anybody else', async () => {
+    // Per-person revocation, which one shared string could never do.
+    const editorA = await bootstrap(api, 'EditorA');
+    const editorB = await bootstrap(api, 'EditorB');
+    await grantOperator(api, editorA.accountId, { role: 'editor' });
+    await grantOperator(api, editorB.accountId, { role: 'editor' });
+
+    const draft = (player: Player, slug: string) =>
+      api.request('/v1/live-ops/documents', {
+        method: 'POST',
+        token: player.token,
+        body: { idempotencyKey: key('doc'), kind: 'seasonal_event', slug, title: 'X', body: PERSEID },
+      });
+
+    expect((await draft(editorA, 'a_before')).status).toBe(201);
+    expect((await draft(editorB, 'b_before')).status).toBe(201);
+
+    await api.app.services.operatorDirectory.revoke({
+      accountId: editorA.accountId,
+      capabilities: ['content:draft'],
+    });
+
+    expect((await draft(editorA, 'a_after')).status).toBe(403);
+    expect((await draft(editorB, 'b_after')).status, 'revoking one person hit another').toBe(201);
   });
 });
 
-describe('a deployment with no live-ops credential', () => {
-  it('serves reads and refuses authoring, loudly and specifically', async () => {
+describe('a deployment with nobody appointed', () => {
+  it('serves reads, and refuses authoring because nobody may — not because it is unconfigured', async () => {
+    /*
+     * This test used to assert a `503 service_not_configured` naming
+     * `LIVE_OPS_TOKEN`, because authoring was gated on a secret being set.
+     *
+     * That was authorization wearing a configuration's clothes: publishing
+     * content needs no credential and no external service, so "is this
+     * deployment configured to author" was never the real question. The real
+     * question is "may this person", and an unappointed player now gets a `403`
+     * naming the capability they lack.
+     */
     const bare = await startTestApi({});
     try {
       const player = await bootstrap(bare, 'Camper');
@@ -412,20 +485,13 @@ describe('a deployment with no live-ops credential', () => {
       expect(manifest.status).toBe(200);
       expect(manifest.body.overlay).toBe(true);
 
-      const status = await bare.request('/v1/live-ops/status', { token: player.token });
-      expect(status.body.liveOps.status).toBe('not_configured');
-      expect(status.body.liveOps.fallback).toBe('read_only');
-      expect(status.body.liveOps.reason).toContain('LIVE_OPS_TOKEN');
-
       const attempt = await bare.request('/v1/live-ops/documents', {
         method: 'POST',
         token: player.token,
-        headers: { [OPS_TOKEN_HEADER]: 'anything' },
         body: { idempotencyKey: key('doc'), kind: 'seasonal_event', slug: 'x', title: 'X', body: PERSEID },
       });
-      expect(attempt.status).toBe(503);
-      expect(attempt.body.error.code).toBe('service_not_configured');
-      expect(attempt.body.error.message).toContain('LIVE_OPS_TOKEN');
+      expect(attempt.status).toBe(403);
+      expect(attempt.body.error.message).toContain('content:draft');
     } finally {
       await bare.close();
     }

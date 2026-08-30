@@ -225,14 +225,20 @@ export function createLiveOpsService(deps: DomainDeps): LiveOpsService {
     return created;
   }
 
-  function requireConfigured(): void {
-    if (config.liveOpsToken === null) {
-      throw new ApiError(
-        'service_not_configured',
-        'Live-ops authoring is not configured on this deployment (LIVE_OPS_TOKEN). Reads still work.',
-      );
-    }
-  }
+  /*
+   * There used to be a `requireConfigured()` here that refused every authoring
+   * call unless `LIVE_OPS_TOKEN` was set.
+   *
+   * That was authorization wearing a configuration's clothes. Publishing
+   * content needs no credential and no external service — it is this code and
+   * this database — so "is this deployment configured to author" was never the
+   * real question. The real question was "may this person author", and it now
+   * has a real answer: the `content:draft` and `content:publish` capabilities
+   * (README, Blocker 9), granted and revoked per account.
+   *
+   * What the token still does is bootstrap the first operator. That is a
+   * genuine configuration question and it is reported as `operatorBootstrap`.
+   */
 
   /** One attempt at claiming the next version number for a slug. */
   async function draftOnce(actor: string, request: CreateContentDocumentRequest): Promise<ContentDocument> {
@@ -268,15 +274,6 @@ export function createLiveOpsService(deps: DomainDeps): LiveOpsService {
 
   return {
     async status() {
-      if (config.liveOpsToken === null) {
-        return {
-          status: 'not_configured',
-          reason:
-            'Live-ops authoring is not configured: LIVE_OPS_TOKEN is not set. The manifest still serves whatever '
-            + 'was published before, and the client still boots from its compiled catalogue.',
-          fallback: 'read_only',
-        };
-      }
       const latest = await repos.contentReleases.latest();
       return { status: 'ready', releaseVersion: latest?.version ?? 0 };
     },
@@ -298,7 +295,6 @@ export function createLiveOpsService(deps: DomainDeps): LiveOpsService {
      * survives five attempts is not contention any more.
      */
     async createDocument(actor, request) {
-      requireConfigured();
       for (let attempt = 0; ; attempt += 1) {
         try {
           return await draftOnce(actor, request);
@@ -319,7 +315,6 @@ export function createLiveOpsService(deps: DomainDeps): LiveOpsService {
     },
 
     async transition(actor, documentId, request) {
-      requireConfigured();
       const document = await repos.contentDocuments.get(documentId);
       if (document === null) throw notFound('No such content document.');
       if (!canTransitionContent(document.status, request.to)) {
@@ -387,7 +382,6 @@ export function createLiveOpsService(deps: DomainDeps): LiveOpsService {
      * three rollbacks in a row.
      */
     async rollback(actor, request) {
-      requireConfigured();
       const target = await repos.contentReleases.getByVersion(request.toVersion);
       if (target === null) throw notFound(`No release ${request.toVersion}.`);
       const latest = await repos.contentReleases.latest();

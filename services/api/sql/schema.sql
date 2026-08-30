@@ -931,3 +931,17 @@ CREATE TABLE rate_limit_windows (
   reset_at  timestamptz NOT NULL
 );
 CREATE INDEX rate_limit_windows_reset_idx ON rate_limit_windows (reset_at);
+
+-- Backs OperatorGrantRepository (README, Blocker 9): who may do operator
+-- things. One row per (account, capability); a revocation sets `revoked_at`
+-- rather than deleting, because a missing row cannot say when or by whom.
+CREATE TABLE operator_capabilities (
+  account_id  text        NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+  capability  text        NOT NULL,
+  revoked_at  timestamptz,
+  doc         jsonb       NOT NULL,
+  PRIMARY KEY (account_id, capability)
+);
+CREATE INDEX operator_capabilities_live_idx
+  ON operator_capabilities (account_id)
+  WHERE revoked_at IS NULL;

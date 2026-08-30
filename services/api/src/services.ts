@@ -13,6 +13,7 @@ import type { MediaService } from './domain/media.js';
 import type { WorldStateService } from './domain/worldState.js';
 import type { OperatorGate } from './codes/signing.js';
 import type { Database } from './db/index.js';
+import type { OperatorDirectory } from './domain/operators.js';
 
 /** What this deployment can actually do, surfaced at `GET /v1/meta`. */
 export interface Capabilities {
@@ -20,8 +21,16 @@ export interface Capabilities {
   readonly paymentsConfigured: boolean;
   readonly mailer: string;
   readonly persistence: 'memory' | 'postgres';
-  /** Can this deployment author content, or only serve what was published? */
-  readonly liveOpsAuthoring: boolean;
+  /**
+   * Can a *first* operator still be created here without database access?
+   *
+   * This used to be `liveOpsAuthoring`, meaning "is LIVE_OPS_TOKEN set" — which
+   * was authorization wearing a configuration's clothes. Authoring needs no
+   * credential; it needs a person with the `content:draft` capability. What the
+   * token does now is bootstrap the first operator, and whether that is still
+   * possible is a real thing to be able to ask (README, Blocker 9).
+   */
+  readonly operatorBootstrap: boolean;
   /** Can it verify scanned codes, and can it mint new ones? */
   readonly codeVerification: boolean;
   readonly codeMinting: boolean;
@@ -73,6 +82,11 @@ export interface ServiceRegistry {
    * for the staff identity provider we do not have (README, Blocker 9).
    */
   readonly operators: OperatorGate;
+  /**
+   * Who may do what (README, Blocker 9). Capabilities per account, granted and
+   * revoked per person — the thing `operators` above used to stand in for.
+   */
+  readonly operatorDirectory: OperatorDirectory;
   readonly capabilities: Capabilities;
   /**
    * The open database, when there is one. Only `/health` reads it, and only to

@@ -142,9 +142,27 @@ export function RoastingStick({ marshmallow, settings, bearing }: RoastingStickP
           one Euler makes the spin wobble off-axis. */}
       <group rotation={[0, 0, Math.PI / 2]}>
         <mesh ref={meshRef} geometry={mesh.geometry} material={marshmallowMaterial} castShadow />
-        {/* A small warm light so the browning is legible even when the
-            marshmallow is between the camera and the fire. */}
-        <pointLight position={[0, 0, 0.06]} distance={0.4} decay={1.5} intensity={0.35} color={0xffd9a8} />
+        {/*
+          The marshmallow's own rig, for the same reason the finished sandwich
+          has one: it is small, it is the thing you are looking at, and what it
+          has to communicate is a *colour*.
+
+          This used to be a single 0.35 fill, which was right when the scene's
+          ambient was 0.12. Raising the night so the campsite was navigable at
+          all (mean frame luminance was 3/255, below the 5-bit quantisation
+          floor) also raised a *cool* ambient by roughly sevenfold, and it
+          swamped this. Looked at afterwards, a marshmallow the model called
+          "scorching" rendered cream on the fire side and cold blue-grey on the
+          other, with seventy seconds of browning invisible on both. Fixing the
+          world broke the close-up; only looking at it showed that.
+
+          Two fills rather than one, because a single warm key still left the
+          far side taking the blue: the point is that the browning reads all
+          the way round as it turns, which is the entire feedback loop of the
+          longest interaction in the product.
+        */}
+        <pointLight position={[0, 0, 0.07]} distance={0.5} decay={1.4} intensity={1.7} color={0xffd9a8} />
+        <pointLight position={[0, 0, -0.07]} distance={0.45} decay={1.6} intensity={0.9} color={0xffbe86} />
       </group>
 
       <points ref={flameRef} geometry={flameGeometry} material={flameMaterial} />

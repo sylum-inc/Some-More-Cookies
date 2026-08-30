@@ -13,7 +13,6 @@ import * as THREE from 'three';
 import {
   advance,
   animalsPresent,
-  beginRoasting,
   bearingFromFire,
   clamp01,
   createClock,
@@ -26,12 +25,9 @@ import {
   isEmberBed,
   lookDirection,
   lookAtSky,
-  operateMachine,
   pointTorch,
   setPresence,
   stepPlayer,
-  stepRitual,
-  tendFire,
   vec3,
   type Interactable,
   type MoveIntent,
@@ -41,6 +37,16 @@ import {
   type RitualState,
   type WalkableWorld,
 } from '@somemore/sim';
+/*
+ * The step, and the actions the world itself offers.
+ *
+ * Alone at a campsite these are the `@somemore/sim` functions of the same
+ * names. With other people at the fire, `stepRitual` hands the tick to the
+ * shared timeline — which applies each replicated intent on the tick the
+ * server stamped it with — and the rest become intents on the wire rather than
+ * direct mutations (ADR-0006). See `net/shared.ts`.
+ */
+import { beginRoasting, operateMachine, stepRitual, tendFire } from '../net/shared.js';
 import { getEnvironment } from '@somemore/content';
 import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
@@ -337,6 +343,35 @@ export function World({
     gl.shadowMap.enabled = qualitySettings.enableShadows;
     gl.shadowMap.type = THREE.BasicShadowMap; // hard edges — crunchy, and cheap
   }, [gl, qualitySettings.enableShadows]);
+
+  /*
+   * Tone mapping.
+   *
+   * There was none, which means three.js clipped every value above 1.0 straight
+   * to white — and next to a fire, a great deal is above 1.0. Measured: a
+   * marshmallow the model had browned to 0.68 rendered as a *white* ball,
+   * because golden albedo times a close point light clips to (1,1,1) and white
+   * has no hue left to lose. Seventy seconds of browning, invisible.
+   *
+   * It had already cost the project once without being diagnosed: the fire-ring
+   * stones carry a hand-darkened albedo and a comment reading "raw stone albedo
+   * next to a fire blows out to paper white", which is this bug, worked around
+   * one object at a time.
+   *
+   * Reinhard rather than ACES on purpose. ACES is the filmic default and it
+   * deliberately desaturates highlights toward white, which is exactly the
+   * thing being fixed here. Reinhard's x/(1+x) roll-off compresses the range
+   * while holding hue, so a brightly lit golden marshmallow stays golden.
+   *
+   * The PS1 quantise and dither run at `dithering_fragment`, which is after
+   * tone mapping in three's chain — so the 5-bit palette is applied to the
+   * mapped image rather than to raw clipped values, which is the right order
+   * and was accidentally correct before.
+   */
+  useEffect(() => {
+    gl.toneMapping = THREE.ReinhardToneMapping;
+    gl.toneMappingExposure = 1.35;
+  }, [gl]);
 
   const marshmallowBagMaterial = useMemo(
     () => createPs1Material({ settings, map: getTexture('canvas', { size: 64 }), roughness: 1 }),

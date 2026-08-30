@@ -101,6 +101,7 @@ export class AudioBridge {
   private lastCompressor = 0;
   private lastFan = 0;
   private crtOn = false;
+  private marshmallowBurning = false;
 
   // --- radio ---------------------------------------------------------------
   private radioOn = false;
@@ -287,7 +288,19 @@ export class AudioBridge {
     // --- Marshmallow ignition --------------------------------------------
     const foley = engine.foley;
     if (foley) {
-      if (ritual.marshmallow.ignitedThisStep) foley.ignitionWhoosh();
+      /*
+       * One whoosh per fire, not one per patch.
+       *
+       * The model tracks ignition per patch, correctly — thirty-two of them,
+       * catching one after another as the flame spreads. Playing the whoosh on
+       * every `ignitedThisStep` therefore fired it twenty-six times during a
+       * single ten-second burn, roughly every four hundred milliseconds. A
+       * marshmallow catches fire once and then burns; the spreading is what the
+       * sustained flame is for, not a stutter of separate ignitions.
+       */
+      const burning = ritual.marshmallow.burning;
+      if (burning && !this.marshmallowBurning) foley.ignitionWhoosh();
+      this.marshmallowBurning = burning;
       if (ritual.marshmallow.extinguishedThisStep) foley.blowOut();
     }
 

@@ -328,7 +328,22 @@ export function stepRoast(
     patch.brown = clamp01(patch.brown + brownDrive * T.brownRate * dt);
 
     // --- Charring --------------------------------------------------------
-    const charDrive = sigmoid(patch.temperatureC, T.charMidpointC, T.charSteepness) * dryGate;
+    // Charring is what happens to sugar that has *already* caramelised: the
+    // browning reactions run first and the surface carbonises through them.
+    // Without that ordering, both sigmoids saturate together over a hot enough
+    // fire and char simply accumulates faster than brown, because its rate is
+    // higher. Measured over open flame, that is exactly what happened — char
+    // 0.27 against brown 0.23 at thirty seconds, char ahead at every step —
+    // so a marshmallow held in the flames went from pale to blackening
+    // *without ever passing through golden*. The one outcome the whole product
+    // is named after was unreachable on the first fire a player meets.
+    //
+    // Gating on the patch's own browning fixes the ordering at every
+    // temperature rather than by retuning two rates against one fire.
+    const charDrive =
+      sigmoid(patch.temperatureC, T.charMidpointC, T.charSteepness) *
+      dryGate *
+      smoothstep(0.18, 0.62, patch.brown);
     patch.char = clamp01(patch.char + charDrive * T.charRate * dt);
 
     // --- Blistering ------------------------------------------------------

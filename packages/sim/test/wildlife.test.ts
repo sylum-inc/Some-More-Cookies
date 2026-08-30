@@ -145,7 +145,18 @@ describe('stillness reveals rarer wildlife', () => {
     expect(last).toBeGreaterThan(first * 10);
   });
 
-  it('produces far more rare sightings for a still player than a noisy one', () => {
+  /*
+   * Sixty paired 300-second sessions: 2.16 million simulation steps, and about
+   * 2.3 seconds on an idle machine. Under a full parallel suite it went past
+   * vitest's 5-second default and failed as a timeout, which reads like a
+   * broken model and is not one.
+   *
+   * Raised rather than trimmed. The claim here is statistical — that stillness
+   * shifts *which* animals come, not merely how many — and the sample count is
+   * what gives it power. Halving the seeds to make it finish sooner would make
+   * it flakier at the thing it exists to prove.
+   */
+  it('produces far more rare sightings for a still player than a noisy one', { timeout: 60_000 }, () => {
     let stillRare = 0;
     let noisyRare = 0;
     let stillCommon = 0;

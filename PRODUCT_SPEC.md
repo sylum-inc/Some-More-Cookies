@@ -389,6 +389,9 @@ Accessibility is part of the architecture, not a settings screen bolted on.
   player is told about the arrow keys rather than told to drag. A path nobody
   is told about is a path nobody takes, and it is not a settings toggle: there
   is nothing to find and nothing to switch on.
+- Guidance follows the state of the thing it is about. A machine mid-cycle does
+  not ask to be loaded, and a stage that needs nothing from the player says so
+  rather than repeating the last instruction it had.
 - Input given is input applied. A discrete press must reach the simulation when
   it is pressed rather than on the next rendered frame — the simulation runs at
   a fixed rate whatever the renderer manages, and the players an alternate

@@ -59,6 +59,8 @@ test.describe('visual regression', () => {
 
     const metrics: FrameMetrics[] = [];
     const failures: string[] = [];
+    /** What each stage actually told the player to do. See (3) below. */
+    const guidanceByStage: Record<string, string> = {};
     const noise: { stage: string; ratio: number }[] = [];
     let roast: RoastOutcome | null = null;
     const warnings: string[] = [];
@@ -73,6 +75,30 @@ test.describe('visual regression', () => {
 
         // --- (2) frame health, first: it explains a pixel diff -------------
         for (const problem of checkFrameHealth(frame)) failures.push(problem);
+
+        /*
+         * --- (3) the words on the screen ---------------------------------
+         *
+         * Read as text, not looked for in the picture, because the pixel
+         * comparison cannot see it. Its tolerances are six to twelve per cent
+         * of the frame — measured from the fire's own flicker, and rightly so —
+         * and a line of thirteen-pixel type is about three tenths of one per
+         * cent. The whole guidance line was replaced during this session and
+         * every baseline kept passing; `--update-snapshots` did not even
+         * rewrite the files, because nothing had "changed" by that measure.
+         *
+         * Recorded rather than asserted against a fixed table: the wording is
+         * meant to be edited, and a suite that goes red because somebody
+         * improved a sentence teaches people to update baselines without
+         * reading them. What it must not do is stay silent, which is what it
+         * did. An empty line at a stage that should have one *is* a failure —
+         * that is the guidance not rendering at all.
+         */
+        const guidance = (await page.getByTestId('guidance').textContent())?.trim() ?? '';
+        guidanceByStage[stage] = guidance;
+        if (guidance === '' && stage !== 'arrival') {
+          failures.push(`${stage}: the guidance line is empty`);
+        }
 
         // --- (1) pixel comparison against the committed baseline -----------
         const options = {
@@ -215,6 +241,11 @@ test.describe('visual regression', () => {
             `  ${m.stage.padEnd(14)} mean ${m.meanLuminance.toFixed(3)}  sd ${m.luminanceStdDev.toFixed(3)}  ` +
             `black ${(m.blackFraction * 100).toFixed(1)}%  white ${(m.whiteFraction * 100).toFixed(1)}%  ` +
             `warmth ${m.warmth >= 0 ? '+' : ''}${m.warmth.toFixed(3)}  colours ${(m.colourVariety * 100).toFixed(2)}%`,
+        ),
+        '',
+        'What each stage told the player to do:',
+        ...Object.entries(guidanceByStage).map(
+          ([stage, line]) => `  ${stage.padEnd(14)} ${line === '' ? '(nothing)' : line}`,
         ),
         '',
         `  amber→blue: processing warmth ${processing.warmth.toFixed(3)} > freezing warmth ${freezing.warmth.toFixed(3)}`,

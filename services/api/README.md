@@ -153,6 +153,8 @@ npx tsc -b packages/protocol services/api
 | `AUTH_TOKEN_TTL_SECONDS` | no | `2592000` (30 days) | Session token lifetime. |
 | `MAGIC_LINK_TTL_SECONDS` | no | `900` | Sign-in link lifetime. |
 | `IP_HASH_SALT` | recommended | random per boot | Salt for hashing client IPs before they touch an anti-abuse record. Raw IPs are never stored. |
+| `TRUSTED_PROXY_HOPS` | behind a proxy | `0` | How many reverse proxies sit in front of this process. Each hop appends to `X-Forwarded-For`, so with `n` trusted hops the entry `n` from the *right* is the last one a client could not have written. **Zero ignores the header entirely** and uses the socket, which is the only safe default: the address keys the anti-abuse budgets, and reading the leftmost entry lets a caller mint a fresh bucket per request. |
+| `AUTH_ALLOW_UNVERIFIED_OIDC` | development only | `false` | Accept an Apple/Google id token **without verifying it against the issuer**, which means anybody can present anybody else's `sub` and — because linking merges on a subject match — take their account. There are no issuer credentials yet (Blocker 5), so without this the two providers are refused with `503 service_not_configured`. Warned about at boot, and **ignored in production**: there is no environment variable that turns this on for a real deployment. |
 | `DATABASE_URL` | **in production** | — | `postgres://user:pass@host:port/db?sslmode=…`. Present ⇒ durable Postgres storage. Absent ⇒ in-memory repositories and a `memory_persistence` warning. |
 | `DATABASE_AUTO_MIGRATE` | no | `true` | Apply pending migrations on first use. Set `false` when a deploy pipeline migrates separately. |
 | `DATABASE_POOL_MAX` | no | `10` | Maximum pooled connections. Requests beyond this queue rather than opening more. |
@@ -183,6 +185,8 @@ npx tsc -b packages/protocol services/api
 | `REWARD_CLAIM_WINDOW_SECONDS` | no | `3600` | High-value reward claim window. |
 | `REWARD_CLAIMS_PER_WINDOW` | no | `3` | Claims allowed per account per window. |
 | `MAGIC_LINKS_PER_WINDOW` | no | `5` | Sign-in links per email address per hour. |
+| `ANONYMOUS_SIGNUPS_PER_HOUR` | no | `30` | New anonymous accounts minted per client address per hour. Only *new* ones: a device that already has an account keeps finding it however often it re-bootstraps, because a reinstall must never lose a Passport (spec §6.1). Every per-account budget in this service is otherwise one HTTP request away from a fresh allowance. |
+| `EVENT_BATCHES_PER_HOUR` | no | `600` | Telemetry batches accepted per client address per hour. `POST /v1/events` is unauthenticated by necessity and writes a row per event. |
 | `LIVE_OPS_TOKEN` | for authoring | — | Shared secret presented as `x-somemore-ops-token` *alongside* a normal bearer token. Absent ⇒ the content service is read-only and every authoring route answers `503 service_not_configured`. Not RBAC; see Blocker 9. |
 | `CODE_SIGNING_KEY_ID` | for minting | — | Which key new codes are signed with, e.g. `k1`. |
 | `CODE_SIGNING_PRIVATE_KEY` | for minting | — | Base64 Ed25519 private key (a raw 32-byte seed or a PKCS8 DER blob). Absent ⇒ codes can still be *verified* if public keys are set, but none can be minted. |
@@ -1057,8 +1061,12 @@ Two blockers are *narrowed* rather than removed:
    *Needed:* an Apple Services ID + key for Sign in with Apple, a Google OAuth
    client id, and then real id-token verification (JWKS fetch and cache, RS256
    signature check, `aud`/`iss`/`exp`/`nonce` validation) in
-   `resolveCredentialSubject`. Today an unverified token is accepted, which is
-   fine for local dev and unacceptable in production.
+   `resolveCredentialSubject`. **Until then the two providers are refused**,
+   not accepted: an unverified id token is not a weaker credential, it is a
+   complete account takeover, because linking merges on a subject match and a
+   provider subject is not a secret. `AUTH_ALLOW_UNVERIFIED_OIDC=true` opts a
+   development build back in and is ignored in production. See
+   `docs/SECURITY_AND_ACCESSIBILITY_AUDIT.md` S1.
 6. **Realtime transport (WebRTC / LiveKit)** — nothing is provisioned.
    *Needed:* a LiveKit (or equivalent SFU) deployment, an API key/secret, TURN
    servers, and a token-minting endpoint here. Presence and authority hand-off
@@ -1090,8 +1098,10 @@ Two blockers are *narrowed* rather than removed:
     human under a legal clock.
 11. **Shared cache / distributed rate limiting** — in-process only.
     *Needed:* Redis (or equivalent) once there is more than one instance;
-    otherwise reward-claim and magic-link limits are per-process and trivially
-    bypassed by hitting a different node.
+    otherwise reward-claim, magic-link, code-scan, anonymous-signup and
+    telemetry limits are per-process, so a second instance doubles every one of
+    them. Every limit that keys on a client address also depends on
+    `TRUSTED_PROXY_HOPS` being set to the truth.
 12. **Secrets management and deployment target** — no host, no secret store, no
     TLS termination, no CI deploy. *Needed:* a runtime (Fly/Render/ECS), a
     secrets manager for `AUTH_TOKEN_SECRET`/`IP_HASH_SALT`/`DATABASE_URL`/

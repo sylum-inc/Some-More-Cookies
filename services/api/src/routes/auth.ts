@@ -19,7 +19,7 @@ export function authRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Bootstrap an anonymous, device-backed account and issue a token.',
       body: AnonymousBootstrapRequestSchema,
       async handle(ctx) {
-        const session = await identity.bootstrapAnonymous(ctx.body);
+        const session = await identity.bootstrapAnonymous(ctx.body, { clientIp: ctx.clientIp });
         return { status: 201, body: session };
       },
     }),

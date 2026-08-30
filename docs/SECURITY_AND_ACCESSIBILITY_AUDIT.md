@@ -29,9 +29,9 @@ never had a fire in it), so every claim below carries its evidence class:
 ### What was run
 
 * `npx tsc -b` — clean, before and after.
-* `npx vitest run` — **1564 passed, 23 skipped** across 89 files on the
+* `npx vitest run` — **1570 passed, 23 skipped** across 89 files on the
   in-memory repositories (baseline before this work: 1526 passed, 23 skipped).
-* `DATABASE_URL=… npx vitest run services/api test/integration` — **409 passed**
+* `DATABASE_URL=… npx vitest run services/api test/integration` — **415 passed**
   across 33 files against PostgreSQL 16 on `127.0.0.1:5433` (baseline: 397).
   The 23 skips on the memory run are the Postgres-only cases; they run there.
 * `npx playwright test --project=access` — the new §12 suite, **6 passed**.
@@ -72,8 +72,8 @@ it reads.
 | S7 | The Postgres message parser would buffer toward any announced length | **low** | `db/wire/buffer.ts` | fixed |
 | S8 | A server could declare SCRAM complete without proving it knows the password | **low** | `db/wire/connection.ts` | fixed |
 | S9 | A customer can refund their own paid order, and drive fulfillment as `operator` | **high** | `domain/commerce.ts` | fixed (not by me — see below) |
-| S10 | Anonymous account creation is unauthenticated and unmetered, which defeats every per-account limit | **medium** | `routes/auth.ts` | **not fixed — needs a decision** |
-| S11 | `POST /v1/events` is unauthenticated and unmetered storage growth | **medium** | `routes/analytics.ts` | **not fixed — small, but a policy choice** |
+| S10 | Anonymous account creation is unauthenticated and unmetered, which defeats every per-account limit | **medium** | `routes/auth.ts` | fixed |
+| S11 | `POST /v1/events` is unauthenticated and unmetered storage growth | **medium** | `routes/analytics.ts` | fixed |
 | S12 | `block` writes a row per message with no dedicated meter | **low** | `realtime/room.ts` | not fixed |
 | S13 | `containsRawCardData` stops at twelve levels of nesting | **low** | `protocol/common.ts` | not fixed, argued below |
 
@@ -284,33 +284,39 @@ no per-person revocation. **Blocker 9 stays open**, and it is now the only thing
 standing between this product and an operator model it will need before it
 takes a real order.
 
-### S10 — Unmetered account creation · medium · NOT FIXED
+### S10 and S11 — The two doors that are open on purpose · fixed
 
-**Verified by reading.** `POST /v1/auth/anonymous` is `auth: 'none'`,
-`idempotent: false`, and passes through no rate limiter. Every per-account
-budget in the service — `reward_claim:<accountId>`,
-`code_redeem:<accountId>`, `connectionsPerAccount` on the realtime edge — is
-therefore priced at "one HTTP request per fresh budget".
+**Verified.** `POST /v1/auth/anonymous` is `auth: 'none'`, `idempotent: false`,
+and passed through no rate limiter; `POST /v1/events` is `auth: 'optional'`,
+unmetered, and appends a row per event with up to a hundred per request. Both
+are correctly *open* — the world boots without an account (§6.1) and telemetry
+starts before one exists — and neither was allowed to be *free*.
 
-It is deliberately not fixed here because the correct limiter is the one thing
-this deployment does not have. Per-IP is the obvious key and S2 is exactly why
-that key was not trustworthy an hour ago; it now is, behind
-`TRUSTED_PROXY_HOPS`, but a per-IP cap on *account creation* is a product
-decision with a real cost (a school, a campsite with one hotspot, a CGNAT
-range), and README Blocker 11 says the limiter is in-process anyway, so a
-second instance halves whatever number is chosen. Somebody has to name the
-number and the shared cache.
+The consequence of the first is the interesting one: every per-account budget in
+this service (`reward_claim:<accountId>`, `code_redeem:<accountId>`,
+`connectionsPerAccount` on the realtime edge) was priced at one HTTP request
+for a fresh allowance.
 
-**What it needs:** a decision on the cap, and Redis (Blocker 11). The
-implementation is one `rateLimiter.consume('bootstrap:' + ctx.clientIp, …)` in
-`domain/identity.ts`.
+I initially wrote this up as needing a decision, because a per-IP cap on account
+creation has a real cost to real players — a school, a campsite with one
+hotspot, a CGNAT range — and because the address itself was not trustworthy
+until S2. It is now, so:
 
-### S11 — Unauthenticated telemetry ingest · medium · not fixed
+* `ANONYMOUS_SIGNUPS_PER_HOUR` (default 30) meters **minting a new account**,
+  after the returning-device branch, so a reinstall costs nothing however many
+  times it happens. That is a spec requirement, not a nicety (§6.1), and the
+  test asserts it explicitly: with the whole allowance spent, the device that
+  already has an account still gets it back, five times over.
+* `EVENT_BATCHES_PER_HOUR` (default 600) meters telemetry ingest by address.
 
-`POST /v1/events` accepts a batch with `auth: 'optional'` and no limiter, and
-appends a row per event. Bounded per request by `MAX_BODY_BYTES` and the batch
-schema; unbounded across requests. The same decision as S10 blocks it: which
-key, and what number. Same one-line fix.
+Both numbers are deliberately far above honest use and far below a farm — a
+household touches the first a handful of times a day and a whole campsite
+session is a few dozen of the second — and both are refusals a client can act
+on (`429` with `Retry-After`) rather than silent drops.
+
+**What is still owed.** Both are in-process (README Blocker 11), so a second
+instance doubles both numbers, and both are only as good as `TRUSTED_PROXY_HOPS`
+makes the address. Redis remains the fix and remains unbought.
 
 ### S12 — `block` writes a row per message · low · not fixed
 
@@ -758,6 +764,7 @@ suites and the third belongs to the multiplayer workstream that is mid-flight.
 | --- | --- |
 | S1 unverifiable OIDC refused; `/v1/meta` reports verifiable providers | `services/api/src/{config,app,services}.ts`, `routes/health.ts`, `domain/identity.ts` |
 | S2 trusted-proxy-aware client IP | `services/api/src/{config,http/server}.ts` |
+| S10/S11 per-address budgets on the two unauthenticated write paths | `services/api/src/{config.ts,domain/identity.ts,domain/analytics.ts,routes/auth.ts,routes/analytics.ts}` |
 | S3/S4 WebSocket fragment ceiling and control-frame backpressure | `services/api/src/realtime/connection.ts` |
 | S5 PAN detection in free text | `packages/protocol/src/common.ts` |
 | S6/S7/S8 wire client: refuse `verify-*`, bound the parser, require SCRAM to finish | `services/api/src/db/wire/{url,buffer,connection}.ts` |
@@ -769,7 +776,7 @@ suites and the third belongs to the multiplayer workstream that is mid-flight.
 | Settings sanitisation | `apps/web/src/state/store.ts` |
 | The link UI stops claiming an account that does not exist | `apps/web/src/App.tsx` |
 
-New tests: `services/api/test/adversarial.test.ts` (6),
+New tests: `services/api/test/adversarial.test.ts` (8),
 `services/api/test/realtime-exhaustion.test.ts` (3),
 `apps/web/test/degraded-storage.test.ts` (13), `e2e/access.spec.ts` (6, a new
 Playwright project), plus cases added to
@@ -780,11 +787,11 @@ Playwright project), plus cases added to
 
 | # | Why |
 | --- | --- |
-| S10 / S11 unmetered creation and ingest | The limiter is in-process (Blocker 11), so any number chosen is halved by a second instance, and a per-IP cap on account creation has a real cost to real players. Needs a number and a shared cache. |
 | S12 `block` row growth | Small, and `realtime/` is under active work by another workstream. |
 | S13 card-scan recursion cap | Argued above: the schema rejects the shape anyway, and raising it costs every request. |
 | A4 overlay focus management | One shared hook across six components, two of which are being actively edited. Contained, worth doing next, test written above. |
 | A5 canvas alternative | A design question about how legible a 3D world intends to be without sight, not a bug. First step named above. |
+| A6 subtitles as a single channel | Needs a non-optional notice channel, which is a small piece of design; `PwaNotices` is the shape to copy. |
 | Memory repositories do not enforce claim-once | They are for tests and dev, the HTTP path cannot race on them, and the schema comment that says otherwise is the thing to fix. |
 
 ---

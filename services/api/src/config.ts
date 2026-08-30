@@ -98,6 +98,26 @@ export interface ApiConfig {
   readonly magicLinksPerWindow: number;
 
   /**
+   * Two unauthenticated write paths, metered per client address.
+   *
+   * Both are open by necessity — the world boots without an account (§6.1), so
+   * something has to be reachable before anybody has a token. What they must
+   * not be is *free*: every per-account budget in this service (reward claims,
+   * code scans, realtime connections) is priced at one anonymous bootstrap, and
+   * telemetry ingest writes a row per event.
+   *
+   * The numbers are deliberately far above honest use and far below a farm. A
+   * device bootstraps once and every later call returns the same account, so a
+   * household behind one address touches this a handful of times a day; a
+   * campsite's whole session is a few dozen events.
+   *
+   * They are only as good as `trustedProxyHops` makes the address, and they are
+   * in-process (README Blocker 11), so a second instance doubles both.
+   */
+  readonly anonymousSignupsPerHour: number;
+  readonly eventBatchesPerHour: number;
+
+  /**
    * Live-ops authoring. Absent => the content service is read-only and says so
    * (there is no staff identity provider yet; see README Blocker 9).
    */
@@ -359,6 +379,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     rewardClaimWindowSeconds: envInt(env, 'REWARD_CLAIM_WINDOW_SECONDS', 60 * 60),
     rewardClaimsPerWindow: envInt(env, 'REWARD_CLAIMS_PER_WINDOW', 3),
     magicLinksPerWindow: envInt(env, 'MAGIC_LINKS_PER_WINDOW', 5),
+    anonymousSignupsPerHour: envInt(env, 'ANONYMOUS_SIGNUPS_PER_HOUR', 30),
+    eventBatchesPerHour: envInt(env, 'EVENT_BATCHES_PER_HOUR', 600),
     liveOpsToken,
     corsAllowedOrigins,
     codeSigningKeyId: envString(env, 'CODE_SIGNING_KEY_ID'),

@@ -28,8 +28,13 @@ import type { DomainDeps } from './types.js';
  * a single sandwich. Every branch of `linkIdentity` is therefore explicit, and
  * no branch destroys data.
  */
+/** Where the request came from, for the budgets that meter an open door. */
+export interface RequestOrigin {
+  readonly clientIp: string;
+}
+
 export interface IdentityService {
-  bootstrapAnonymous(request: AnonymousBootstrapRequest): Promise<AuthSession>;
+  bootstrapAnonymous(request: AnonymousBootstrapRequest, origin: RequestOrigin): Promise<AuthSession>;
   getSession(accountId: string): Promise<AuthSession>;
   refresh(accountId: string): Promise<AuthToken>;
   requireActiveAccount(accountId: string): Promise<Account>;
@@ -227,7 +232,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
   }
 
   return {
-    async bootstrapAnonymous(request) {
+    async bootstrapAnonymous(request, origin) {
       const nowIso = clock.isoNow();
       const existing = await repos.identities.findByProviderSubject('anonymous', request.device.deviceId);
       if (existing !== null) {
@@ -236,6 +241,30 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
         const account = await requireActiveAccount(existing.accountId);
         await repos.identities.update(existing.id, (i) => ({ ...i, lastAuthenticatedAt: nowIso }));
         return sessionFor(account);
+      }
+
+      /*
+       * Metered here rather than at the route, and *after* the returning-device
+       * branch above: re-bootstrapping a device you already own costs nothing,
+       * because a player who reinstalls should find their fire however many
+       * times they do it. What is metered is minting a *new* account, which is
+       * the thing every per-account budget in this service is priced against —
+       * reward claims, code scans and realtime connections are all one HTTP
+       * request away from a fresh allowance otherwise.
+       *
+       * `rate_limited` rather than a silent refusal, because a client that is
+       * being told to wait can say so; and a generous number, because the
+       * alternative failure — a school, a campsite with one hotspot, a CGNAT
+       * range — is a player who cannot start at all.
+       */
+      const signups = rateLimiter.consume(`anon_signup:${origin.clientIp}`, config.anonymousSignupsPerHour, 3600);
+      if (!signups.allowed) {
+        logger.warn('identity.bootstrap_velocity', { count: signups.count });
+        throw new ApiError('rate_limited', 'Too many new campers from here at once. Try again shortly.', {
+          headers: {
+            'retry-after': String(Math.max(1, Math.ceil((signups.resetAt.getTime() - clock.now().getTime()) / 1000))),
+          },
+        });
       }
 
       const account = await repos.accounts.create({

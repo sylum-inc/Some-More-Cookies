@@ -13,7 +13,7 @@ export function analyticsRoutes(services: ServiceRegistry): AnyRoute[] {
       summary: 'Ingest a batch of telemetry events.',
       body: EventBatchSchema,
       async handle(ctx) {
-        const result = await analytics.ingest(ctx.auth?.accountId ?? null, ctx.body);
+        const result = await analytics.ingest(ctx.auth?.accountId ?? null, ctx.body, { clientIp: ctx.clientIp });
         return { status: 202, body: result };
       },
     }),

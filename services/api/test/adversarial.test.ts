@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { SCHEMA_VERSION } from '@somemore/protocol';
 import { generateCodeKeyPair } from '../src/codes/signing.js';
 import { bootstrap, createCampsite, key, sandwichPayload, startTestApi, type TestHarness } from './harness.js';
 
@@ -25,6 +26,13 @@ beforeEach(async () => {
 afterEach(async () => {
   await api.close();
 });
+
+function bootstrapWithDevice(harness: TestHarness, deviceId: string) {
+  return harness.request('/v1/auth/anonymous', {
+    method: 'POST',
+    body: { device: { deviceId, platform: 'web', appVersion: '0.3.0', locale: 'en-US' } },
+  });
+}
 
 /** A syntactically perfect, entirely unsigned OIDC id token for any subject. */
 function forgeIdToken(subject: string, email?: string): string {
@@ -150,6 +158,68 @@ describe('rate limiting: a header is not an identity', () => {
       expect(response.status).toBe(200);
     } finally {
       await behindProxies.close();
+    }
+  });
+});
+
+describe('the two doors that are open on purpose', () => {
+  /*
+   * The world boots without an account (§6.1) and telemetry starts before one
+   * exists, so `POST /v1/auth/anonymous` and `POST /v1/events` are reachable
+   * with no token at all. That is correct. What they must not be is free:
+   * every per-account budget in this service — reward claims, code scans,
+   * realtime connections — is otherwise priced at one HTTP request.
+   */
+  it('meters new accounts from one address without punishing a returning device', async () => {
+    const metered = await startTestApi({ ANONYMOUS_SIGNUPS_PER_HOUR: '5' });
+    try {
+      // One honest player, first.
+      const returning = await bootstrapWithDevice(metered, 'a-device-that-already-exists');
+      expect(returning.status).toBe(201);
+
+      const statuses: number[] = [];
+      for (let i = 0; i < 9; i += 1) {
+        const response = await bootstrapWithDevice(metered, `farm-${i}-${key('d')}`);
+        statuses.push(response.status);
+      }
+      // Five per hour, one of which the honest player already spent.
+      expect(statuses.filter((status) => status === 201)).toHaveLength(4);
+      expect(statuses.filter((status) => status === 429)).toHaveLength(5);
+
+      // And the budget is on *minting*, not on asking: with the allowance long
+      // gone, the device that already has an account keeps finding it, which
+      // is what a reinstall has to do (spec §6.1).
+      for (let i = 0; i < 5; i += 1) {
+        const again = await bootstrapWithDevice(metered, 'a-device-that-already-exists');
+        expect(again.status, JSON.stringify(again.body)).toBe(201);
+        expect(again.body.account.id).toBe(returning.body.account.id);
+      }
+    } finally {
+      await metered.close();
+    }
+  });
+
+  it('meters unauthenticated telemetry, which writes a row per event', async () => {
+    const metered = await startTestApi({ EVENT_BATCHES_PER_HOUR: '3' });
+    try {
+      const event = () => ({
+        id: `evt_${key('e')}`,
+        name: 'sandwich_saved',
+        occurredAt: metered.clock.isoNow(),
+        platform: 'ios',
+        appVersion: '0.3.0',
+        schemaVersion: SCHEMA_VERSION,
+        props: {},
+      });
+      const statuses: number[] = [];
+      for (let i = 0; i < 6; i += 1) {
+        const response = await metered.request('/v1/events', { method: 'POST', body: { events: [event()] } });
+        statuses.push(response.status);
+      }
+      expect(statuses.filter((status) => status === 202)).toHaveLength(3);
+      expect(statuses.filter((status) => status === 429)).toHaveLength(3);
+    } finally {
+      await metered.close();
     }
   });
 });

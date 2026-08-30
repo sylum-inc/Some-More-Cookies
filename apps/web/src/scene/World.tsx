@@ -260,11 +260,27 @@ function poseFor(
       // Square on the open chamber, slightly to the free-edge side and low
       // enough to see onto the tray. The door swings wide (see Machine.tsx),
       // so it no longer stands across this sight line.
-      const chamber = machineToWorld([0, 0.5, 0.16]);
+      /*
+       * Framed on the sandwich, not on the chamber.
+       *
+       * This was aimed at the geometric centre of the opening — 0.13 m above
+       * where the sandwich actually sits — from 1.15 m at 36°, which put the
+       * most important object in the product at about eight per cent of the
+       * frame's width, low and small in a large grey box. The reveal is the
+       * one shot the whole ritual is building to, and "does the sandwich look
+       * delicious?" is not a question a picture can answer at that size.
+       *
+       * Pushed in and aimed down onto the tray, which also reads better: you
+       * are looking *into* a freezer at something on a shelf. Deliberately not
+       * pushed all the way in — the chamber mouth still frames it, because the
+       * beat here is that it is in the machine. It is in your hands one beat
+       * later, and that shot is the close-up.
+       */
+      const sandwich = machineToWorld([0, 0.4, 0.14]);
       return {
-        position: machineToWorld([0.06, 0.62, 1.15]),
-        target: chamber,
-        fov: 36,
+        position: machineToWorld([0.05, 0.6, 0.95]),
+        target: sandwich,
+        fov: 28,
       };
     }
     case 'eating':

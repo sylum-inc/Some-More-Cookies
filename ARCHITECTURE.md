@@ -320,7 +320,7 @@ observation about this minute rather than a preference.
 | Backend | HTTP integration tests against a real server on port 0, including authz failures and idempotency replay/conflict |
 | Client logic | Unit tests for pure helpers (materials, input mapping, PS1 math, audio math) |
 | E2E | Playwright drives the full ritual in Chromium and captures screenshots per stage |
-| Visual | Screenshot capture at each ritual stage for human inspection |
+| Visual | Screenshot capture at each ritual stage for human inspection, plus frame-health metrics, plus the guidance line read back as **text** — a whole-frame pixel ratio cannot see a line of 13px type, so without that the words on the screen were unverified |
 | Performance | Frame-time instrumentation with a headless budget assertion |
 
 ---

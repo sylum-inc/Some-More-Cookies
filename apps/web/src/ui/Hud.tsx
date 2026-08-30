@@ -110,6 +110,54 @@ export function describeGrip(power: number, tilt: number, spin: number): string 
  * non-gestural path is the whole of spec §12, and a path nobody is told about
  * is a path nobody takes.
  */
+/**
+ * The SM-01's line, which follows the machine rather than the stage.
+ *
+ * It used to be one sentence — "Load it, shut the door, and set the machine
+ * running" — held for the whole twelve-step sequence, so the machine was still
+ * asking to be loaded while it was three quarters of the way through freezing
+ * something. That was found by printing what every stage actually said, which
+ * no pixel comparison could see.
+ *
+ * The running stages say there is nothing to do, because there is not. A
+ * machine that keeps issuing instructions while it works reads as a machine
+ * that is waiting for you, and this one is the opposite: it is the part of the
+ * ritual where you stand back and listen to it.
+ */
+function machineLine(machine: RitualState['machine'], keys: boolean): string {
+  switch (machine.stage) {
+    case 'idle':
+      return keys ? 'L puts it in.' : 'Put it in.';
+    case 'loaded':
+    case 'door-closing':
+      return keys ? 'D shuts the door.' : 'Shut the door.';
+    case 'door-closed':
+      return keys ? 'X throws the latch.' : 'Throw the latch.';
+    case 'latched':
+      if (!machine.confirmed) {
+        return keys ? '1, 2 or 3 picks a program. Enter confirms it.' : 'Pick a program, then confirm it.';
+      }
+      return keys ? 'P pulls the lever.' : 'Pull the lever.';
+    case 'armed':
+      return keys ? 'P pulls the lever.' : 'Pull the lever.';
+    case 'processing':
+    case 'transforming':
+    case 'freezing':
+      return 'Nothing to do now but listen to it.';
+    case 'complete':
+      return keys ? 'X releases the latch.' : 'Release the latch.';
+    case 'unlatched':
+    case 'opening':
+      return keys ? 'D opens the door.' : 'Open the door.';
+    case 'revealed':
+      return 'Take it out.';
+    case 'fault':
+      return 'Something has jammed. Release the latch and look inside.';
+    default:
+      return keys ? 'L puts it in.' : 'Put it in.';
+  }
+}
+
 function guidanceFor(
   ritual: RitualState,
   stage: RitualStage,
@@ -143,9 +191,7 @@ function guidanceFor(
       return keys ? 'Enter picks up the next piece.' : 'Pick up the next piece.';
     }
     case 'machine':
-      return keys
-        ? 'L loads, D the door, X the latch, P the lever.'
-        : 'Load it, shut the door, and set the machine running.';
+      return machineLine(ritual.machine, keys);
     case 'reveal':
       return 'Take it out.';
     case 'eating':
@@ -377,8 +423,26 @@ export function Hud(props: HudProps): React.ReactElement {
           style={{
             fontSize: scale(13),
             letterSpacing: '0.04em',
-            color: highContrast ? '#fff' : 'rgba(232,224,205,0.82)',
-            textShadow: '0 1px 4px rgba(0,0,0,0.95)',
+            color: highContrast ? '#fff' : 'rgba(240,233,216,0.94)',
+            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+            /*
+              A scrim, because a shadow is not enough here.
+            
+              This line has to sit on whatever the world puts behind it, and at
+              thirteen pixels a drop shadow only works when the background is
+              dark. Over the SM-01's chamber — a pale grey wall filling the
+              frame — "Take it out." was very nearly invisible in the reveal
+              baseline, which is the one moment the whole ritual builds to. A
+              heavier halo was worse, not better: five black offsets around a
+              small glyph fill in its counters and the line reads as dark mush.
+            
+              So the same treatment the subtitle already uses, at about half
+              its weight: enough to separate the text from anything, quiet
+              enough that it is still a line in the world rather than a panel.
+            */
+            background: 'rgba(10,9,8,0.42)',
+            padding: `${scale(3)} ${scale(9)}`,
+            borderRadius: 3,
             textAlign: 'center',
             // `min`, not a bare `46ch`: at the largest text scale on the
             // narrowest phone 46ch is wider than the screen, and the line was

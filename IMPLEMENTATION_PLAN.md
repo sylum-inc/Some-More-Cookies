@@ -217,6 +217,31 @@ picture badly, and both would have been recorded as evidence about multiplayer
 if nobody had looked at them. The lesson from #17 generalises — a screenshot is
 only worth what the pose behind it is worth.
 
+### Session 4: three found by reading the words on the screen
+
+The visual suite compares whole frames against a baseline, with tolerances of
+six to twelve per cent of the pixels — measured from the fire's own flicker,
+and correctly so. A line of thirteen-pixel type is about three tenths of one
+per cent. So the guidance line was, in practice, unverified: it could be
+replaced entirely and every baseline would still pass, and
+`--update-snapshots` would not even rewrite the files, because by that measure
+nothing had changed.
+
+The suite now reads that line as *text* at every stage and prints what it said.
+The first run of that readout found the first of these.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 34 | **The SM-01 asked to be loaded while it was running.** "Load it, shut the door, and set the machine running" was held across all twelve stages of the machine sequence, so it was still on screen three quarters of the way through freezing | One string for a stage that is really twelve. It now follows `machine.stage`: put it in, shut the door, throw the latch, pick a program, pull the lever — and, while it runs, "Nothing to do now but listen to it", because a machine that keeps issuing instructions while it works reads as one that is waiting for you |
+| 35 | **The guidance line was below AA contrast on a light background.** Measured 2.87:1 over the SM-01's chamber wall | Cream type with a downward drop shadow, which works over a night campsite and nowhere else. A heavier halo made it worse — five black offsets round a small glyph fill in its counters. It now has the same scrim the subtitle has at about half the weight: 11.3:1 measured, and still a line in the world rather than a panel |
+| 36 | **The sandwich was 8 % of the frame in the reveal** — the one shot the whole ritual builds to | The camera was aimed at the geometric centre of the chamber opening, 13 cm above where the sandwich actually sits, from 1.15 m at 36°. It is now aimed at the sandwich from 0.95 m at 28°, looking down onto the tray. Deliberately not pushed all the way in: the chamber mouth still frames it, because the beat is that it is *in the machine* — it is in your hands one beat later, and that shot is the close-up |
+
+Number 35 is worth a note on method. I first called it "nearly illegible" from
+a downscaled thumbnail, which is precisely the mistake defect #17 records. At
+1:1 it was perfectly readable. It was still worth fixing — 2.87:1 is under AA,
+and that is a number rather than an impression — but the fix was justified by
+measuring the contrast, not by squinting at a picture of a picture.
+
 ### Session 4: and one found by refusing to accept a plausible diagnosis
 
 | # | Found | Cause |

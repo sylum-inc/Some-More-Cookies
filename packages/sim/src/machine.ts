@@ -12,7 +12,7 @@
  */
 
 import { approach, clamp, clamp01, lerp, smoothstep } from './math.js';
-import { Rng, hashString, mixSeeds } from './rng.js';
+import { Rng, hashString, mixSeeds, valueNoise1D } from './rng.js';
 
 /** The twelve stages of the signature ritual, in order. */
 export type MachineStage =
@@ -259,6 +259,12 @@ export interface MachineState {
   confirmed: boolean;
   /** Rolling counter for frost crackle scheduling. */
   crackleAccumulator: number;
+  /** This unit's own seed, so its frost sounds like *its* frost. */
+  readonly seed: number;
+  /** Chamber temperature on the previous step, for the contraction ticking. */
+  previousChamberTempC: number;
+  /** Frost coverage on the previous step, for the growth ticking. */
+  previousFrost: number;
 }
 
 export type MachineEvent =
@@ -268,6 +274,8 @@ export type MachineEvent =
   | 'relay-1'
   | 'relay-2'
   | 'relay-3'
+  | 'thermostat-click'
+  | 'pressure-equalise'
   | 'compressor-start'
   | 'compressor-stop'
   | 'fan-ramp'
@@ -284,6 +292,8 @@ export type MachineEvent =
   | 'lever-throw';
 
 export function createMachine(campsiteSeed: number | string, environmentId: string): MachineState {
+  const seedValue =
+    typeof campsiteSeed === 'string' ? hashString(campsiteSeed) : campsiteSeed >>> 0;
   return {
     identity: deriveMachineIdentity(campsiteSeed, environmentId),
     stage: 'idle',
@@ -306,6 +316,9 @@ export function createMachine(campsiteSeed: number | string, environmentId: stri
     events: [],
     confirmed: false,
     crackleAccumulator: 0,
+    seed: seedValue,
+    previousChamberTempC: 4,
+    previousFrost: 0,
   };
 }
 
@@ -442,6 +455,9 @@ export function stepMachine(machine: MachineState, dt: number): void {
   const profile = PROGRAMS[machine.program];
   const hasQuirk = (id: string) => machine.identity.quirks.some((q) => q.id === id);
 
+  machine.previousChamberTempC = machine.chamberTempC;
+  machine.previousFrost = machine.frost;
+
   // Door animation.
   const doorTarget = doorTargetFor(machine.stage);
   const doorSpeed = hasQuirk('sticky-door') && machine.stage === 'door-closing' ? 0.9 : 1.6;
@@ -454,7 +470,20 @@ export function stepMachine(machine: MachineState, dt: number): void {
   if (machine.stage === 'door-closing' && previousDoor > 0.06 && machine.door <= 0.06) {
     machine.door = 0;
     emit(machine, 'door-seal');
-    setStage(machine, 'door-closed');
+    // An empty machine that has simply been shut is a closed freezer with
+    // nothing in it, not one waiting to be latched.
+    //
+    // Sending it to `door-closed` regardless wedged it permanently: from there
+    // the only legal action was the latch, the latch led to a lever that
+    // refuses to run empty, and nothing in the product ever calls `reset`. So a
+    // player who opened the SM-01 to look inside — an entirely reasonable thing
+    // to do with the machine at the centre of the whole fantasy, and something
+    // §3.5 actively invites, since it is *not* a mystery — and then closed it
+    // again could never use it for the rest of the session.
+    //
+    // `idle` is where an untouched machine already lives, and its door eases
+    // back open from there, which is what this one does when it is left alone.
+    setStage(machine, machine.loaded ? 'door-closed' : 'idle');
   }
   if (machine.stage === 'opening' && machine.door > 0.92) {
     setStage(machine, 'revealed');
@@ -475,6 +504,30 @@ export function stepMachine(machine: MachineState, dt: number): void {
       scheduleOnce(machine, 'compressor-start', 1.4);
       scheduleOnce(machine, 'fan-ramp', 2.1);
       if (hasQuirk('double-relay')) scheduleOnce(machine, 'relay-2', 0.72);
+      /*
+       * The rest of the amber phase used to be silent.
+       *
+       * Measured: after the fan ramped at 2.1s, a standard run said nothing at
+       * all until the changeover at 14s — an 11.9-second hole, a quarter of the
+       * whole run, sitting exactly where anticipation is highest, right after
+       * the lever comes down. That is the loading-bar failure the spec warns
+       * about in §3.4, and no test could have caught it because nothing was
+       * wrong: the machine simply had nothing to say.
+       *
+       * It has plenty to say. Pulling a hot s'more down to freezing is the
+       * hardest work this machine does, and real refrigeration narrates a
+       * pull-down: a stage thermostat satisfies and clicks out, liquid
+       * refrigerant reaches the evaporator as head pressure builds, the
+       * condenser fan steps up as the heat load peaks, and the system bleeds
+       * down just before changeover.
+       *
+       * Scheduled as fractions so the beats scale with the program rather than
+       * bunching at the front of a long one.
+       */
+      scheduleOnce(machine, 'thermostat-click', profile.processSeconds * 0.3);
+      scheduleOnce(machine, 'refrigerant-flow', profile.processSeconds * 0.5);
+      scheduleOnce(machine, 'fan-ramp', profile.processSeconds * 0.7);
+      scheduleOnce(machine, 'pressure-equalise', profile.processSeconds * 0.88);
       machine.compressor = approach(machine.compressor, 1, hasQuirk('loud-compressor') ? 0.8 : 1.2, dt);
       machine.fan = approach(machine.fan, hasQuirk('rough-fan') ? 0.82 : 0.9, 0.7, dt);
       machine.chamberTempC = approach(machine.chamberTempC, -4, 0.16, dt);
@@ -500,6 +553,7 @@ export function stepMachine(machine: MachineState, dt: number): void {
       // machine losing its grip at exactly the wrong moment.
       machine.frost = Math.min(profile.frostTarget, machine.frost + frostRate * dt);
       stepFrostCrackle(machine, dt);
+
       if (machine.stageElapsed >= profile.freezeSeconds) setStage(machine, 'transforming');
       break;
     }
@@ -574,14 +628,52 @@ function scheduleOnce(machine: MachineState, event: MachineEvent, at: number): v
   if (machine.stageElapsed >= at && machine.stageElapsed - dt < at) emit(machine, event);
 }
 
+/**
+ * Frost ticking.
+ *
+ * The first version ticked at a rate proportional to how much frost there was,
+ * which measured out as **129 crackles in a standard run, metronomically even
+ * at four a second for the entire back half**. That is not a rhythm; it is a
+ * texture, and a texture that regular stops being a machine within about eight
+ * seconds and becomes a loop.
+ *
+ * Frost does not do that. It nucleates: a patch finds a seed, ticks several
+ * times in quick succession as it takes hold, and then there is nothing until
+ * the next one. And the ticking is driven by *change* — frost forming, metal
+ * contracting as it cools — so it is busiest early in the freeze and settles
+ * as the chamber reaches temperature, which is also the dramatic shape you
+ * want: the machine works hard, then holds.
+ *
+ * The clumping comes from value noise on the run clock rather than an RNG, so
+ * it costs no state, stays deterministic, and is *this unit's* frost — two
+ * players at the same campsite hear the same machine.
+ */
 function stepFrostCrackle(machine: MachineState, dt: number): void {
-  // Denser ticking as frost thickens.
-  const rate = machine.frost * 5.5;
+  if (dt <= 0) return;
+  const growth = Math.max(0, machine.frost - machine.previousFrost) / dt;
+  const cooling = Math.max(0, machine.previousChamberTempC - machine.chamberTempC) / dt;
+
+  // Clumping: below the threshold the surface is quiet, above it a patch is
+  // taking hold. Squaring the excess makes the bursts short and distinct
+  // rather than a general wobble in the rate.
+  const noise = valueNoise1D(machine.seed, machine.runElapsed * 0.9);
+  const burst = noise > 0.45 ? ((noise - 0.45) / 0.55) ** 2 : 0;
+
+  // The floor matters more than it looks. Measured with it at 0.18, the
+  // transformation — the moment the s'more actually becomes ice cream — went
+  // silent for eight seconds on a deep freeze, which is the worst possible
+  // place in the run to have nothing to say. A little more thermal ticking
+  // during the phase change is also the physically honest answer.
+  const holding = machine.stage === 'transforming' ? 1.45 : 1;
+  const rate = (growth * 26 + cooling * 1.1 + 0.34) * (0.4 + burst * 3.2) * holding;
   machine.crackleAccumulator += rate * dt;
-  while (machine.crackleAccumulator >= 1) {
+  // Bounded: a long step must not fire a hundred crackles in one frame.
+  let guard = 0;
+  while (machine.crackleAccumulator >= 1 && guard++ < 4) {
     machine.crackleAccumulator -= 1;
     emit(machine, 'frost-crackle');
   }
+  if (machine.crackleAccumulator > 2) machine.crackleAccumulator = 2;
 }
 
 /** Telemetry recorded for the sandwich's provenance. */

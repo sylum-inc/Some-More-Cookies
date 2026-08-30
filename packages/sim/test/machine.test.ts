@@ -342,7 +342,12 @@ describe('quirks', () => {
     (sticky.identity as { quirks: unknown }).quirks = [QUIRK_POOL.find((q) => q.id === 'sticky-door')!];
     (normal.identity as { quirks: unknown }).quirks = [];
     for (const m of [sticky, normal]) {
-      advance(m, 1);
+      // Loaded first: an *empty* machine that is shut goes back to `idle`,
+      // because a closed freezer with nothing in it is not waiting to be
+      // latched. `door-closed` is the loaded-and-shut state, so that is the
+      // one this quirk has to be measured in.
+      advance(m, 20);
+      performAction(m, { type: 'load' });
       performAction(m, { type: 'close-door' });
     }
     advance(sticky, 0.4);

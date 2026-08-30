@@ -533,6 +533,17 @@ export class AudioBridge {
       case 'refrigerant-flow':
         kit.refrigerantFlow();
         break;
+      // The pull-down beats. A stage thermostat clicking out is a relay by any
+      // other name, and a bleed-down before changeover is refrigerant moving —
+      // so both are voiced from the existing kit rather than waiting on their
+      // own synthesis. They are distinct *events* in the model, which is what
+      // matters; giving them their own voices later changes nothing here.
+      case 'thermostat-click':
+        kit.relayClick(1);
+        break;
+      case 'pressure-equalise':
+        kit.refrigerantFlow();
+        break;
       case 'completion-tone':
         kit.completionTone();
         break;

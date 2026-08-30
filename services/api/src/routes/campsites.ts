@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CreateCampsiteRequestSchema,
   CreateInviteRequestSchema,
+  CampsiteMemorySnapshotSchema,
   CreateTraceRequestSchema,
   IdSchema,
   JoinCampsiteRequestSchema,
@@ -140,6 +141,40 @@ export function campsiteRoutes(services: ServiceRegistry): AnyRoute[] {
       async handle(ctx) {
         const auth = ctx.requireAuth();
         return { status: 200, body: await worldState.read(auth.accountId, ctx.params.campsiteId) };
+      },
+    }),
+
+    defineRoute({
+      method: 'GET',
+      path: '/v1/campsites/:campsiteId/memory',
+      auth: 'required',
+      summary: 'Read what this campsite remembers about you.',
+      params: z.object({ campsiteId: IdSchema }),
+      async handle(ctx) {
+        const auth = ctx.requireAuth();
+        return { status: 200, body: await worldState.readMemory(auth.accountId, ctx.params.campsiteId) };
+      },
+    }),
+
+    defineRoute({
+      method: 'PUT',
+      path: '/v1/campsites/:campsiteId/memory',
+      auth: 'required',
+      /*
+       * Not idempotency-keyed, and that is the design rather than an omission:
+       * the merge is idempotent in itself, so a replayed snapshot produces the
+       * same state. A key would only add a way for the second sync of an
+       * unchanged campsite to be a 409.
+       */
+      summary: 'Fold this device’s account of a campsite into the merged memory.',
+      params: z.object({ campsiteId: IdSchema }),
+      body: CampsiteMemorySnapshotSchema,
+      async handle(ctx) {
+        const auth = ctx.requireAuth();
+        return {
+          status: 200,
+          body: await worldState.syncMemory(auth.accountId, ctx.params.campsiteId, ctx.body),
+        };
       },
     }),
 

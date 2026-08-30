@@ -83,14 +83,26 @@ export const DEFAULT_AUDIO: AudioSettings = {
   reducedIntensity: false,
 };
 
-/** A saved photo. Stored as a data URL locally until object storage exists. */
+/**
+ * A saved photo.
+ *
+ * `dataUrl` is the local copy and the source of truth until an upload lands.
+ * Once `remoteId` is set the bytes are safely in object storage, `url` points
+ * at them, and the data URL is dropped — which is what lets the Passport keep
+ * more photographs than `localStorage` could ever have held.
+ */
 export interface PassportPhoto {
   id: string;
+  /** The local copy. Empty once the bytes live somewhere better. */
   dataUrl: string;
   caption: string;
   takenAt: number;
   environmentId: string;
   stage: RitualStage;
+  /** Server-side photo id, once the upload succeeded. */
+  remoteId?: string;
+  /** Where to fetch it. Relative to the API today; a CDN origin later. */
+  url?: string;
 }
 
 export interface PassportEntry {
@@ -163,6 +175,44 @@ export interface PassportState {
   /** Total sandwiches made, all time. */
   sandwichCount: number;
   linkedProvider: 'none' | 'apple' | 'google' | 'email';
+  /**
+   * Codes redeemed off a wrapper or an event card (spec §14, ADR-0008).
+   *
+   * The grant itself is the service's — it was server-validated when it was
+   * issued, which is what keeps a high-value reward from being something you
+   * can guess. What is kept here is the *ticket stub*: what it was, when, and
+   * which print run it came off, so the Passport can show it on a device that
+   * is offline and so the memory survives a service it cannot reach. It is a
+   * memento, never the entitlement.
+   */
+  redeemedCodes: RedeemedCodeStub[];
+}
+
+/** A ticket stub for something scanned. Never the reward itself. */
+export interface RedeemedCodeStub {
+  id: string;
+  /** The service's own sentence: "free_kit added to your Passport." */
+  awarded: string;
+  batchId: string;
+  redeemedAt: number;
+}
+
+/**
+ * A live-ops event that is running tonight (spec §14, ADR-0007).
+ *
+ * Deliberately a *description*, not a mechanism: the mechanism already landed
+ * on the environment manifest before the world was built. This is what the
+ * arrival card and the Passport read so the player is told, in words, that the
+ * sky is doing something unusual this weekend — because §12 says nothing may
+ * be delivered through a single channel, and "there are more meteors than
+ * usual" is otherwise a thing you have to notice.
+ */
+export interface ActiveContentEvent {
+  slug: string;
+  name: string;
+  tagline: string;
+  /** What it did to this campsite, in plain words. */
+  effect: string;
 }
 
 export interface AppState {
@@ -174,13 +224,23 @@ export interface AppState {
   quality: QualityTier;
   passport: PassportState;
   /** Which overlay is open, if any. */
-  overlay: 'none' | 'passport' | 'settings' | 'photo' | 'hero' | 'terminal' | 'service' | 'radio';
+  overlay: 'none' | 'passport' | 'settings' | 'photo' | 'hero' | 'terminal' | 'service' | 'radio' | 'scan' | 'campfire';
   /** Transient subtitle line. */
   subtitle: string | null;
   /** Whether audio has been unlocked by a user gesture. */
   audioReady: boolean;
   environmentId: string;
   campsiteSeed: string;
+  /** Live-ops events in force tonight. Empty is the ordinary case. */
+  liveEvents: ActiveContentEvent[];
+  /**
+   * Where the content overlay came from.
+   *
+   * `'none'` is not a failure and is never shown as one: it is what a first
+   * launch, an offline device and a deployment with nothing published all look
+   * like, and all three are complete campsites.
+   */
+  overlaySource: 'network' | 'cache' | 'none';
 }
 
 type Listener = () => void;
@@ -200,6 +260,7 @@ function createPassport(): PassportState {
     campsites: {},
     sandwichCount: 0,
     linkedProvider: 'none',
+    redeemedCodes: [],
   };
 }
 
@@ -259,6 +320,9 @@ export class Store {
     world?: RitualWorldContent;
     /** From the scene manifest, so the shore lands inside the campsite. */
     walkableRadiusM?: number;
+    /** Live-ops events the overlay applied before the world was built. */
+    liveEvents?: readonly ActiveContentEvent[];
+    overlaySource?: 'network' | 'cache' | 'none';
   }) {
     const settings = loadSettings();
     if (prefersReducedMotion()) {
@@ -316,6 +380,8 @@ export class Store {
       audioReady: false,
       environmentId: options.environmentId,
       campsiteSeed: options.campsiteSeed,
+      liveEvents: options.liveEvents ? [...options.liveEvents] : [],
+      overlaySource: options.overlaySource ?? 'none',
     };
 
     // Written immediately, not at the end of the session: the visit happened
@@ -349,6 +415,28 @@ export class Store {
     }
   }
 
+  /**
+   * Take the shared world in place of the local one.
+   *
+   * Arriving at somebody else's fire means arriving at *their* campsite: their
+   * seed, their environment, their SM-01 with its own serial. The shared world
+   * is rebuilt from the snapshot (ADR-0006) and swapped in here, which is the
+   * only moment in a session when the ritual object is replaced.
+   *
+   * The campsite seed becomes the numeric one the session was opened with,
+   * stringified, so every client derives the same terrain, the same trees and
+   * the same machine wear from it — a per-device seed here would put everybody
+   * at a differently shaped campsite while agreeing perfectly about the fire.
+   */
+  adoptRitual(ritual: RitualState, seed: number, environmentId: string): void {
+    this.set({
+      ritual,
+      stage: ritual.stage,
+      environmentId,
+      campsiteSeed: String(seed),
+    });
+  }
+
   updateRender(partial: Partial<RenderSettings>): void {
     const render = { ...this.state.render, ...partial };
     this.set({ render });
@@ -377,6 +465,30 @@ export class Store {
 
   setOverlay(overlay: AppState['overlay']): void {
     this.set({ overlay });
+  }
+
+  /**
+   * A content overlay that landed *after* the world was built.
+   *
+   * Only the weather profile is applied to a session already in progress, and
+   * only because it is a plain data field the model rolls against: swapping it
+   * changes what might happen next and disturbs nothing that already happened.
+   * A meteor shower that turns on while you are sitting there is the best
+   * version of this feature.
+   *
+   * The dial and the environment itself are deliberately *not* applied live —
+   * rebuilding the radio would yank the tuning away from somebody listening to
+   * a station, and swapping the environment would change the ground under
+   * somebody standing on it. Those wait for the next arrival, which is at most
+   * one night away. See `net/overlay.ts` (`liveApplicable`).
+   */
+  applyLiveContent(options: {
+    events: readonly ActiveContentEvent[];
+    source: AppState['overlaySource'];
+    weather?: WeatherProfile;
+  }): void {
+    if (options.weather) this.state.ritual.weather.profile = options.weather;
+    this.set({ liveEvents: [...options.events], overlaySource: options.source });
   }
 
   /**
@@ -486,12 +598,93 @@ export class Store {
     return entry;
   }
 
+  /**
+   * Files a redeemed code in the Passport.
+   *
+   * Called after the service has already said yes: the reward lives in the
+   * account, and this is the stub that makes it visible at a campsite with no
+   * signal. Idempotent by redemption id, because a retried tap must not put two
+   * stubs on the page.
+   */
+  recordRedeemedCode(stub: RedeemedCodeStub): void {
+    const existing = this.state.passport.redeemedCodes ?? [];
+    if (existing.some((entry) => entry.id === stub.id)) return;
+    const passport: PassportState = {
+      ...this.state.passport,
+      redeemedCodes: [stub, ...existing].slice(0, 60),
+    };
+    this.set({ passport });
+    this.persistPassport();
+  }
+
+  /**
+   * How many photographs may still be carrying their own bytes.
+   *
+   * Not a cap on the album. A data URL is a quarter of a megabyte of base64 in
+   * a five-megabyte quota, so there is a hard limit on how many of *those* a
+   * device can hold — but a photo whose bytes are in object storage costs a
+   * URL, and there is no reason to throw one of those away.
+   */
+  private static readonly LOCAL_PHOTO_BYTES_CAP = 24;
+
   addPhoto(photo: PassportPhoto): void {
+    /*
+     * The cap applies to un-uploaded photos only.
+     *
+     * It used to apply to the album, with a comment saying "until object
+     * storage exists" — so a twenty-fifth photograph deleted the first, and a
+     * player who took a lot of pictures lost last week to make room for
+     * tonight. Now the oldest photo whose bytes have safely landed simply
+     * stops carrying them, and the entry stays.
+     */
+    const photos = [photo, ...this.state.passport.photos];
+    let carrying = 0;
+    const trimmed = photos.map((entry) => {
+      if (!entry.dataUrl) return entry;
+      carrying += 1;
+      if (carrying <= Store.LOCAL_PHOTO_BYTES_CAP) return entry;
+      // Past the cap and still un-uploaded: this one has to go, bytes and all.
+      return entry.remoteId ? { ...entry, dataUrl: '' } : null;
+    });
+
     const passport = {
       ...this.state.passport,
-      // Photos are data URLs until object storage exists, so the local cap is
-      // low on purpose — a runaway Passport would break localStorage.
-      photos: [photo, ...this.state.passport.photos].slice(0, 24),
+      photos: trimmed.filter((entry): entry is PassportPhoto => entry !== null).slice(0, 400),
+    };
+    this.set({ passport });
+    this.persistPassport();
+  }
+
+  /**
+   * The bytes reached object storage, so the device does not have to hold them.
+   *
+   * Called by the sync queue, never by the ritual. Dropping the data URL is the
+   * whole player-visible payoff of the upload path: the Passport stops being an
+   * album that forgets.
+   */
+  markPhotoUploaded(localPhotoId: string, remoteId: string, url: string): void {
+    const photos = this.state.passport.photos.map((entry) =>
+      entry.id === localPhotoId ? { ...entry, remoteId, url, dataUrl: '' } : entry,
+    );
+    if (photos.every((entry, index) => entry === this.state.passport.photos[index])) return;
+    this.set({ passport: { ...this.state.passport, photos } });
+    this.persistPassport();
+  }
+
+  /**
+   * Replace this campsite's memory with the one the service merged.
+   *
+   * Local-first: only ever called with the *result* of a successful sync, so a
+   * service that cannot be reached leaves everything here untouched and the
+   * player never notices. The merge itself happened server-side — a second one
+   * here, with its own rules, is how two devices come to disagree about a place
+   * they both went to.
+   */
+  applyCampsiteMemory(memory: CampsiteMemory): void {
+    if (memory.campsiteSeed !== this.state.campsiteSeed) return;
+    const passport: PassportState = {
+      ...this.state.passport,
+      campsites: { ...this.state.passport.campsites, [memory.campsiteSeed]: memory },
     };
     this.set({ passport });
     this.persistPassport();
@@ -503,9 +696,21 @@ export class Store {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state.passport));
     } catch {
       // Quota exceeded: drop the oldest photos and try once more, then give up
-      // silently. Losing a photo must never interrupt the ritual.
+      // silently. Losing a photo must never interrupt the ritual. Uploaded
+      // photos survive this — they cost a URL, and it is the data URLs that
+      // filled the quota in the first place.
       try {
-        const trimmed = { ...this.state.passport, photos: this.state.passport.photos.slice(0, 4) };
+        let kept = 0;
+        const trimmed = {
+          ...this.state.passport,
+          photos: this.state.passport.photos
+            .map((entry) => {
+              if (!entry.dataUrl) return entry;
+              kept += 1;
+              return kept <= 4 ? entry : entry.remoteId ? { ...entry, dataUrl: '' } : null;
+            })
+            .filter((entry): entry is PassportPhoto => entry !== null),
+        };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
         this.state.passport = trimmed;
       } catch {

@@ -489,3 +489,40 @@ export const CodeSigningStatusSchema = z.discriminatedUnion('status', [
   }),
 ]);
 export type CodeSigningStatus = z.infer<typeof CodeSigningStatusSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Verification keys                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The public halves of the signing keys, as a client needs them.
+ *
+ * A public key is not a secret — it is the thing that makes a code
+ * *offline*-verifiable, which is the whole reason ADR-0008 chose Ed25519 over a
+ * shorter HMAC. So this is served unauthenticated and cached on the device: a
+ * phone that has seen it once can reject a forged or mistyped wrapper at a
+ * campsite with no signal at all, and a key rotation reaches installed clients
+ * without a store release.
+ *
+ * `publicKey` is base64 of the raw 32 bytes (RFC 8032), which is what
+ * `crypto.subtle.importKey('raw', …, 'Ed25519', …)` takes and what an operator
+ * can paste into a secret store. There is deliberately no private half here and
+ * no field that could carry one.
+ */
+export const CodeVerificationKeySchema = z.object({
+  keyId: CodeKeyIdSchema,
+  /** base64 of the 32 raw public-key bytes. */
+  publicKey: z.string().min(40).max(64),
+});
+export type CodeVerificationKey = z.infer<typeof CodeVerificationKeySchema>;
+
+export const CodeVerificationKeysSchema = z.object({
+  keys: z.array(CodeVerificationKeySchema).max(8),
+  /**
+   * Which key this deployment currently mints with, when it mints at all.
+   * A client never needs it to verify; it is here so an operator console can
+   * say which key a fresh run will carry.
+   */
+  mintingKeyId: CodeKeyIdSchema.nullable(),
+});
+export type CodeVerificationKeys = z.infer<typeof CodeVerificationKeysSchema>;

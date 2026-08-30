@@ -29,6 +29,8 @@ export interface RequestContext<Params, Body> {
   readonly query: URLSearchParams;
   readonly body: Body;
   readonly rawBody: string;
+  /** The body as it arrived. Empty unless the route asked for `binaryBody`. */
+  readonly rawBytes: Buffer;
   readonly headers: Readonly<Record<string, string>>;
   readonly auth: AuthContext | null;
   readonly log: Logger;
@@ -42,6 +44,12 @@ export interface RouteResult {
   readonly status: number;
   readonly body?: unknown;
   readonly headers?: Record<string, string>;
+  /**
+   * Bytes instead of JSON, for the one thing this service serves that is not
+   * a document: a photograph. `headers` still applies, and the media route
+   * uses that to add the ones a stored file must never be served without.
+   */
+  readonly raw?: { readonly bytes: Buffer; readonly contentType: string };
 }
 
 export type AuthRequirement = 'required' | 'optional' | 'none';
@@ -58,6 +66,19 @@ export interface Route<Params = unknown, Body = unknown> {
   readonly idempotent?: boolean;
   /** Raw-body routes (payment webhooks) skip JSON parsing and the card scan. */
   readonly rawBodyOnly?: boolean;
+  /**
+   * The body is bytes, not text: no UTF-8 decode, no JSON, no card scan.
+   * `ctx.rawBytes` holds them and `ctx.body` is `{}`.
+   */
+  readonly binaryBody?: boolean;
+  /**
+   * Body ceiling for this route, overriding `MAX_BODY_BYTES`.
+   *
+   * A photo is two orders of magnitude larger than any JSON this service
+   * accepts, and raising the global limit to suit it would raise it for every
+   * endpoint that has no business receiving eight megabytes.
+   */
+  readonly maxBodyBytes?: number;
   handle(ctx: RequestContext<Params, Body>): Promise<RouteResult> | RouteResult;
 }
 
@@ -173,7 +194,21 @@ export function normalizeHeaders(raw: IncomingMessage['headers']): Record<string
   return out;
 }
 
-export async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+export async function readBodyBytes(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  /*
+   * The declared length is checked before a single chunk is read, so an
+   * oversized upload costs one response rather than `maxBytes` of buffering.
+   * It is a claim, so the running total below is still what enforces the
+   * limit — but a client that tells the truth is refused for free, and a
+   * client that lies is cut off the moment it exceeds what it promised.
+   */
+  const declared = req.headers['content-length'];
+  if (declared !== undefined) {
+    const length = Number.parseInt(Array.isArray(declared) ? (declared[0] ?? '') : declared, 10);
+    if (Number.isFinite(length) && length > maxBytes) {
+      throw new ApiError('payload_too_large', `Request body exceeds ${maxBytes} bytes.`);
+    }
+  }
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -184,7 +219,11 @@ export async function readBody(req: IncomingMessage, maxBytes: number): Promise<
     }
     chunks.push(buf);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
+}
+
+export async function readBody(req: IncomingMessage, maxBytes: number): Promise<string> {
+  return (await readBodyBytes(req, maxBytes)).toString('utf8');
 }
 
 export function parseJsonBody(rawBody: string, contentType: string | undefined): unknown {
@@ -219,6 +258,43 @@ export function validate<T>(schema: z.ZodType<T>, value: unknown, where: 'body' 
   throw new ApiError('validation_failed', `Invalid request ${where}.`, {
     details: { where, issues: details } as unknown as JsonValue,
   });
+}
+
+/**
+ * Write bytes that came from somewhere else.
+ *
+ * Everything a stored file must never be served without is here rather than
+ * at the call site, because the day somebody adds a second binary route is the
+ * day one of these gets forgotten:
+ *
+ *  - `X-Content-Type-Options: nosniff` — the browser uses the type we sniffed,
+ *    not one it guesses from the bytes.
+ *  - `Content-Security-Policy: default-src 'none'; sandbox` — if something we
+ *    did not recognise ever reached this function, it still cannot run, load
+ *    or navigate anything from our origin.
+ *  - `Content-Disposition: inline` with no filename taken from user input.
+ *  - `X-Frame-Options: DENY`, so a stored object cannot be framed into
+ *    somebody else's page as though it were ours.
+ */
+export function writeBytes(
+  res: ServerResponse,
+  status: number,
+  bytes: Buffer,
+  contentType: string,
+  headers: Record<string, string> = {},
+): void {
+  res.writeHead(status, {
+    'content-type': contentType,
+    'content-length': bytes.byteLength.toString(),
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox",
+    'x-frame-options': 'DENY',
+    'content-disposition': 'inline',
+    'cross-origin-resource-policy': 'same-origin',
+    'x-schema-version': SCHEMA_VERSION,
+    ...headers,
+  });
+  res.end(bytes);
 }
 
 export function writeJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {

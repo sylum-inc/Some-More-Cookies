@@ -131,7 +131,9 @@ describe('redeeming a real code', () => {
     expect(redeemed.status, JSON.stringify(redeemed.body)).toBe(201);
     expect(redeemed.body.status).toBe('redeemed');
     expect(redeemed.body.batchId).toBe(batch.id);
-    expect(redeemed.body.awarded).toContain('free_kit');
+    // The reward's written name, because `awarded` is player-facing copy and
+    // `free_kit` is a database key.
+    expect(redeemed.body.awarded).toBe('A Kit, On Us added to your Passport.');
 
     const grants = await api.request('/v1/rewards/grants', { token: player.token });
     const kit = grants.body.items.find((g: { rewardCode: string }) => g.rewardCode === 'free_kit');

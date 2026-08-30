@@ -164,6 +164,46 @@ Fully synthesised WebAudio (ADR-0002). Buses: `ambience`, `fire`, `machine`, `fo
 
 **Anti-grief:** authority cannot be stolen from an active holder; destructive actions on another player's in-progress work are not expressible in the protocol; repeated interference is rate-limited.
 
+### 6.1 How the client stays in step
+
+The client half (`apps/web/src/net/`) needs neither a jitter buffer nor
+rollback, because the server hands it an exact safety rule for free. Every
+message a session room emits — `input`, `ack`, `authority`, `presence`,
+`arrival`, `departure`, `chat`, `snapshot` — is produced inside the room's
+serialised queue and leaves on one socket in the order the inputs were stamped.
+So **receiving any room message carrying tick T proves every input below T has
+already been sent.** The shared timeline advances to that tick and no further,
+which means an input can never arrive for a tick already stepped; the client
+counts violations and says so rather than diverging quietly. (`pong` and
+transport-level `error` are answered outside the queue and are deliberately not
+trusted for this.)
+
+Local input is applied on the tick the server *acked*, exactly like everybody
+else's — the sender is acked rather than echoed, so the ack is where a player's
+own intent enters the timeline. What is predicted is only the *picture*: after
+the step, the marshmallow in your own hand is drawn where your pointer is,
+which the next step overwrites. Input-to-visible stays under the §10 limit; the
+thermal consequence lands one round trip later, which at a 45-second roast is
+invisible.
+
+**What does not converge, and is not pretended to.** The ritual core — fire,
+marshmallow, assembly, machine — is exact. The world systems (wildlife,
+discovery, radio reception, the sky) are driven by `PresenceInput`, each
+client's own observation of its own player, which is deliberately not on the
+input wire: a 60 Hz position stream per player is the bandwidth ADR-0006 exists
+to avoid. Those are yours, not the campsite's. Blocking somebody is the other
+honest divergence: the server stops relaying their inputs in both directions,
+so the two of you are genuinely no longer watching the same fire, and the
+client says so.
+
+**Where proximity attenuation is applied.** `proximityGain` is a pure function
+in the protocol so a client and an SFU-side mixer can agree exactly. The client
+applies it per track, per frame, and turns the `PannerNode`'s own distance model
+*off* while doing it: two distance curves multiplied together would attenuate a
+voice at the treeline twice, and a panner's inverse curve cannot be made to
+equal the shared one. The panner keeps the job only it can do — direction, and
+the listener basis it shares with the fire and the wildlife.
+
 ---
 
 ## 7. Persistence
@@ -173,12 +213,14 @@ Fully synthesised WebAudio (ADR-0002). Buses: `ambience`, `fire`, `machine`, `fo
 | Tier | Store | Contents |
 | --- | --- | --- |
 | Session | memory | live simulation state |
-| Device | IndexedDB / localStorage | anonymous Passport, settings, photos, offline campsite state |
-| Account | PostgreSQL + object storage | Passport, campsites, sandwich records, orders, rewards |
+| Device | IndexedDB / localStorage | anonymous Passport, settings, un-uploaded photos, offline campsite state |
+| Account | PostgreSQL + object storage | Passport, campsites, campsite memory, photo bytes, sandwich records, orders, rewards |
 
 **Local-first.** The ritual works offline. Device state syncs to the account when one exists; the anonymous → linked transition is a *merge*, never a reset (see `protocol` identity linking).
 
-**Campsite traces** carry a `significance` value and a `decayRate`. A nightly job ages traces; those below a floor are removed, those above a ceiling are promoted to permanent landmarks. Significance is never exposed to the client as a number.
+**Campsite traces** carry a `significance` value and a `decayRate`. A nightly job ages traces; those below a floor are removed, those above a ceiling are promoted to permanent landmarks. Significance is never exposed to the client as a number — and, since ADR-0010, is not expressible on the wire at all: a synced trace carries a disposition and a birth time, its lifetime is derived from the disposition, and the evidence the model weighed never leaves the device that produced it.
+
+**Campsite memory syncs per device, not per account** (ADR-0010). Each device reports only the nights it was there and the service sums grow-only counters, which is the only rule that neither loses a night when two devices camp offline nor double-counts on every re-sync.
 
 ---
 
@@ -274,3 +316,5 @@ Settings live in one observable store consumed by simulation (assists), renderin
 | [0006](./docs/adr/0006-input-authority-multiplayer.md) | Multiplayer replicates inputs + authority, not simulation state |
 | [0007](./docs/adr/0007-live-ops-content-overlay.md) | Live content is a versioned overlay with append-only releases |
 | [0008](./docs/adr/0008-signed-offline-verifiable-codes.md) | One signed, offline-verifiable code format for wrappers, events and campfires |
+| [0009](./docs/adr/0009-media-storage-behind-an-interface.md) | Photo bytes behind a `MediaStorage` interface, with a real local-disk adapter |
+| [0010](./docs/adr/0010-campsite-memory-sync.md) | Campsite memory syncs as per-device counters; the significance score has nowhere to ride |

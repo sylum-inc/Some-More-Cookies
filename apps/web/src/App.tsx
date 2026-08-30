@@ -36,15 +36,7 @@ import {
   terrainHeight,
   toggleTorch,
   bite as takeBiteAction,
-  blowOutMarshmallow,
-  finishRoasting,
-  arrive as arriveAction,
-  beginRoasting as beginRoastingAction,
-  holdComponent,
-  moveComponent,
-  placeComponent,
-  takeSandwich as takeSandwichAction,
-  tendFire,
+  nightEpoch,
   toggleRadio,
   vec3,
   type Interactable,
@@ -52,6 +44,26 @@ import {
   type MoveIntent,
   type RitualState,
 } from '@somemore/sim';
+/*
+ * The ritual's replicated actions.
+ *
+ * Same signatures as the `@somemore/sim` functions they shadow, and alone at a
+ * campsite they *are* those functions. With other people at the fire they
+ * become intents on the wire, applied on the tick the server stamps them with
+ * so that every client walks the same timeline (ADR-0006). The import line is
+ * the signpost: anything from here may travel. See `net/shared.ts`.
+ */
+import {
+  arrive as arriveAction,
+  beginRoasting as beginRoastingAction,
+  blowOutMarshmallow,
+  finishRoasting,
+  holdComponent,
+  moveComponent,
+  placeComponent,
+  takeSandwich as takeSandwichAction,
+  tendFire,
+} from './net/shared.js';
 import { World, LAYOUT, hashSeed, isAnchored } from './scene/World.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
 import { getEnvironment } from '@somemore/content';
@@ -67,6 +79,23 @@ import { BlowGestureDetector, RoastController, screenToTableOffset } from './int
 import { capturePhoto } from './interaction/photo.js';
 import { AudioBridge, type AudioCue } from './audio/bridge.js';
 import { SyncEngine } from './net/sync.js';
+import { Scan } from './ui/Scan.js';
+import {
+  CodeKeyring,
+  ScanFlow,
+  keysFromBuild,
+  readCachedKeys,
+  writeCachedKeys,
+} from './net/codes.js';
+import { liveApplicable, refreshOverlay } from './net/overlay.js';
+import { Campfire } from './net/campfire.js';
+import { bindCampfire } from './net/shared.js';
+import { parseJoin, realtimeUrl } from './net/join.js';
+import { CampfireScene } from './scene/Campfire.js';
+import { CampfirePanel } from './ui/Campfire.js';
+import { PwaNotices } from './pwa/PwaNotices.js';
+import { pwa } from './pwa/register.js';
+import { useViewportSize, useWakeLock } from './pwa/viewport.js';
 
 export interface AppProps {
   store: Store;
@@ -168,6 +197,8 @@ export function App({ store }: AppProps): React.ReactElement {
   }, [walkable]);
 
   const [reach, setReach] = useState<Interactable | null>(null);
+  /** The shared fire, when a link brought us to one. Null for a campsite of one. */
+  const [campfire, setCampfire] = useState<Campfire | null>(null);
 
   /**
    * How the stone is being held, 0..1 on each axis.
@@ -206,6 +237,15 @@ export function App({ store }: AppProps): React.ReactElement {
   const audioRef = useRef<AudioBridge | null>(null);
   const syncRef = useRef<SyncEngine | null>(null);
   const campsiteIdRef = useRef<string | null>(null);
+  /**
+   * The code keyring and the scan flow.
+   *
+   * The keyring starts from whatever this build shipped and whatever this
+   * device has cached — both synchronous, both public data — so the very first
+   * code somebody types can be refused offline without waiting for anything.
+   */
+  const keyringRef = useRef<CodeKeyring>(new CodeKeyring([...keysFromBuild(import.meta.env), ...readCachedKeys()]));
+  const scanRef = useRef<ScanFlow | null>(null);
 
   const [quality, setQuality] = useState<QualityTier>(() =>
     probeQualityTier({
@@ -263,10 +303,158 @@ export function App({ store }: AppProps): React.ReactElement {
         hashSeed(state.campsiteSeed) % 2_147_483_647,
       );
       campsiteIdRef.current = id;
+      /*
+       * Once a photograph's bytes are somewhere better than `localStorage`,
+       * the device stops carrying them — which is what lifts the twenty-four
+       * cap off the Passport rather than merely raising it.
+       */
+      sync.onPhotoUploaded = (localId, remoteId, url) => store.markPhotoUploaded(localId, remoteId, url);
+      /*
+       * And the campsite's memory goes with it. A place that has met you is
+       * device-local until this call: lose the phone and it has never met you.
+       * Local-first as everything in `net/` is — a failure returns null and the
+       * local memory is left byte-identical, so nobody notices.
+       */
+      if (id !== null) {
+        const merged = await sync.syncCampsiteMemory(id, store.campsiteMemory());
+        if (merged !== null) store.applyCampsiteMemory(merged);
+      }
       void sync.drain();
     })();
+
+    /*
+     * Live ops and the code keyring, after the world is already running.
+     *
+     * Both are strictly background. The campsite was built from the compiled
+     * catalogue and the overlay cache before this component mounted, so
+     * everything here is about *next* time — plus the one thing that is safe
+     * to change mid-session, which is the weather profile the model rolls
+     * against (see `net/overlay.ts`). A failure of any kind leaves a campsite
+     * that is identical to the one a player with no signal gets.
+     */
+    scanRef.current = new ScanFlow(sync.api, {
+      keyring: keyringRef.current,
+      onRedeemed: (result) => {
+        store.recordRedeemedCode({
+          id: result.redemption.id,
+          awarded: result.awarded,
+          batchId: result.batchId,
+          redeemedAt: Date.parse(result.redemption.redeemedAt) || Date.now(),
+        });
+      },
+    });
+
+    void (async () => {
+      const keys = await sync.api.fetchCodeKeys();
+      if (keys.ok) {
+        keyringRef.current.add(keys.value.keys);
+        writeCachedKeys(keys.value.keys, keys.value.mintingKeyId);
+      }
+    })();
+
+    void (async () => {
+      const { result } = await refreshOverlay({
+        environmentId: state.environmentId,
+        baseUrl: String(baseUrl),
+      });
+      const live = liveApplicable(result);
+      store.applyLiveContent({
+        events: result.events,
+        source: result.source,
+        ...(live ? { weather: live.weather } : {}),
+      });
+    })();
+
     return () => sync.dispose();
-  }, [state.environmentId, state.campsiteSeed]);
+  }, [state.environmentId, state.campsiteSeed, store]);
+
+  /* --- A shared campfire -------------------------------------------------
+   *
+   * Only when a link says so. There is no lobby and no "multiplayer" mode
+   * (spec §9): a campsite of one constructs nothing here and keeps calling the
+   * simulation directly, which is why single-player behaviour is unchanged
+   * rather than merely equivalent. A link with a `fire=` on it opens a socket,
+   * and everything downstream — the shared timeline, the people, voice —
+   * exists only for the life of that socket.
+   *
+   * Nothing in the ritual waits for any of it (ARCHITECTURE §1.5). If the
+   * socket never opens, or opens and drops, the fire is still lit.
+   */
+  useEffect(() => {
+    const intent = parseJoin(typeof location === 'undefined' ? '' : location.search);
+    if (intent === null) return;
+
+    const baseUrl = String(import.meta.env['VITE_API_URL'] ?? '');
+    const token = intent.token ?? persistedAuthToken();
+    if (token === null) return;
+
+    let subtitleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const fire = new Campfire({
+      transport: {
+        url: intent.wsUrl ?? realtimeUrl(baseUrl),
+        token,
+        sessionId: intent.sessionId,
+        ...(intent.join === undefined ? {} : { join: intent.join }),
+      },
+      // Every value here is derived from the session or the environment, so
+      // that two clients rebuilding the same world rebuild the same world.
+      ritualOptionsFor: (environmentId, sessionOriginMs) => {
+        const environment = getEnvironment(environmentId);
+        return {
+          now: sessionOriginMs,
+          skyEpochMs: nightEpoch(new Date(sessionOriginMs), -73),
+          ...(environment ? { weatherProfile: environment.weather } : {}),
+          ...(environment
+            ? {
+                world: {
+                  wildlife: environment.wildlife,
+                  radio: environment.radio,
+                  secrets: environment.secrets,
+                  ...(environment.scene.water ? { water: environment.scene.water } : {}),
+                  skyOpenness: environment.scene.skyOpenness,
+                },
+                walkableRadiusM: environment.scene.walkableRadiusM,
+              }
+            : {}),
+        };
+      },
+      assists: () => ({
+        autoRotate: store.state.accessibility.autoRotate,
+        assemblyAssist: store.state.accessibility.assemblyAssist,
+      }),
+      onAdopt: (shared, seed, environmentId) => store.adoptRitual(shared, seed, environmentId),
+      /*
+       * Everything the fire says out loud, said in text as well (spec §12) —
+       * and then taken away again. The simulation's own cues expire on a timer
+       * inside `onSimStep`; these arrive from the socket, outside that loop, so
+       * they need their own. Without it "somebody is coming down the trail"
+       * stayed on screen for the rest of the night.
+       */
+      onSubtitle: (line) => {
+        store.setSubtitle(line);
+        if (subtitleTimer !== null) clearTimeout(subtitleTimer);
+        subtitleTimer = setTimeout(() => {
+          subtitleTimer = null;
+          if (store.state.subtitle === line) store.setSubtitle(null);
+        }, 3_200);
+      },
+      onChange: () => store.touch(),
+    });
+
+    bindCampfire(fire);
+    setCampfire(fire);
+    fire.connect();
+    const handle = window.__someMore;
+    if (handle) (handle as { campfire?: Campfire }).campfire = fire;
+
+    return () => {
+      if (subtitleTimer !== null) clearTimeout(subtitleTimer);
+      bindCampfire(null);
+      setCampfire(null);
+      fire.dispose();
+    };
+  }, [store]);
 
   useEffect(() => {
     audioRef.current?.applySettings(state.audio);
@@ -282,9 +470,23 @@ export function App({ store }: AppProps): React.ReactElement {
    * case, not the exception.
    */
   useEffect(() => {
-    const timer = setInterval(() => store.rememberCampsite(), 30_000);
+    /*
+     * The same cadence carries the memory to the service, because the merge is
+     * idempotent and a snapshot is cheap. `void` rather than `await`: a slow
+     * or missing service must not delay the local write, which is the one that
+     * actually keeps the campsite.
+     */
+    const push = (memory: ReturnType<Store['rememberCampsite']>): void => {
+      const campsiteId = campsiteIdRef.current;
+      const sync = syncRef.current;
+      if (campsiteId === null || sync === null) return;
+      void sync.syncCampsiteMemory(campsiteId, memory).then((merged) => {
+        if (merged !== null) store.applyCampsiteMemory(merged);
+      });
+    };
+    const timer = setInterval(() => push(store.rememberCampsite()), 30_000);
     const remember = (): void => {
-      store.rememberCampsite();
+      push(store.rememberCampsite());
     };
     window.addEventListener('pagehide', remember);
     document.addEventListener('visibilitychange', remember);
@@ -576,6 +778,12 @@ export function App({ store }: AppProps): React.ReactElement {
         return;
       }
       if (state.overlay !== 'none') return;
+      // Who is at the fire. A key as well as a button, because every social
+      // act at a shared fire needs a non-gestural path (spec §12).
+      if (event.key === 'k' && campfire !== null) {
+        store.setOverlay('campfire');
+        return;
+      }
       if (ritual.stage === 'arriving' && (event.key === 'Enter' || event.key === ' ')) {
         beginArrival();
       }
@@ -674,6 +882,7 @@ export function App({ store }: AppProps): React.ReactElement {
     handleUse,
     player,
     throwHeldStone,
+    campfire,
   ]);
 
   // --- Simulation-driven audio and subtitles ------------------------------
@@ -808,6 +1017,11 @@ export function App({ store }: AppProps): React.ReactElement {
     if (photo) {
       store.addPhoto(photo);
       store.setOverlay('passport');
+      // The photograph is already in the Passport as a data URL, which is what
+      // the player is looking at. Whether it also reaches object storage is a
+      // background fact they are never asked to care about, and the queue
+      // survives a reload if it does not happen tonight.
+      syncRef.current?.enqueuePhoto(photo, campsiteIdRef.current);
     }
   }, [state.environmentId, ritual, store]);
 
@@ -830,13 +1044,64 @@ export function App({ store }: AppProps): React.ReactElement {
     [adaptive, quality],
   );
 
+  // --- Installed, and on a phone ------------------------------------------
+  /**
+   * The live viewport, the worker, and the screen staying awake.
+   *
+   * The viewport is read continuously rather than once, because `dpr` below is
+   * derived from its height: a phone turned on its side halves the height and
+   * would otherwise keep rendering at the internal resolution it chose in
+   * portrait, which on a 390x844 screen is about twice the pixels it should be.
+   * That is a frame-rate defect only a rotating device ever shows.
+   */
+  const viewport = useViewportSize();
+
+  useEffect(() => {
+    // Not in dev: a worker holding a cache-first copy of an unbundled module
+    // graph is a debugging session nobody asked for. `vite.config.ts` serves a
+    // self-unregistering worker there instead.
+    if (import.meta.env.PROD) pwa.register();
+  }, []);
+
+  // Forty-five seconds of watching a machine work, with both hands off the
+  // glass, is exactly when a phone decides nobody is there.
+  useWakeLock(
+    ritual.machine.stage === 'processing' ||
+      ritual.machine.stage === 'freezing' ||
+      ritual.machine.stage === 'transforming',
+  );
+
+  /**
+   * Comes back with the sound still on.
+   *
+   * iOS moves an `AudioContext` to `interrupted` when the app goes to the
+   * background — a phone call, the app switcher, a notification — and does not
+   * bring it back on its own. Without this, taking a call during a machine run
+   * and returning finds a silent campfire, which for a product whose whole
+   * machine narrative is carried by sound is the same as it being broken.
+   * `unlock()` is safe to call again: it reuses the engine and only starts the
+   * beds once.
+   */
+  useEffect(() => {
+    if (!state.audioReady) return;
+    const resume = (): void => {
+      if (document.visibilityState !== 'visible') return;
+      void audioRef.current?.unlock();
+    };
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('pageshow', resume);
+    return () => {
+      document.removeEventListener('visibilitychange', resume);
+      window.removeEventListener('pageshow', resume);
+    };
+  }, [state.audioReady]);
+
   const dpr = useMemo(() => {
     // Low internal resolution, upscaled with nearest by the browser
     // (ADR-0003). This is the single largest performance lever in the build.
     const height = QUALITY[quality].internalHeight * state.render.resolutionScale;
-    const viewport = typeof window !== 'undefined' ? window.innerHeight : 800;
-    return Math.max(0.12, Math.min(1, height / viewport));
-  }, [quality, state.render.resolutionScale]);
+    return Math.max(0.12, Math.min(1, height / Math.max(1, viewport.height)));
+  }, [quality, state.render.resolutionScale, viewport.height]);
 
   return (
     <div
@@ -871,6 +1136,20 @@ export function App({ store }: AppProps): React.ReactElement {
           walkable={walkable}
           onReachChange={setReach}
         />
+
+        {/* The other people, when there are any. Nothing is constructed and
+            nothing is drawn at a campsite of one. */}
+        {campfire !== null && (
+          <CampfireScene
+            fire={campfire}
+            ritual={ritual}
+            settings={state.render}
+            player={player}
+            walkable={walkable}
+            audio={audioRef}
+            micMuted={campfire.voice.muted}
+          />
+        )}
       </Canvas>
 
       <Hud
@@ -893,6 +1172,15 @@ export function App({ store }: AppProps): React.ReactElement {
         onOpenTerminal={() => store.setOverlay('terminal')}
       />
 
+      {/* "Keep this campsite" and "there is a newer one" — both quiet, both
+          dismissible, and neither of them allowed anywhere near the ritual. */}
+      <PwaNotices
+        stage={state.stage}
+        overlayOpen={state.overlay !== 'none'}
+        textScale={state.accessibility.textScale}
+        highContrast={state.accessibility.highContrast}
+      />
+
       {/* Fire tending affordances, shown only where they make sense */}
       {/* Kept as an accessibility fallback for anyone who cannot walk to the
           woodpile or aim a tap; the diegetic route is to reach for them. */}
@@ -900,7 +1188,9 @@ export function App({ store }: AppProps): React.ReactElement {
         <div
           style={{
             position: 'fixed',
-            left: 14,
+            // In landscape on a notched phone the left inset is 59 pixels, and
+            // without this both of these sit under the camera housing.
+            left: 'calc(14px + env(safe-area-inset-left, 0px))',
             top: '50%',
             transform: 'translateY(-50%)',
             display: 'flex',
@@ -925,11 +1215,41 @@ export function App({ store }: AppProps): React.ReactElement {
           campsiteSeed={state.campsiteSeed}
           textScale={state.accessibility.textScale}
           onClose={() => store.setOverlay('none')}
+          onAddCode={() => store.setOverlay('scan')}
           onLink={(provider) => {
             // Optimistic: the Passport is already this device's, so linking
             // uploads it rather than replacing it (spec §6.1).
             store.set({ passport: { ...state.passport, linkedProvider: provider } });
             void syncRef.current?.link(provider, `dev-credential:${provider}`);
+          }}
+        />
+      )}
+
+      {/*
+        The wrapper code panel (spec §14, ADR-0008).
+
+        Opened from the Passport, never on the boot path, and never constructed
+        before somebody asks for it — the camera in particular is only reached
+        by pressing a button that says so.
+      */}
+      {state.overlay === 'scan' && scanRef.current && (
+        <Scan
+          flow={scanRef.current}
+          textScale={state.accessibility.textScale}
+          onClose={() => store.setOverlay('none')}
+          onCampInvite={(token) => {
+            /*
+             * The seam. A `camp` code is a campfire invitation, and its
+             * signature has already been checked on this device — so a forged
+             * QR never reaches the invite table. What happens next (opening a
+             * session, presenting the token on the realtime handshake, showing
+             * somebody else's fire) belongs to the multiplayer client, which is
+             * being built separately. Recording it is where this stops.
+             */
+            store.setSubtitle('[an invitation to someone else’s fire]');
+            if (typeof console !== 'undefined') {
+              console.info('[some-more] verified camp invite token', token.slice(0, 8), '…');
+            }
           }}
         />
       )}
@@ -942,6 +1262,50 @@ export function App({ store }: AppProps): React.ReactElement {
           onRender={(partial) => store.updateRender(partial)}
           onAccessibility={(partial) => store.updateAccessibility(partial)}
           onAudio={(partial) => store.updateAudio(partial)}
+          onClose={() => store.setOverlay('none')}
+        />
+      )}
+
+      {/* Who is at the fire, what to say, and how to leave. Reachable with the
+          `k` key or this button, because every social act here needs a path
+          that is not a gesture (spec §12). */}
+      {campfire !== null && state.overlay === 'none' && (
+        <button
+          className="sm-focus"
+          onClick={() => store.setOverlay('campfire')}
+          aria-label="Who is at the fire"
+          style={{
+            position: 'fixed',
+            /*
+             * Top left, which is the one corner nothing else uses. Bottom left
+             * is the HUD's own action button — "take the plate" and "at the
+             * fire · 2" printed on top of each other during a roast.
+             */
+            left: 'calc(14px + env(safe-area-inset-left, 0px))',
+            top: 'calc(14px + env(safe-area-inset-top, 0px))',
+            zIndex: 26,
+            background: 'rgba(8,10,14,0.6)',
+            color: 'rgba(232,224,205,0.9)',
+            border: '1px solid rgba(232,224,205,0.22)',
+            padding: `${6 * state.accessibility.textScale}px ${11 * state.accessibility.textScale}px`,
+            fontSize: `${10 * state.accessibility.textScale}px`,
+            fontFamily: FONT_STACK.mono,
+            letterSpacing: '0.14em',
+            textTransform: 'uppercase',
+            borderRadius: 2,
+          }}
+        >
+          {campfire.roster.visible.length > 0
+            ? `At the fire · ${campfire.roster.visible.length + 1}`
+            : campfireStatusWord(campfire.status)}
+        </button>
+      )}
+
+      {campfire !== null && state.overlay === 'campfire' && (
+        <CampfirePanel
+          fire={campfire}
+          textScale={state.accessibility.textScale}
+          highContrast={state.accessibility.highContrast}
           onClose={() => store.setOverlay('none')}
         />
       )}
@@ -1123,6 +1487,40 @@ function groundPointAt(
 /** True when the thing in reach is the water or the stones beside it. */
 function atTheWater(reach: Interactable | null): boolean {
   return reach !== null && (reach.id === 'water-edge' || reach.id === 'stones');
+}
+
+/**
+ * The bearer token this device already has.
+ *
+ * `SyncEngine` writes the session here when it bootstraps an anonymous
+ * account, and the socket needs the same one — the realtime edge shares an
+ * auth model with the REST API rather than having a second one. Read rather
+ * than plumbed so that a campsite of one constructs nothing.
+ */
+function persistedAuthToken(): string | null {
+  try {
+    const raw = localStorage.getItem('some-more/session/v1');
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as { auth?: { token?: unknown } };
+    const token = parsed.auth?.token;
+    return typeof token === 'string' && token.length > 0 ? token : null;
+  } catch {
+    return null;
+  }
+}
+
+function campfireStatusWord(status: string): string {
+  switch (status) {
+    case 'joined':
+      return 'At the fire';
+    case 'joining':
+    case 'connecting':
+      return 'Walking in';
+    case 'reconnecting':
+      return 'Trail quiet';
+    default:
+      return 'Your own fire';
+  }
 }
 
 function easeInOut(t: number): number {

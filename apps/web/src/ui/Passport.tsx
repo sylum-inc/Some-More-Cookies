@@ -17,6 +17,14 @@ export interface PassportProps {
   textScale: number;
   /** The campsite this Passport is open at, if it is open at one. */
   campsiteSeed?: string;
+  /**
+   * Opens the code panel.
+   *
+   * Here rather than on the HUD because this is where rewards already live and
+   * because a wrapper is something you have in your hand between things — not
+   * something the campfire should be asking you about.
+   */
+  onAddCode?: () => void;
 }
 
 export function Passport({
@@ -25,6 +33,7 @@ export function Passport({
   onLink,
   textScale,
   campsiteSeed,
+  onAddCode,
 }: PassportProps): React.ReactElement {
   const px = (n: number) => `${n * textScale}px`;
   const here = campsiteSeed === undefined ? undefined : passport.campsites[campsiteSeed];
@@ -130,8 +139,14 @@ export function Passport({
                     width: px(168),
                   }}
                 >
+                  {/*
+                    The local copy while there is one, then the stored bytes.
+                    A photograph whose data URL has been dropped because it
+                    reached object storage is still a photograph on the page —
+                    that is the whole point of dropping it.
+                  */}
                   <img
-                    src={photo.dataUrl}
+                    src={photo.dataUrl || photo.url}
                     alt={photo.caption}
                     style={{ width: '100%', display: 'block', imageRendering: 'pixelated' }}
                   />
@@ -149,6 +164,64 @@ export function Passport({
                 </figure>
               ))}
             </div>
+          )}
+        </section>
+
+        {/*
+          Ticket stubs.
+
+          What came off a wrapper or an event card. The reward itself is the
+          account's and was server-validated when it was granted (spec §11);
+          this is the stub, so it still reads at a campsite with no signal.
+          The button is here and not on the HUD for the same reason the whole
+          section is: it is a thing you do between things.
+        */}
+        <section style={{ marginBottom: px(20) }}>
+          <SectionLabel textScale={textScale}>Ticket stubs</SectionLabel>
+          {(passport.redeemedCodes ?? []).length === 0 ? (
+            <Empty textScale={textScale}>Nothing scanned yet.</Empty>
+          ) : (
+            <div style={{ marginTop: px(10), display: 'grid', gap: px(8) }}>
+              {(passport.redeemedCodes ?? []).slice(0, 10).map((stub) => (
+                <div
+                  key={stub.id}
+                  data-testid="passport-stub"
+                  style={{
+                    background: 'rgba(255,253,246,0.72)',
+                    borderLeft: `3px solid ${TOKENS.stamp}`,
+                    padding: px(10),
+                    fontFamily: FONT_STACK.mono,
+                    fontSize: px(11),
+                    color: TOKENS.ink,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(14) }}>{stub.awarded}</div>
+                  <div style={{ color: TOKENS.inkSoft }}>
+                    {stub.batchId} · {new Date(stub.redeemedAt).toLocaleDateString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {onAddCode !== undefined && (
+            <button
+              className="sm-focus"
+              data-testid="passport-add-code"
+              onClick={onAddCode}
+              style={{
+                marginTop: px(10),
+                background: 'transparent',
+                border: `1px solid ${TOKENS.ink}`,
+                color: TOKENS.ink,
+                padding: `${px(7)} ${px(13)}`,
+                fontSize: px(12),
+                letterSpacing: '0.06em',
+                borderRadius: 2,
+              }}
+            >
+              Add a code from a wrapper
+            </button>
           )}
         </section>
 

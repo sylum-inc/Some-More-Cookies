@@ -283,7 +283,25 @@ export const InputIntentSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('begin_roast'), objectId: IdSchema }),
   z.object({ kind: z.literal('finish_roast'), objectId: IdSchema }),
   z.object({ kind: z.literal('tend_fire'), action: TendFireActionSchema }),
-  z.object({ kind: z.literal('hold_component'), component: ComponentKindSchema.nullable().default(null) }),
+  z.object({
+    kind: z.literal('hold_component'),
+    component: ComponentKindSchema.nullable().default(null),
+    /**
+     * The picker-up's magnetic assist, 0..1 (spec §12), carried with the
+     * pick-up rather than read from each client's own settings.
+     *
+     * Assembly assist is applied *continuously* while a component is being
+     * dragged, not as a snap on release, so two clients simulating the same
+     * assembly with different assist values diverge on the first step. It has
+     * to be on the wire or a shared assembly is not reconstructable — and it
+     * belongs here rather than in the session because it is a property of the
+     * person holding the chocolate, not of the campsite.
+     *
+     * Optional: a client that does not send one leaves the assist as it was,
+     * which is the pre-existing behaviour.
+     */
+    assist: UnitIntervalSchema.optional(),
+  }),
   z.object({ kind: z.literal('move_component'), offset: Vec3Schema, rotation: z.number().finite() }),
   z.object({ kind: z.literal('place_component') }),
   z.object({

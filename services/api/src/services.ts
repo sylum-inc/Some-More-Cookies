@@ -9,6 +9,7 @@ import type { PassportService } from './domain/passport.js';
 import type { RewardsService } from './domain/rewards.js';
 import type { SandwichService } from './domain/sandwiches.js';
 import type { SessionService } from './domain/sessions.js';
+import type { MediaService } from './domain/media.js';
 import type { WorldStateService } from './domain/worldState.js';
 import type { OperatorGate } from './codes/signing.js';
 import type { Database } from './db/index.js';
@@ -24,6 +25,18 @@ export interface Capabilities {
   /** Can it verify scanned codes, and can it mint new ones? */
   readonly codeVerification: boolean;
   readonly codeMinting: boolean;
+  /**
+   * Where photo bytes go, and whether they can go anywhere at all.
+   *
+   * Reported for the same reason `paymentsConfigured` is: the client asks
+   * rather than assumes, so a deployment that gains a bucket starts accepting
+   * uploads with no change on the other side of the wire.
+   */
+  readonly mediaStorage: 'local' | 's3';
+  readonly mediaConfigured: boolean;
+  readonly mediaBucket: string;
+  readonly mediaMaxBytes: number;
+  readonly mediaUnavailableReason: string | null;
 }
 
 /**
@@ -36,6 +49,7 @@ export interface ServiceRegistry {
   readonly campsites: CampsiteService;
   readonly sessions: SessionService;
   readonly worldState: WorldStateService;
+  readonly media: MediaService;
   readonly sandwiches: SandwichService;
   readonly rewards: RewardsService;
   readonly commerce: CommerceService;

@@ -57,6 +57,9 @@ export function createPostgresPhotoRepository(pool: PgPool): PhotoRepository {
     async listByAccount(accountId) {
       return table.list('owner_account_id = $1', [accountId], 'seq');
     },
+    async delete(photoId) {
+      await table.remove([photoId]);
+    },
     async reassignAccount(fromAccountId, toAccountId) {
       return table.reassign('owner_account_id', 'ownerAccountId', fromAccountId, toAccountId);
     },

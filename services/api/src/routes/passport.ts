@@ -77,6 +77,17 @@ export function passportRoutes(services: ServiceRegistry): AnyRoute[] {
 
     defineRoute({
       method: 'GET',
+      path: '/v1/passport/campsites',
+      auth: 'required',
+      summary: 'Every campsite that remembers you. What a new device restores from.',
+      async handle(ctx) {
+        const auth = ctx.requireAuth();
+        return { status: 200, body: { items: await services.worldState.listMemories(auth.accountId) } };
+      },
+    }),
+
+    defineRoute({
+      method: 'GET',
       path: '/v1/passports/:accountId',
       auth: 'required',
       summary: "Read another player's public passport, if they allow it.",

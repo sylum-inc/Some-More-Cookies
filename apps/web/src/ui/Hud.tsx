@@ -295,9 +295,22 @@ export function Hud(props: HudProps): React.ReactElement {
       )}
 
       {/* Taking the marshmallow to the plate — a physical act, not a button
-          that skips the stage */}
+          that skips the stage.
+
+          The insets matter here more than anywhere else in the HUD: without
+          them this sits fourteen pixels above the home indicator in portrait
+          and under the notch in landscape. The other two corners already read
+          them; this one did not. */}
       {stage === 'roasting' && (
-        <div style={{ position: 'absolute', left: 0, bottom: 0, padding: 14, pointerEvents: 'auto' }}>
+        <div
+          style={{
+            position: 'absolute',
+            left: 'env(safe-area-inset-left, 0px)',
+            bottom: 'env(safe-area-inset-bottom, 0px)',
+            padding: 14,
+            pointerEvents: 'auto',
+          }}
+        >
           <CornerButton
             label={ritual.marshmallow.fallen ? 'Take another' : 'Take it to the plate'}
             onClick={props.onFinishRoasting}

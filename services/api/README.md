@@ -5,7 +5,7 @@ marshmallow, build a hot s'more, feed it to an SM-01, and walk away with a
 roasted-marshmallow ice cream sandwich and a Campfire Passport full of proof.
 
 It is one deployable service: a `node:http` server with a small typed router,
-eleven domain modules behind explicit interfaces, and a repository layer with two
+twelve domain modules behind explicit interfaces, and a repository layer with two
 complete implementations — in memory for local dev and tests, PostgreSQL for
 anything that has to survive a restart.
 
@@ -166,8 +166,18 @@ npx tsc -b packages/protocol services/api
 | `STRIPE_PUBLISHABLE_KEY` | no | — | Returned to clients as `publishableKeyHint`. |
 | `STRIPE_WEBHOOK_SECRET` | for real payments | — | Absent ⇒ webhook verification fails closed. |
 | `STRIPE_API_BASE` | no | `https://api.stripe.com` | Override for a mock/proxy. |
+| `MEDIA_STORAGE` | no | `local` | `local` \| `s3`. `local` writes photo bytes to `MEDIA_LOCAL_ROOT` and genuinely works; `s3` needs the three keys below and reports `not_configured` without them. |
 | `MEDIA_BUCKET` | no | `somemore-media-dev` | Object-storage bucket name for photo keys. |
 | `MEDIA_KEY_PREFIX` | no | `campsites` | Key prefix for uploads. |
+| `MEDIA_LOCAL_ROOT` | no | `<tmpdir>/somemore-media` | Where the local adapter writes. A temp directory by default, for the same reason storage defaults to memory — point it at a volume in anything meant to keep photographs. |
+| `MEDIA_MAX_BYTES` | no | `8388608` | Hard ceiling on one photo, enforced at the edge before buffering. |
+| `MEDIA_UPLOAD_TTL_SECONDS` | no | `900` | How long an upload ticket stands. It is an offer, not a session. |
+| `MEDIA_S3_REGION` | for `s3` | — | e.g. `us-west-2`. |
+| `MEDIA_S3_ACCESS_KEY_ID` | for `s3` | — | Absent ⇒ uploads answer `not_configured`, never a fake success. |
+| `MEDIA_S3_SECRET_ACCESS_KEY` | for `s3` | — | |
+| `MEDIA_S3_ENDPOINT` | no | AWS | Override for R2/MinIO/Ceph. |
+| `MEDIA_S3_FORCE_PATH_STYLE` | no | `true` | `https://host/bucket/key` rather than a bucket subdomain, which MinIO and friends need. |
+| `MEDIA_PUBLIC_BASE_URL` | no | — | CDN origin photos are read through. Set ⇒ `GET /v1/media/:photoId` redirects there instead of streaming the bytes through Node. |
 | `IDEMPOTENCY_TTL_SECONDS` | no | `86400` | How long a replay key is honoured. |
 | `MAX_BODY_BYTES` | no | `524288` | Request body cap. |
 | `REWARD_CLAIM_WINDOW_SECONDS` | no | `3600` | High-value reward claim window. |
@@ -196,7 +206,7 @@ category (`unreachable`, `not_migrated`) and pool occupancy, nothing more.
 
 ## Domain boundaries
 
-Eleven modules under `src/domain/`. Each owns its aggregate, exposes an interface,
+Twelve modules under `src/domain/`. Each owns its aggregate, exposes an interface,
 and reaches other domains only through those interfaces (wired in `src/app.ts`).
 Route handlers never touch a repository; repositories never contain rules.
 
@@ -205,7 +215,8 @@ Route handlers never touch a repository; repositories never contain rules.
 | `identity` | accounts, identities, magic links, tokens | Anonymous device bootstrap; linking Apple/Google/email **without losing progress**; the three merge policies and every conflict branch. |
 | `passport` | the Campfire Passport | Stamps, photos, notes, patches, ticket stubs, discoveries, visited campsites, settings (accessibility included); optimistic concurrency; the single cross-account visibility rule. |
 | `campsites` | campsites, members, invites, the SM-01 | Private by default; role ladder (`owner > cohost > guest > viewer`); camp code / invite link / QR joins; machine wear, quirks and maintenance history. |
-| `worldState` | traces and landmarks | Exponential decay, sweeping, the distinct-witness quorum for landmark promotion. |
+| `worldState` | traces, landmarks, campsite memory | Exponential decay, sweeping, the distinct-witness quorum for landmark promotion; and the per-device merge that lets a campsite that remembers you survive a lost phone. |
+| `media` | photo bytes | Upload tickets, content-type sniffing, size ceilings, key minting, and who may read whose photograph. |
 | `sessions` | live sessions, presence, authority | One live session per campsite; authority leases with a fencing sequence; release-on-disconnect. |
 | `sandwiches` | the canonical sandwich record | The server scores every sandwich; a client cannot award itself a legendary. |
 | `rewards` | definitions, grants, claims | Standard rewards inline; high-value rewards claim-once, rate-limited, prerequisite-verified server-side, with anti-abuse signals and a review state machine. |
@@ -237,7 +248,7 @@ Cross-cutting: `http/router.ts` (matching, validation, error envelope),
 
 ## Route table
 
-80 routes. `auth=required` means a valid bearer token; `auth=optional` means the
+89 routes. `auth=required` means a valid bearer token; `auth=optional` means the
 route works signed-out but behaves better signed in; `auth=none` is deliberately
 public. Every route marked **idem** requires an idempotency key (body
 `idempotencyKey`, or the `Idempotency-Key` header).
@@ -254,6 +265,13 @@ public. Every route marked **idem** requires an idempotency key (body
 | `GET` | `/v1/passport` | required | - | Read your own Campfire Passport in full. |
 | `PATCH` | `/v1/passport` | required | - | Update your display name, handle, bio, avatar or settings. |
 | `POST` | `/v1/passport/photos` | required | yes | Register an uploaded photo (metadata and storage key only). |
+| `GET` | `/v1/passport/campsites` | required | - | Every campsite that remembers you. What a new device restores from. |
+| `GET` | `/v1/media/status` | none | - | Whether this deployment can store photo bytes, and where. |
+| `POST` | `/v1/media/uploads` | required | yes | Ask for somewhere to put a photo. Answers `200` with `not_configured` when there is no bucket. |
+| `PUT` | `/v1/media/uploads/:photoId` | required | - | Upload the bytes, against the ticket. The only binary body in the service. |
+| `GET` | `/v1/media/:photoId` | optional | - | Fetch a photo, if you are allowed to see it. |
+| `GET` | `/v1/media/:photoId/meta` | optional | - | A photo's metadata without the image. |
+| `DELETE` | `/v1/media/:photoId` | required | - | Delete a photo, its bytes and its Passport entry. |
 | `POST` | `/v1/passport/notes` | required | yes | Scribble a note into the passport. |
 | `DELETE` | `/v1/passport/notes/:noteId` | required | - | Tear a note out. |
 | `GET` | `/v1/passports/:accountId` | required | - | Read another player's public passport, if they allow it. |
@@ -266,6 +284,8 @@ public. Every route marked **idem** requires an idempotency key (body
 | `GET` | `/v1/campsites/:campsiteId/machine` | required | - | Read the serialized SM-01: wear, quirks, maintenance history. |
 | `POST` | `/v1/campsites/:campsiteId/machine/maintenance` | required | yes | Service the SM-01. |
 | `GET` | `/v1/campsites/:campsiteId/world` | required | - | Read the live world state: traces with decay applied, plus landmarks. |
+| `GET` | `/v1/campsites/:campsiteId/memory` | required | - | What this campsite remembers about you. |
+| `PUT` | `/v1/campsites/:campsiteId/memory` | required | - | Fold this device's account of a campsite into the merged memory. |
 | `POST` | `/v1/campsites/:campsiteId/traces` | required | yes | Leave a mark on the world. |
 | `POST` | `/v1/campsites/:campsiteId/traces/:traceId/witness` | required | - | Notice a trace: counts toward the landmark promotion quorum. |
 | `POST` | `/v1/campsites/:campsiteId/traces/:traceId/landmark` | required | yes | Promote a witnessed trace into a named, non-decaying landmark. |
@@ -386,6 +406,112 @@ every decoded JSON body for forbidden field names (`cardNumber`, `cvc`,
 with `400 raw_card_data_rejected` *before* schema parsing (which would otherwise
 silently strip the fields). Nothing card-shaped exists in the protocol, in the
 domain, or in `sql/schema.sql`. We store a provider intent id and a method type.
+
+---
+
+## Photos
+
+Three requests, in the order a camera uses them.
+
+```bash
+# 1. Where does this go?
+curl -sX POST localhost:8787/v1/media/uploads -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{
+    "idempotencyKey":"upl-1","contentType":"image/png","byteSize":70,
+    "width":1,"height":1,"capturedAt":"2026-08-30T12:00:00.000Z"}'
+# {"status":"ready","provider":"local","photoId":"pho_…","uploadUrl":"/v1/media/uploads/pho_…",
+#  "uploadToken":"smu1.…","maxBytes":8388608,"expiresAt":"…"}
+
+# 2. Here it is.
+curl -sX PUT "localhost:8787/v1/media/uploads/$PHOTO_ID" \
+  -H "authorization: Bearer $TOKEN" -H "x-upload-ticket: $TICKET" \
+  -H 'content-type: image/png' --data-binary @photo.png
+
+# 3. Give it back.
+curl -si "localhost:8787/v1/media/$PHOTO_ID" -H "authorization: Bearer $TOKEN"
+```
+
+The two-step split is not ceremony: it is the shape of a pre-signed
+object-storage URL, so the day a bucket exists the ticket names the provider's
+URL and the client's code does not change. The ticket itself is an HMAC
+(`smu1.<payload>.<hmac>`), not a row — there is no pending-upload table to
+migrate, to sweep, or to share between instances. It names the account, and the
+upload still needs that account's bearer token, so a leaked ticket alone is
+worth nothing.
+
+**With no object storage configured**, step 1 answers `200` with
+`{"status":"not_configured","fallback":"device_local","reason":"… MEDIA_S3_… "}`.
+Not a `503`: the question was "where do I put this", and "nowhere, here is why"
+is a complete answer to it. The client keeps the photograph on the device and
+shows the player nothing, because a photograph they can see is not a failure.
+
+### What a photo endpoint has to get right that a JSON endpoint does not
+
+Every one of these is decided above the storage adapter, so swapping local disk
+for S3 cannot loosen any of them.
+
+| | |
+| --- | --- |
+| **The client's `Content-Type` is a claim.** | What the object *is* comes from its magic number, on the way in and again on every read. A file that says `image/png` and is an HTML document is `415 unsupported_media_type`, and nothing is written. |
+| **The size limit is enforced before buffering.** | `content-length` is refused up front and the running total cuts off a client that lied. The upload route carries its own 8 MB ceiling rather than raising `MAX_BODY_BYTES` for the eighty-odd endpoints that have no business receiving eight megabytes. |
+| **Keys are minted, never proposed.** | A client cannot name where its bytes land. The adapter re-validates the key and then checks the *resolved* path is inside the root, because a key can be character-legal and still escape. |
+| **A stored file can never be served as a document.** | Four image types are storable, the served type is the sniffed one, and `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `X-Frame-Options: DENY` and `Content-Disposition: inline` go on every binary response from one place in `http/router.ts`. |
+| **Who may read someone else's photo.** | `private` (the default) is owner-only. `campsite` is that campsite's members. `link` is anyone holding the id. `public` is anyone, signed out. Blocks always win. A photo you may not see answers **404, not 403** — whether a private photo exists is not a stranger's business either. |
+
+**Privacy defaults to private.** The schema default is `private`, the upload
+request never widens it, and the client never sends a visibility a person did
+not choose. A photo is not public because it exists.
+
+---
+
+## Campsite memory
+
+What a campsite remembers about a player used to live in one device's
+`localStorage` and nowhere else: lose the phone, and every place that had met
+you had never met you.
+
+```bash
+curl -X PUT "localhost:8787/v1/campsites/$CAMP/memory" -H "authorization: Bearer $TOKEN" \
+  -H 'content-type: application/json' -d '{
+    "deviceId":"phone","environmentId":"pine_hollow","deviceVisits":3,
+    "lastVisitAt":"2026-08-30T12:00:00.000Z",
+    "traces":[{"id":"secret:the_tin","kind":"discovery",
+               "createdAt":"2026-08-30T11:00:00.000Z","disposition":"passport"}]}'
+
+curl "localhost:8787/v1/passport/campsites" -H "authorization: Bearer $TOKEN"
+```
+
+`deviceVisits` is *that device's own* count, not the total it believes in. The
+service keeps one grow-only counter per device and returns the sum, because
+that is the only rule that is exact when two devices camp offline: `max` loses
+a night, and summing totals double-counts on **every** re-sync — and the client
+pushes on a thirty-second timer. The breakdown is never returned; how many
+phones somebody camps from is not a campsite page's business.
+
+The rest of the merge rules, and why each one is what it is, are in
+[ADR-0010](../../docs/adr/0010-campsite-memory-sync.md). The short version:
+an animal's `visits` is `max` clamped to the visit total, secrets union keeping
+the earliest record, traces union keeping the stronger disposition and the
+earlier birth, and a trace from a device whose clock runs fast has its
+`createdAt` clamped to the server's now so it cannot outlive an honest one.
+
+### The significance score is not here, and there is nowhere to put it
+
+Spec §6.4 says the memory-importance model is invisible: never expose a memory
+score. That is a property of this contract rather than a promise about it.
+
+A synced trace is `{ id, kind, createdAt, disposition }` and the schema is
+`.strict()`, so a smuggled field is a `422` rather than a silently stripped one.
+The lifetime is *derived* from the disposition, so there is no float on the wire
+that could be a score wearing a duration's clothes. `fade` is not a member of
+the disposition enum, so a trace the model let go is not expressible. And the
+simulation's free-form evidence payload — rarity, dwell seconds, interaction
+counts — does not cross at all, because a free-form record is exactly where a
+score would hide; everything in it a returning player notices is already carried
+by `secrets` and `residents`, which are facts about the place rather than
+opinions about the player.
+
+`migrations/0005_campsite_memory.sql` says the same thing about the table.
 
 ---
 
@@ -822,7 +948,7 @@ pretends to be the real thing.
 | Payments | `FakePaymentProvider` by default. Stripe adapter written but never run against live credentials. | `src/payments/` |
 | Email | `ConsoleMailer` logs the message and warns that nothing was delivered. Magic-link tokens are returned in the response body outside production so local flows work. | `src/mailer.ts` |
 | Apple / Google sign-in | The id token's `sub` claim is read but **not cryptographically verified** — no JWKS fetch, no `aud`/`iss`/`nonce` check, because there are no client credentials. Contained in one function. | `resolveCredentialSubject()` in `src/domain/identity.ts` |
-| Object storage | The API stores keys and metadata only. There is no bucket, no pre-signed upload URL endpoint. | `src/domain/passport.ts` |
+| Object storage | **Real, both ways.** `LocalDiskMediaStorage` writes photo bytes to a directory and is what the whole upload path runs on today; the S3-compatible adapter is written against the real REST API (SigV4 pinned against AWS's published test vector) and has never been run against a live bucket. With no credentials it reports `not_configured` and the client keeps the photo on the device. | `src/media/`, `src/domain/media.ts` |
 | Sales tax | Flat internal table by US state, marked `internal_flat` on the quote. | `quoteTax()` in `src/domain/commerce.ts` |
 | Shipping rates | Flat $12 two-day frozen, marked `internal_flat`. | `quoteShipping()` |
 | Operator/admin auth | Fulfillment transitions authorize the **order owner**, because no staff RBAC exists yet. Live-ops authoring is gated by a shared `LIVE_OPS_TOKEN` on top of a bearer token — better than a secret alone, still not a role model. | `POST /v1/commerce/orders/:orderId/transitions`, `src/routes/liveops.ts` |
@@ -881,11 +1007,26 @@ Two blockers are *narrowed* rather than removed:
    internet. Everything else on this line is done: schema, migration runner,
    repositories, pool, health checks, and a test suite that runs against a real
    database.
-3. **Object storage for photos** — no bucket.
-   *Needed:* an S3/R2/GCS bucket, credentials, a CDN origin, and a pre-signed
-   upload endpoint. The API deliberately never touches image bytes; it needs
-   somewhere to point the keys at, plus a retention and deletion policy that
-   satisfies the passport's delete-my-account promise.
+3. **A production object store for photos** — *narrowed, not closed.* The whole
+   upload path now exists and works: request a ticket, send the bytes, sniff
+   what they actually are, store them, serve them to exactly the people
+   entitled to see them, delete them. `LocalDiskMediaStorage` is a real
+   implementation and a single instance with a volume can run on it today; the
+   S3-compatible adapter is written against the real REST API, its SigV4
+   signing is pinned against AWS's published test vector, and it reports
+   `not_configured` without credentials rather than pretending.
+   *What is actually missing:* a bucket and its `MEDIA_S3_REGION` /
+   `MEDIA_S3_ACCESS_KEY_ID` / `MEDIA_S3_SECRET_ACCESS_KEY` in the secret store;
+   a CDN origin for `MEDIA_PUBLIC_BASE_URL`, without which every byte is served
+   through Node; a **CORS policy on the bucket**, because the browser's direct
+   PUT to a pre-signed URL is the one part of the flow the local adapter cannot
+   exercise at all; a lifecycle/retention policy that satisfies the Passport's
+   delete-my-account promise; and one real round trip against a live endpoint,
+   because a signature that has never been sent anywhere is a signature that
+   has never been refused. Also unbuilt: **thumbnails**. `PhotoRef.thumbnailKey`
+   is always `null` — there is no image decoder in this service and there will
+   not be one under ADR-0005's dependency budget, so resizing belongs in a
+   worker or in the CDN, and that is a decision nobody has made.
 4. **Email provider** — none configured; `ConsoleMailer` delivers nothing.
    *Needed:* Postmark/SES/Resend credentials, a verified sending domain with
    SPF/DKIM/DMARC, and templates for the magic link and order receipts. **Until
@@ -963,6 +1104,10 @@ Two blockers are *narrowed* rather than removed:
 
 * Data retention and deletion: how long do we keep photos, telemetry and merged
   accounts? The passport implies "forever"; privacy law implies otherwise.
+  Deleting a photo now deletes its bytes as well as its row, which is the half
+  of that we can do without a policy; the other half — a sweep for campsite
+  memories and photos belonging to accounts nobody has opened in years — needs
+  somebody to name a number.
 * Whether the flagship product ships internationally at launch — today the
   catalog says `shipsToCountries: ["US"]` and the API refuses everything else.
 * Whether reward-claim review is human-in-the-loop from day one, or whether we

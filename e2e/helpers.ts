@@ -8,7 +8,12 @@ export interface SomeMoreHandle {
   store: { state: Record<string, unknown> };
   environments: readonly { id: string; name: string }[];
   three?: { scene: unknown; camera: unknown };
+  /** The player being simulated, when a spec needs to look at somebody. */
+  player?: import('@somemore/sim').PlayerState;
+  /** The shared fire, present only when a link brought this page to one. */
+  campfire?: import('../apps/web/src/net/campfire.js').Campfire;
 }
+
 
 declare global {
   interface Window {

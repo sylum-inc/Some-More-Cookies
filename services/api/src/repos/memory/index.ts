@@ -7,7 +7,11 @@ import {
 } from './identity.js';
 import { createMemoryPassportRepository, createMemoryPhotoRepository } from './passport.js';
 import { createMemoryCampsiteRepository, createMemoryInviteRepository } from './campsites.js';
-import { createMemoryLandmarkRepository, createMemoryTraceRepository } from './world.js';
+import {
+  createMemoryCampsiteMemoryRepository,
+  createMemoryLandmarkRepository,
+  createMemoryTraceRepository,
+} from './world.js';
 import { createMemoryAuthorityRepository, createMemorySessionRepository } from './sessions.js';
 import { createMemorySandwichRepository } from './sandwiches.js';
 import {
@@ -53,6 +57,7 @@ export function createInMemoryRepositories(seed: MemoryRepositorySeed = {}): Rep
     invites: createMemoryInviteRepository(),
     traces: createMemoryTraceRepository(),
     landmarks: createMemoryLandmarkRepository(),
+    campsiteMemories: createMemoryCampsiteMemoryRepository(),
     sessions: createMemorySessionRepository(),
     authority: createMemoryAuthorityRepository(),
     sandwiches: createMemorySandwichRepository(),

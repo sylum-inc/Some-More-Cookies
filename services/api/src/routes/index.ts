@@ -8,6 +8,7 @@ import { contentRoutes } from './content.js';
 import { liveOpsRoutes } from './liveops.js';
 import { commerceRoutes } from './commerce.js';
 import { healthRoutes } from './health.js';
+import { mediaRoutes } from './media.js';
 import { moderationRoutes } from './moderation.js';
 import { passportRoutes } from './passport.js';
 import { rewardRoutes } from './rewards.js';
@@ -20,6 +21,7 @@ export function buildRoutes(services: ServiceRegistry): AnyRoute[] {
     ...healthRoutes(services),
     ...authRoutes(services),
     ...passportRoutes(services),
+    ...mediaRoutes(services),
     ...campsiteRoutes(services),
     ...sessionRoutes(services),
     ...sandwichRoutes(services),

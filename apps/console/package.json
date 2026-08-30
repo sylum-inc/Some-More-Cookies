@@ -1,0 +1,23 @@
+{
+  "name": "@somemore/console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal live-ops console. Never shipped to players; see src/ops.ts.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 4174",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@somemore/protocol": "*",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.0"
+  }
+}

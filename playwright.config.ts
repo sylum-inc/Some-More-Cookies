@@ -93,6 +93,57 @@ export default defineConfig({
      * rendering differences a visual baseline cannot.
      */
     { name: 'night', testMatch: /night\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * Two browser contexts at one campfire, against a real service.
+     *
+     * Its own project because it fails on a different thing again: not "the
+     * ritual stopped working" but "the campsite is no longer shared". It
+     * starts its own API on its own port from inside the spec rather than
+     * adding one to `webServer`, so every other project keeps running against
+     * exactly the deployment it was written for — a campsite with no signal.
+     */
+    { name: 'campfire', testMatch: /campfire\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * "Can a person with aeroplane mode on make a s'more?" The browser context
+     * is put genuinely offline and the whole ritual is driven from a cold
+     * document. It fails on a different thing again: not that the ritual
+     * broke, but that the offline claim in the README was never true.
+     */
+    { name: 'offline', testMatch: /offline\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * The service worker's update path, against a static server the spec
+     * starts itself — because "a second build exists now" is not something you
+     * can express to a directory that is already built. Separate because a
+     * failure here means something worse than a bug: an app that cannot be
+     * fixed on the devices that already have it.
+     */
+    { name: 'pwa-update', testMatch: /pwa-update\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * Real phone sizes, portrait and landscape, with pictures to look at.
+     * Viewport, scale factor and touch come from the spec itself rather than
+     * from a device preset, so the sizes in the file are the sizes tested.
+     */
+    { name: 'mobile', testMatch: /mobile\.spec\.ts/ },
+    /*
+     * Scanning a wrapper, in a real browser, against a service that really
+     * mints Ed25519 codes. Its own project because it fails on its own thing:
+     * not "the ritual stopped working" but "the physical bridge stopped
+     * connecting" — and because the offline signature check here is the
+     * browser's WebCrypto, which no node test can stand in for.
+     *
+     * Like `campfire`, it starts its own service on a port it asks the OS for
+     * rather than adding one to `webServer`, so every other project keeps
+     * running against exactly the deployment it was written for.
+     */
+    { name: 'redeem', testMatch: /redeem\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * The live-ops console: a second build on a second origin, talking to the
+     * API cross-origin the way it is deployed. It fails on "the person
+     * scheduling a meteor-shower weekend is back on curl", which is a different
+     * failure from every other project here. It starts its own console preview
+     * and its own two services — one configured, one deliberately not.
+     */
+    { name: 'console', testMatch: /console\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
     command: 'npm run preview --workspace @somemore/web',

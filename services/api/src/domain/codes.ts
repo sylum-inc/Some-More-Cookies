@@ -7,6 +7,7 @@ import {
   type CodeRedemption,
   type CodeRejection,
   type CodeSigningStatus,
+  type CodeVerificationKeys,
   type CreateCodeBatchRequest,
   type MintCodesRequest,
   type MintCodesResult,
@@ -45,6 +46,8 @@ import type { DomainDeps } from './types.js';
  */
 export interface CodesService {
   signingStatus(): CodeSigningStatus;
+  /** The public halves, for a client that verifies offline. Never the private. */
+  verificationKeys(): CodeVerificationKeys;
   createBatch(actor: string, request: CreateCodeBatchRequest): Promise<CodeBatch>;
   listBatches(): Promise<CodeBatch[]>;
   getBatch(batchId: string): Promise<CodeBatch>;
@@ -148,6 +151,8 @@ export function createCodesService(
 
   return {
     signingStatus: () => signer.status(),
+
+    verificationKeys: () => signer.verificationKeys(),
 
     async createBatch(actor, request) {
       requireMinting();
@@ -360,10 +365,24 @@ export function createCodesService(
           codeRef: body.ref,
         });
         grantId = grant?.id ?? null;
+        /*
+         * The reward's *name*, not its code.
+         *
+         * `awarded` is described in the protocol as "what the player actually
+         * got, in words the terminal can print", and it was printing
+         * `free_kit added to your Passport.` — which is a database key on a
+         * campground booklet. Caught by screenshotting the panel: it worked
+         * perfectly and read like a log line. The definition already carries a
+         * written name; the code falls back only if somebody defined a reward
+         * without one, which the schema does not allow.
+         */
+        const definition =
+          grant === null ? null : await repos.rewardDefinitions.getByCode(grant.rewardCode);
+        const name = definition?.name ?? grant?.rewardCode ?? '';
         awarded =
           grant === null
             ? 'You already have this one — nothing new to add to the Passport.'
-            : `${grant.rewardCode} added to your Passport.`;
+            : `${name} added to your Passport.`;
       } else if (batch.entitlement.type === 'content') {
         awarded = `Unlocked: ${batch.entitlement.documentSlug}.`;
       }

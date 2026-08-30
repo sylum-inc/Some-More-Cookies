@@ -38,6 +38,9 @@ export function createMemoryPhotoRepository(): PhotoRepository {
     async listByAccount(accountId) {
       return table.filter((p) => p.ownerAccountId === accountId);
     },
+    async delete(photoId) {
+      table.remove(photoId);
+    },
     async reassignAccount(fromAccountId, toAccountId) {
       let moved = 0;
       for (const photo of table.filter((p) => p.ownerAccountId === fromAccountId)) {

@@ -1,0 +1,16 @@
+# The generated native projects.
+#
+# `npx cap add ios` and `npx cap add android` copy a project template that is
+# several hundred files, a good number of them binary: a Gradle wrapper JAR,
+# placeholder launcher PNGs, Xcode asset catalogues. This repository has no
+# binary assets in it and that is not negotiable (ADR-0002), so the generated
+# trees stay out and are regenerated on the machine that builds them, with
+# `scripts/native-assets.mjs` immediately redrawing every image from code.
+#
+# See README.md for the argument, and for what has to change before this line
+# comes back out.
+ios/
+android/
+
+# Where `npm run assets:preview` writes, for looking at.
+.preview/

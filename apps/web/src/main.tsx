@@ -39,6 +39,7 @@ import {
   vec3,
 } from '@somemore/sim';
 import { App } from './App.js';
+import { overlayForBoot } from './net/overlay.js';
 import { Store } from './state/store.js';
 
 /**
@@ -78,10 +79,27 @@ function resolveCampsite(): { environmentId: string; campsiteSeed: string } {
 }
 
 const { environmentId, campsiteSeed } = resolveCampsite();
-const environment = getEnvironment(environmentId);
+
+/*
+ * The live-ops overlay, folded onto the compiled catalogue (ADR-0007).
+ *
+ * Synchronous, and that is the whole design. `overlayForBoot` reads one
+ * `localStorage` entry and a zod parse — no network, no promise, nothing to
+ * await — so the campsite is built at exactly the speed it was before this
+ * existed. A first-ever launch has no cache and gets the twelve compiled
+ * environments, which is correct: the world is complete without the service.
+ *
+ * The network refresh happens later, from `App`, after the fire is already
+ * burning. It leaves a better cache behind for next time and applies the one
+ * thing that is safe to change mid-session.
+ */
+const overlay = overlayForBoot(environmentId);
+const environment = overlay.environment;
 const store = new Store({
   environmentId,
   campsiteSeed,
+  liveEvents: overlay.events,
+  overlaySource: overlay.source,
   ...(environment ? { weatherProfile: environment.weather } : {}),
   // The manifest's own types satisfy the simulation's, so the catalogue is
   // handed straight to the world systems with no adapter in between.

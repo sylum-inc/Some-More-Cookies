@@ -39,6 +39,7 @@ import {
   type CodeBody,
   type CodeKind,
   type CodeSigningStatus,
+  type CodeVerificationKeys,
   type ParsedCode,
 } from '@somemore/protocol';
 import type { ApiConfig } from '../config.js';
@@ -125,6 +126,14 @@ export interface CodeSigner {
   mint(request: MintRequest): { body: CodeBody; token: string } | null;
   /** Constant-time by construction: an Ed25519 verify, not a string compare. */
   verify(code: ParsedCode): CodeVerdict;
+  /**
+   * The public halves, base64 of the raw 32 bytes, for clients to verify with.
+   *
+   * A public key is not a secret; publishing it is what makes a code
+   * offline-verifiable, which is the entire reason ADR-0008 chose Ed25519 over
+   * a shorter HMAC. There is no path from here to the private half.
+   */
+  verificationKeys(): CodeVerificationKeys;
 }
 
 interface Keyring {
@@ -267,6 +276,20 @@ export function createCodeSigner(deps: { config: ApiConfig; logger: Logger }): C
         Buffer.from(code.signature),
       );
       return ok ? 'ok' : 'bad_signature';
+    },
+
+    verificationKeys() {
+      const keys = [...keyring.publicKeys.entries()].map(([keyId, key]) => ({
+        keyId,
+        // Strip the fixed SPKI header back off: what a browser's
+        // `importKey('raw', …)` wants is the bare 32 bytes, and what an
+        // operator can paste anywhere is base64 of those.
+        publicKey: (key.export({ format: 'der', type: 'spki' }) as Buffer)
+          .subarray(SPKI_ED25519_PREFIX.length)
+          .toString('base64'),
+      }));
+      keys.sort((a, b) => a.keyId.localeCompare(b.keyId));
+      return { keys, mintingKeyId: keyring.mintingKeyId };
     },
   };
 }

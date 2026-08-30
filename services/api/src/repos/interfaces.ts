@@ -26,6 +26,7 @@ import type {
   WorldTrace,
   Block,
 } from '@somemore/protocol';
+import type { StoredCampsiteMemory } from '../domain/memoryMerge.js';
 
 /*
  * Repository interfaces — one per aggregate, grouped by domain module.
@@ -94,6 +95,8 @@ export interface PhotoRepository {
   create(photo: PhotoRef): Promise<PhotoRef>;
   get(photoId: string): Promise<PhotoRef | null>;
   listByAccount(accountId: string): Promise<PhotoRef[]>;
+  /** Forgetting a photo. The bytes are the media service's problem. */
+  delete(photoId: string): Promise<void>;
   reassignAccount(fromAccountId: string, toAccountId: string): Promise<number>;
 }
 
@@ -131,6 +134,34 @@ export interface WorldTraceRepository {
   listByCampsite(campsiteId: string): Promise<WorldTrace[]>;
   update(traceId: string, mutate: (current: WorldTrace) => WorldTrace): Promise<WorldTrace>;
   delete(traceId: string): Promise<void>;
+}
+
+/**
+ * What one account remembers about one campsite, merged across their devices.
+ *
+ * Keyed `(accountId, campsiteId)`: campsite memory is a relationship between a
+ * player and a place, so a shared campsite has one of these per member rather
+ * than one between them.
+ */
+export interface CampsiteMemoryRepository {
+  get(accountId: string, campsiteId: string): Promise<StoredCampsiteMemory | null>;
+  listByAccount(accountId: string): Promise<StoredCampsiteMemory[]>;
+  /**
+   * Read-modify-write over a row that may not exist yet, atomically.
+   *
+   * Not `update`, because the first sync from a device has nothing to update,
+   * and not `get` + `put`, because two devices syncing in the same instant
+   * would then both read the pre-image and one night would vanish. The
+   * Postgres implementation takes a row lock; the in-memory one is atomic
+   * because JavaScript is single-threaded.
+   */
+  merge(
+    accountId: string,
+    campsiteId: string,
+    mutate: (current: StoredCampsiteMemory | null) => StoredCampsiteMemory,
+  ): Promise<StoredCampsiteMemory>;
+  /** A merge is never a reset: memories follow the surviving account. */
+  reassignAccount(fromAccountId: string, toAccountId: string): Promise<number>;
 }
 
 export interface LandmarkRepository {
@@ -355,6 +386,7 @@ export interface Repositories {
   readonly invites: InviteRepository;
   readonly traces: WorldTraceRepository;
   readonly landmarks: LandmarkRepository;
+  readonly campsiteMemories: CampsiteMemoryRepository;
   readonly sessions: SessionRepository;
   readonly authority: AuthorityRepository;
   readonly sandwiches: SandwichRepository;

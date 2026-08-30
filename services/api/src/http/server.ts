@@ -13,8 +13,9 @@ import {
   newRequestId,
   normalizeHeaders,
   parseJsonBody,
-  readBody,
+  readBodyBytes,
   validate,
+  writeBytes,
   writeJson,
   type AuthContext,
   type HttpMethod,
@@ -34,6 +35,33 @@ export interface ServerDeps {
 
 const METHODS: readonly string[] = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'];
 
+/*
+ * Cross-origin access.
+ *
+ * There was none, which was fine while the only browser client was served from
+ * the same origin — and is not fine now that there is a live-ops console on its
+ * own origin, and will not be fine for any deployment that puts the client on a
+ * CDN and the API on an API host. Two rules, and they are different rules:
+ *
+ *  - **Public read routes answer `*`.** `/health`, `/v1/meta`, the content
+ *    manifest and the code verification keys are public, cacheable, and carry
+ *    nothing about anybody. Anything that can `curl` them can already read
+ *    them; refusing a browser buys nothing and breaks the offline-verification
+ *    story, which needs the keys reachable from wherever the client is served.
+ *  - **Everything else needs a named origin.** `Access-Control-Allow-Origin` is
+ *    echoed only for an exact match in `CORS_ALLOWED_ORIGINS`, never `*` and
+ *    never a reflected unknown origin, because these routes carry a bearer
+ *    token and — for live ops — a shared staff secret. Empty by default: a
+ *    deployment says who may talk to it, out loud, in an environment variable.
+ *
+ * The token is in an `Authorization` header rather than a cookie, so this is
+ * not a CSRF surface: a cross-site form post cannot attach one, and a
+ * cross-origin `fetch` that tries needs a preflight it will not get.
+ */
+const CORS_REQUEST_HEADERS = 'authorization, content-type, idempotency-key, if-none-match, x-somemore-ops-token';
+/** What a browser client is allowed to *read* off a response. */
+const CORS_EXPOSED_HEADERS = 'etag, retry-after, x-request-id, x-schema-version, idempotent-replay, location';
+
 function clientIpOf(req: IncomingMessage, headers: Readonly<Record<string, string>>): string {
   const forwarded = headers['x-forwarded-for'];
   if (forwarded !== undefined) {
@@ -50,6 +78,33 @@ function clientIpOf(req: IncomingMessage, headers: Readonly<Record<string, strin
  */
 export function createApiServer(deps: ServerDeps): Server {
   const { router, config, clock, logger, idempotency } = deps;
+
+  const allowedOrigins = new Set(config.corsAllowedOrigins);
+
+  /**
+   * The CORS headers for one request, or none.
+   *
+   * `publicRoute` is derived from the matched route rather than from a second
+   * hand-maintained list, so a route that starts requiring auth tightens its
+   * CORS answer on its own. The rule is **a GET that does not require auth**:
+   * a GET is not a mutation, and none of these carry an ambient credential —
+   * the bearer token is an explicit header, never a cookie, so there is
+   * nothing a stranger's page could make a browser attach.
+   */
+  function corsHeaders(origin: string | undefined, publicRoute: boolean): Record<string, string> {
+    if (origin === undefined) return {};
+    if (publicRoute) {
+      // No credentials, so `*` is both safe and cacheable by a shared proxy.
+      return { 'access-control-allow-origin': '*', 'access-control-expose-headers': CORS_EXPOSED_HEADERS };
+    }
+    if (!allowedOrigins.has(origin)) return { vary: 'origin' };
+    return {
+      'access-control-allow-origin': origin,
+      'access-control-allow-credentials': 'true',
+      'access-control-expose-headers': CORS_EXPOSED_HEADERS,
+      vary: 'origin',
+    };
+  }
 
   return createServer((req, res) => {
     void handle(req, res).catch((error: unknown) => {
@@ -71,6 +126,37 @@ export function createApiServer(deps: ServerDeps): Server {
     res.setHeader('x-request-id', requestId);
 
     try {
+      /*
+       * Preflight, answered before routing and before authentication.
+       *
+       * A preflight carries no credentials by definition, so requiring a bearer
+       * token for one would mean no browser could ever reach an authenticated
+       * route. The route is looked up with the *intended* method so the answer
+       * is about the request the browser is actually about to make.
+       */
+      if (method === 'OPTIONS') {
+        const origin = headers['origin'];
+        const intended = (headers['access-control-request-method'] ?? 'GET').toUpperCase();
+        const preflight = router.match(intended, url.pathname);
+        const isPublic =
+          intended === 'GET' && preflight !== null && 'route' in preflight && preflight.route.auth !== 'required';
+        const allow = corsHeaders(origin, isPublic);
+        if (allow['access-control-allow-origin'] === undefined) {
+          // Not an origin this deployment knows. Say no by saying nothing:
+          // the browser blocks the real request, and we have not confirmed
+          // anything about what does or does not exist here.
+          writeJson(res, 204, undefined, allow);
+          return;
+        }
+        writeJson(res, 204, undefined, {
+          ...allow,
+          'access-control-allow-methods': METHODS.join(', '),
+          'access-control-allow-headers': headers['access-control-request-headers'] ?? CORS_REQUEST_HEADERS,
+          'access-control-max-age': '600',
+        });
+        return;
+      }
+
       if (!METHODS.includes(method)) throw new ApiError('method_not_allowed', `${method} is not supported.`);
 
       const matched = router.match(method, url.pathname);
@@ -82,9 +168,16 @@ export function createApiServer(deps: ServerDeps): Server {
       }
 
       const { route, params: rawParams } = matched;
-      const rawBody = await readBody(req, config.maxBodyBytes);
+      const bodyLimit = route.maxBodyBytes ?? config.maxBodyBytes;
+      const rawBytes = await readBodyBytes(req, bodyLimit);
+      // A photograph is not text, and decoding eight megabytes of JPEG to
+      // UTF-8 to throw the result away is both wasteful and a way to mangle
+      // bytes that a later hash is supposed to match.
+      const rawBody = route.binaryBody === true ? '' : rawBytes.toString('utf8');
       const parsedBody =
-        route.rawBodyOnly === true ? {} : parseJsonBody(rawBody, headers['content-type']);
+        route.rawBodyOnly === true || route.binaryBody === true
+          ? {}
+          : parseJsonBody(rawBody, headers['content-type']);
 
       let auth: AuthContext | null = null;
       if (route.auth !== 'none') {
@@ -122,6 +215,7 @@ export function createApiServer(deps: ServerDeps): Server {
         query: url.searchParams,
         body,
         rawBody,
+        rawBytes,
         headers,
         auth,
         log,
@@ -161,9 +255,16 @@ export function createApiServer(deps: ServerDeps): Server {
         result = await route.handle(ctx);
       }
 
-      const extraHeaders = { ...(result.headers ?? {}) };
+      const extraHeaders = {
+        ...corsHeaders(headers['origin'], method === 'GET' && route.auth !== 'required'),
+        ...(result.headers ?? {}),
+      };
       if (replayed) extraHeaders['idempotent-replay'] = 'true';
-      writeJson(res, result.status, result.body, extraHeaders);
+      if (result.raw !== undefined) {
+        writeBytes(res, result.status, result.raw.bytes, result.raw.contentType, extraHeaders);
+      } else {
+        writeJson(res, result.status, result.body, extraHeaders);
+      }
       log.info('http.request', { status: result.status, ms: Date.now() - startedAt, replayed });
     } catch (error) {
       const apiError = toApiError(error);
@@ -172,11 +273,23 @@ export function createApiServer(deps: ServerDeps): Server {
       } else {
         log.warn('http.error', { code: apiError.code, status: apiError.status, message: apiError.message });
       }
+      /*
+       * Errors carry the CORS headers too. Without them a 401 or a 422 reaches
+       * the browser as an opaque network failure, and a console that cannot
+       * read "LIVE_OPS_TOKEN is not set" is a console that looks broken for a
+       * reason nobody can see — which is the exact failure this whole screen
+       * exists to avoid. The route is unknown here (that may be *why* we are
+       * in the catch), so the conservative, credentialed answer is used.
+       */
       writeJson(
         res,
         apiError.status,
         errorEnvelope(apiError.code, apiError.message, requestId, apiError.details),
-        { ...apiError.headers, 'x-schema-version': SCHEMA_VERSION },
+        {
+          ...corsHeaders(headers['origin'], false),
+          ...apiError.headers,
+          'x-schema-version': SCHEMA_VERSION,
+        },
       );
     }
   }

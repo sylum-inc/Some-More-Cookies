@@ -1,4 +1,6 @@
 import { randomBytes } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 /**
  * All configuration is read from the environment exactly once, at construction
@@ -41,9 +43,29 @@ export interface ApiConfig {
   readonly stripeWebhookSecret: string | null;
   readonly stripeApiBase: string;
 
-  /** Object storage for photos: keys are minted here, bytes never touch us. */
+  /**
+   * Object storage for photos.
+   *
+   * `local` is a working adapter that writes to `mediaLocalRoot`; `s3` is the
+   * S3-compatible one, which reports `not_configured` without credentials
+   * rather than pretending (README, Blocker 3).
+   */
+  readonly mediaStorage: 'local' | 's3';
   readonly mediaBucket: string;
   readonly mediaKeyPrefix: string;
+  /** Directory the local adapter writes to. Ephemeral by default, like memory. */
+  readonly mediaLocalRoot: string;
+  /** Hard ceiling on one photo. Also the per-route body limit on the upload. */
+  readonly mediaMaxBytes: number;
+  /** How long an upload ticket stands. Short: it is an offer, not a session. */
+  readonly mediaUploadTtlSeconds: number;
+  readonly mediaS3Region: string | null;
+  readonly mediaS3AccessKeyId: string | null;
+  readonly mediaS3SecretAccessKey: string | null;
+  readonly mediaS3Endpoint: string | null;
+  readonly mediaS3ForcePathStyle: boolean;
+  /** CDN origin photos are read through, when there is one. */
+  readonly mediaPublicBaseUrl: string | null;
 
   readonly idempotencyTtlSeconds: number;
   readonly maxBodyBytes: number;
@@ -58,6 +80,16 @@ export interface ApiConfig {
    * (there is no staff identity provider yet; see README Blocker 9).
    */
   readonly liveOpsToken: string | null;
+  /**
+   * Browser origins allowed to make **credentialed** cross-origin calls.
+   *
+   * Exact origins, comma-separated, no wildcards: `Access-Control-Allow-Origin`
+   * is echoed back only for a match. Empty is the correct default and means
+   * "same origin only" — a browser client served from somewhere else has to be
+   * named, deliberately, by whoever runs the deployment. The public read
+   * routes are separate and always answer `*`; see `http/server.ts`.
+   */
+  readonly corsAllowedOrigins: readonly string[];
 
   /**
    * Ed25519 key material for physical/event codes. Absent => scanning is
@@ -125,7 +157,9 @@ export interface ConfigWarning {
     | 'ephemeral_ip_salt'
     | 'memory_persistence'
     | 'live_ops_read_only'
-    | 'codes_not_configured';
+    | 'codes_not_configured'
+    | 'local_media_storage'
+    | 'media_not_configured';
   readonly message: string;
 }
 
@@ -186,6 +220,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     });
   }
 
+  const corsAllowedOrigins = (envString(env, 'CORS_ALLOWED_ORIGINS') ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
   const liveOpsToken = envString(env, 'LIVE_OPS_TOKEN');
   if (liveOpsToken === null) {
     warnings.push({
@@ -204,6 +243,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
       message:
         'No Ed25519 code keys configured (CODE_SIGNING_PRIVATE_KEY / CODE_VERIFY_PUBLIC_KEYS); QR and package '
         + 'codes cannot be minted or verified. Scanning is disabled rather than permissive.',
+    });
+  }
+
+  const mediaStorageRaw = envString(env, 'MEDIA_STORAGE');
+  const mediaStorage: ApiConfig['mediaStorage'] = mediaStorageRaw === 's3' ? 's3' : 'local';
+  const mediaS3AccessKeyId = envString(env, 'MEDIA_S3_ACCESS_KEY_ID');
+  const mediaS3SecretAccessKey = envString(env, 'MEDIA_S3_SECRET_ACCESS_KEY');
+  const mediaS3Region = envString(env, 'MEDIA_S3_REGION');
+  if (mediaStorage === 'local') {
+    warnings.push({
+      code: 'local_media_storage',
+      message:
+        'MEDIA_STORAGE is local; photo bytes go to a directory on this machine. That is a real, working '
+        + 'store for one instance with a volume, and it is not shared between instances and does not '
+        + 'survive a rescheduled container. See README "Blockers".',
+    });
+  } else if (mediaS3AccessKeyId === null || mediaS3SecretAccessKey === null || mediaS3Region === null) {
+    warnings.push({
+      code: 'media_not_configured',
+      message:
+        'MEDIA_STORAGE=s3 with no credentials (MEDIA_S3_REGION / MEDIA_S3_ACCESS_KEY_ID / '
+        + 'MEDIA_S3_SECRET_ACCESS_KEY); photo uploads answer not_configured and the client keeps photos '
+        + 'on the device. Nothing pretends an upload succeeded.',
     });
   }
 
@@ -233,14 +295,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     stripePublishableKey: envString(env, 'STRIPE_PUBLISHABLE_KEY'),
     stripeWebhookSecret: envString(env, 'STRIPE_WEBHOOK_SECRET'),
     stripeApiBase: envString(env, 'STRIPE_API_BASE') ?? 'https://api.stripe.com',
+    mediaStorage,
     mediaBucket: envString(env, 'MEDIA_BUCKET') ?? 'somemore-media-dev',
     mediaKeyPrefix: envString(env, 'MEDIA_KEY_PREFIX') ?? 'campsites',
+    /*
+     * A temp directory by default, for the same reason storage defaults to
+     * memory: a fresh checkout should work with nothing installed, and it
+     * should be obvious that nothing survives. Point it at a volume in
+     * anything that is meant to keep photographs.
+     */
+    mediaLocalRoot: envString(env, 'MEDIA_LOCAL_ROOT') ?? path.join(tmpdir(), 'somemore-media'),
+    mediaMaxBytes: envInt(env, 'MEDIA_MAX_BYTES', 8 * 1024 * 1024),
+    mediaUploadTtlSeconds: envInt(env, 'MEDIA_UPLOAD_TTL_SECONDS', 15 * 60),
+    mediaS3Region,
+    mediaS3AccessKeyId,
+    mediaS3SecretAccessKey,
+    mediaS3Endpoint: envString(env, 'MEDIA_S3_ENDPOINT'),
+    mediaS3ForcePathStyle: envBool(env, 'MEDIA_S3_FORCE_PATH_STYLE', true),
+    mediaPublicBaseUrl: envString(env, 'MEDIA_PUBLIC_BASE_URL'),
     idempotencyTtlSeconds: envInt(env, 'IDEMPOTENCY_TTL_SECONDS', 60 * 60 * 24),
     maxBodyBytes: envInt(env, 'MAX_BODY_BYTES', 512 * 1024),
     rewardClaimWindowSeconds: envInt(env, 'REWARD_CLAIM_WINDOW_SECONDS', 60 * 60),
     rewardClaimsPerWindow: envInt(env, 'REWARD_CLAIMS_PER_WINDOW', 3),
     magicLinksPerWindow: envInt(env, 'MAGIC_LINKS_PER_WINDOW', 5),
     liveOpsToken,
+    corsAllowedOrigins,
     codeSigningKeyId: envString(env, 'CODE_SIGNING_KEY_ID'),
     codeSigningPrivateKey,
     codeVerifyPublicKeys,

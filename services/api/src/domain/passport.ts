@@ -33,7 +33,13 @@ export interface PassportService {
   getOwn(accountId: string): Promise<CampfirePassport>;
   update(accountId: string, request: UpdatePassportRequest): Promise<CampfirePassport>;
   getPublicFor(viewerAccountId: string, targetAccountId: string): Promise<PublicPassport>;
-  registerPhoto(accountId: string, request: RegisterPhotoRequest): Promise<PhotoRef>;
+  /**
+   * `photoId` is supplied when the bytes were uploaded against a ticket that
+   * already named the photo — the media path mints the id before the image
+   * exists so the client can address it, and re-minting one here would give
+   * back a different photo than the one somebody just uploaded to.
+   */
+  registerPhoto(accountId: string, request: RegisterPhotoRequest, photoId?: string): Promise<PhotoRef>;
   addNote(accountId: string, request: CreateNoteRequest): Promise<Note>;
   deleteNote(accountId: string, noteId: string): Promise<void>;
   addStamp(accountId: string, stamp: Omit<Stamp, 'id'>): Promise<Stamp>;
@@ -160,7 +166,7 @@ export function createPassportService(deps: DomainDeps): PassportService {
       };
     },
 
-    async registerPhoto(accountId, request) {
+    async registerPhoto(accountId, request, photoId) {
       await require(accountId);
       if (request.campsiteId !== null && request.campsiteId !== undefined) {
         const campsite = await repos.campsites.get(request.campsiteId);
@@ -171,7 +177,7 @@ export function createPassportService(deps: DomainDeps): PassportService {
       const now = clock.isoNow();
       const photo: PhotoRef = {
         ...request,
-        id: ids.next(ID_PREFIX.photo),
+        id: photoId ?? ids.next(ID_PREFIX.photo),
         ownerAccountId: accountId,
         createdAt: now,
       };

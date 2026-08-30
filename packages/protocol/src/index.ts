@@ -11,6 +11,7 @@
 export * from './version.js';
 export * from './common.js';
 export * from './media.js';
+export * from './memory.js';
 export * from './identity.js';
 export * from './passport.js';
 export * from './campsite.js';

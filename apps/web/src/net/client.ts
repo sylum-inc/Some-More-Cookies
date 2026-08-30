@@ -19,7 +19,14 @@
 import {
   AuthSessionSchema,
   CampfirePassportSchema,
+  CodeRedemptionSchema,
+  CodeVerificationKeysSchema,
+  RedeemCodeResultSchema,
+  CampsiteMemoryStateSchema,
   CampsiteSchema,
+  CampsiteSummarySchema,
+  PhotoUploadTicketSchema,
+  StoredPhotoSchema,
   CartSchema,
   CartQuoteSchema,
   OrderSchema,
@@ -32,6 +39,14 @@ import {
   type AuthSession,
   type CampfirePassport,
   type Campsite,
+  type CampsiteMemorySnapshot,
+  type CampsiteMemoryState,
+  type CampsiteSummary,
+  type PhotoUploadTicket,
+  type RequestPhotoUploadRequest,
+  type StoredPhoto,
+  type CodeRedemption,
+  type CodeVerificationKeys,
   type Cart,
   type Money,
   type CartQuote,
@@ -39,6 +54,7 @@ import {
   type PaymentIntentResponse,
   type PaymentMethodType,
   type Product,
+  type RedeemCodeResult,
   type RewardGrant,
   type SandwichRecord as WireSandwichRecord,
 } from '@somemore/protocol';
@@ -208,6 +224,143 @@ export class ApiClient {
     });
   }
 
+  /** The campsites this account belongs to. How a second device finds them. */
+  async listCampsites(): Promise<ApiResult<CampsiteSummary[]>> {
+    const result = await this.request(
+      'GET',
+      '/v1/campsites',
+      z.object({ items: z.array(CampsiteSummarySchema) }),
+      {},
+    );
+    return result.ok ? { ok: true, value: result.value.items } : result;
+  }
+
+  fetchCampsite(campsiteId: string): Promise<ApiResult<Campsite>> {
+    return this.request('GET', `/v1/campsites/${encodeURIComponent(campsiteId)}`, CampsiteSchema, {});
+  }
+
+  // --- Campsite memory ---------------------------------------------------
+  //
+  // What a campsite remembers about a player used to live in one device's
+  // `localStorage` and nowhere else, so losing the phone lost every place that
+  // had met you. These three calls are the other half of that.
+  //
+  // Nothing here carries a significance score, and the protocol has nowhere to
+  // put one (`@somemore/protocol`, `memory.ts`): a synced trace is an id, a
+  // kind, a birth time and a disposition, and the evidence the model weighed
+  // stays on the device that produced it.
+
+  /** Fold this device's account of a campsite into the merged memory. */
+  syncCampsiteMemory(
+    campsiteId: string,
+    snapshot: CampsiteMemorySnapshot,
+  ): Promise<ApiResult<CampsiteMemoryState>> {
+    return this.request(
+      'PUT',
+      `/v1/campsites/${encodeURIComponent(campsiteId)}/memory`,
+      CampsiteMemoryStateSchema,
+      { body: snapshot },
+    );
+  }
+
+  fetchCampsiteMemory(campsiteId: string): Promise<ApiResult<CampsiteMemoryState>> {
+    return this.request(
+      'GET',
+      `/v1/campsites/${encodeURIComponent(campsiteId)}/memory`,
+      CampsiteMemoryStateSchema,
+      {},
+    );
+  }
+
+  /** Every campsite that remembers this account — what a new device restores. */
+  async listCampsiteMemories(): Promise<ApiResult<CampsiteMemoryState[]>> {
+    const result = await this.request(
+      'GET',
+      '/v1/passport/campsites',
+      z.object({ items: z.array(CampsiteMemoryStateSchema) }),
+      {},
+    );
+    return result.ok ? { ok: true, value: result.value.items } : result;
+  }
+
+  // --- Photos ------------------------------------------------------------
+  //
+  // Two calls, because that is the shape a pre-signed object-storage URL has:
+  // ask where the bytes go, then send them there. The client does the same
+  // thing whichever adapter is behind the seam, which is why this will keep
+  // working unchanged on the day a bucket exists.
+  //
+  // A photo is private unless somebody chose otherwise — this never sends a
+  // visibility the player did not pick, and the server's default is `private`.
+
+  /** Ask the service where a photo goes. Never fails for a missing bucket. */
+  requestPhotoUpload(request: RequestPhotoUploadRequest): Promise<ApiResult<PhotoUploadTicket>> {
+    return this.request('POST', '/v1/media/uploads', PhotoUploadTicketSchema, {
+      body: { idempotencyKey: idempotencyKey(), ...request },
+    });
+  }
+
+  /**
+   * Send the bytes.
+   *
+   * Not through `request`: this is the one call in the client that is not
+   * JSON, and forcing it through the JSON path would mean base64 and a third
+   * more bytes over somebody's phone connection for no reason at all.
+   */
+  async uploadPhotoBytes(
+    ticket: Extract<PhotoUploadTicket, { status: 'ready' }>,
+    bytes: Uint8Array,
+  ): Promise<ApiResult<StoredPhoto>> {
+    if (this.offline) return { ok: false, error: { kind: 'offline' } };
+    if (!this.session) return { ok: false, error: { kind: 'unauthorized' } };
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs * 4);
+    try {
+      const response = await this.fetchImpl(`${this.baseUrl}${ticket.uploadUrl}`, {
+        method: ticket.method,
+        headers: {
+          'content-type': ticket.contentType,
+          'x-upload-ticket': ticket.uploadToken,
+          authorization: `Bearer ${this.session.auth.token}`,
+        },
+        body: bytes as BodyInit,
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      const payload: unknown = text.length > 0 ? safeJson(text) : undefined;
+      if (!response.ok) {
+        const envelope = payload as { error?: { code?: string; message?: string } } | undefined;
+        return {
+          ok: false,
+          error: {
+            kind: 'server',
+            status: response.status,
+            code: envelope?.error?.code ?? 'unknown',
+            message: envelope?.error?.message ?? response.statusText,
+          },
+        };
+      }
+      const parsed = StoredPhotoSchema.safeParse(payload);
+      if (!parsed.success) {
+        return { ok: false, error: { kind: 'malformed', message: 'Response did not match the shared contract.' } };
+      }
+      return { ok: true, value: parsed.data };
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { ok: false, error: { kind: 'timeout' } };
+      }
+      this.offlineUntil = Date.now() + 5000;
+      return { ok: false, error: { kind: 'offline' } };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  deletePhoto(photoId: string): Promise<ApiResult<Record<string, unknown>>> {
+    return this.request('DELETE', `/v1/media/${encodeURIComponent(photoId)}`, z.object({}).loose(), {});
+  }
+
   // --- Sandwiches -------------------------------------------------------
 
   /**
@@ -232,6 +385,54 @@ export class ApiClient {
    */
   fetchMeta(): Promise<ApiResult<ServiceMeta>> {
     return this.request('GET', '/v1/meta', ServiceMetaSchema, { authenticated: false });
+  }
+
+  // --- Codes ------------------------------------------------------------
+  //
+  // The physical bridge (spec §14, ADR-0008). A code is public, carries no
+  // value and no capability, and is verified on the device before any of this
+  // is reached — see `net/codes.ts`. What crosses the wire is a code that
+  // already passed a local signature check, presented by an account, because
+  // the entitlement lives on the print run and only the service knows it.
+
+  /**
+   * The Ed25519 public keys this deployment signs with.
+   *
+   * Unauthenticated on purpose: a public key is not a secret, and shipping it
+   * is what lets a phone refuse a forged wrapper with no signal. Fetched once
+   * and cached; a rotation reaches installed clients this way rather than
+   * through a store release.
+   */
+  fetchCodeKeys(): Promise<ApiResult<CodeVerificationKeys>> {
+    return this.request('GET', '/v1/codes/keys', CodeVerificationKeysSchema, { authenticated: false });
+  }
+
+  /**
+   * Redeem a scanned code.
+   *
+   * Claim-once is a unique index on the service, not a check here: two phones
+   * scanning the same posted photograph at the same instant produce one grant
+   * and one refusal regardless of what this client believes.
+   */
+  redeemCode(code: string, deviceId?: string): Promise<ApiResult<RedeemCodeResult>> {
+    return this.request('POST', '/v1/codes/redeem', RedeemCodeResultSchema, {
+      body: {
+        idempotencyKey: idempotencyKey(),
+        code,
+        ...(deviceId ? { deviceId } : {}),
+      },
+    });
+  }
+
+  /** Codes this account has already redeemed, newest first. */
+  async listCodeRedemptions(): Promise<ApiResult<CodeRedemption[]>> {
+    const result = await this.request(
+      'GET',
+      '/v1/codes/redemptions',
+      z.object({ items: z.array(CodeRedemptionSchema) }),
+      {},
+    );
+    return result.ok ? { ok: true, value: result.value.items } : result;
   }
 
   // --- Commerce ---------------------------------------------------------
@@ -385,7 +586,7 @@ export class ApiClient {
    * place rather than per call site.
    */
   private async request<S extends z.ZodType>(
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE',
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE',
     path: string,
     schema: S,
     options: { body?: unknown; authenticated?: boolean },
@@ -415,12 +616,26 @@ export class ApiClient {
         const envelope = payload as { error?: { code?: string; message?: string } } | undefined;
         const code = envelope?.error?.code ?? 'unknown';
         const message = envelope?.error?.message ?? response.statusText;
-        if (response.status === 401 || response.status === 403) {
-          // A rejected token is worse than useless; drop it so the next call
-          // bootstraps cleanly instead of failing forever.
+        /*
+         * A rejected *token* is worse than useless; drop it so the next call
+         * bootstraps cleanly instead of failing forever.
+         *
+         * Keyed on the error code, not the status. Several perfectly ordinary
+         * domain refusals are 403 — `code_revoked` when somebody scans a
+         * wrapper from a retired print run, `anti_abuse_rejected` on a reward
+         * claim — and treating those as a bad credential signed the player out
+         * of their own account for holding the wrong box. Found by scanning a
+         * retired batch and watching the session disappear. Only `unauthorized`
+         * means "this token is not good"; everything else means "not this
+         * request", and the token is fine.
+         */
+        if (code === 'unauthorized' || response.status === 401) {
           this.session = null;
           this.onSession?.(null);
           return { ok: false, error: { kind: 'unauthorized' } };
+        }
+        if (response.status === 403) {
+          return { ok: false, error: { kind: 'server', status: 403, code, message } };
         }
         if (response.status === 409 || code === 'idempotency_key_conflict') {
           return { ok: false, error: { kind: 'conflict', code, message } };

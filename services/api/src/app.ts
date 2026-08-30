@@ -26,6 +26,11 @@ import { createRewardsService } from './domain/rewards.js';
 import { createSandwichService } from './domain/sandwiches.js';
 import { createSessionService } from './domain/sessions.js';
 import { createWorldStateService } from './domain/worldState.js';
+import { createMediaService } from './domain/media.js';
+import { createLocalMediaStorage } from './media/local.js';
+import { createS3MediaStorage } from './media/s3.js';
+import { createUploadTicketSigner } from './media/ticket.js';
+import type { MediaStorage } from './media/types.js';
 import type { DomainDeps } from './domain/types.js';
 import { createCodeSigner, createOperatorGate } from './codes/signing.js';
 import { Router } from './http/router.js';
@@ -47,11 +52,18 @@ export interface AppOptions {
   readonly mailer?: Mailer;
   readonly payments?: PaymentProvider;
   readonly logger?: Logger;
+  /** Injected by the media tests so an adapter can be driven directly. */
+  readonly mediaStorage?: MediaStorage;
 }
 
 export interface App {
   readonly server: Server;
   readonly router: Router;
+  /**
+   * The bearer-token check, exposed so the realtime transport can perform the
+   * *same* one rather than growing a second auth model (`RealtimeDeps`).
+   */
+  readonly authenticate: (token: string, now: Date) => Promise<{ accountId: string }>;
   readonly services: ServiceRegistry;
   readonly repos: Repositories;
   /** Non-null when this deployment is backed by Postgres. */
@@ -61,6 +73,7 @@ export interface App {
   readonly logger: Logger;
   readonly mailer: Mailer;
   readonly payments: PaymentProvider;
+  readonly mediaStorage: MediaStorage;
   readonly rateLimiter: RateLimiter;
   readonly warnings: readonly ConfigWarning[];
 }
@@ -121,6 +134,33 @@ export function createApp(options: AppOptions = {}): App {
       ? createStripePaymentProvider({ config, clock, logger: logger.child({ component: 'stripe' }) })
       : createFakePaymentProvider({ clock }));
 
+  /*
+   * Object storage, selected in one place by one question, exactly as the
+   * repositories are: which adapter, and does it have what it needs? The
+   * local adapter is a real store rather than a stand-in, so the default is a
+   * working upload path rather than a disabled one — and it says in the boot
+   * warnings and at `/v1/meta` precisely what kind of store it is.
+   */
+  const mediaStorage: MediaStorage =
+    options.mediaStorage ??
+    (config.mediaStorage === 's3'
+      ? createS3MediaStorage({
+          bucket: config.mediaBucket,
+          region: config.mediaS3Region,
+          accessKeyId: config.mediaS3AccessKeyId,
+          secretAccessKey: config.mediaS3SecretAccessKey,
+          endpoint: config.mediaS3Endpoint,
+          forcePathStyle: config.mediaS3ForcePathStyle,
+          publicBaseUrl: config.mediaPublicBaseUrl,
+          clock,
+          logger: logger.child({ component: 's3' }),
+        })
+      : createLocalMediaStorage({
+          root: config.mediaLocalRoot,
+          bucket: config.mediaBucket,
+          logger: logger.child({ component: 'media' }),
+        }));
+
   const deps: DomainDeps = { repos, clock, ids, logger, config, payments, mailer, rateLimiter, tokens };
 
   const codeSigner = createCodeSigner({ config, logger });
@@ -138,6 +178,16 @@ export function createApp(options: AppOptions = {}): App {
   const analytics = createAnalyticsService(deps);
   const liveOps = createLiveOpsService(deps);
   const codes = createCodesService(deps, codeSigner, rewards);
+  const media = createMediaService(
+    deps,
+    {
+      storage: mediaStorage,
+      tickets: createUploadTicketSigner(config.authTokenSecret),
+      ticketTtlSeconds: config.mediaUploadTtlSeconds,
+      maxBytes: config.mediaMaxBytes,
+    },
+    passports,
+  );
 
   const services: ServiceRegistry = {
     identity,
@@ -145,6 +195,7 @@ export function createApp(options: AppOptions = {}): App {
     campsites,
     sessions,
     worldState,
+    media,
     sandwiches,
     rewards,
     commerce,
@@ -161,6 +212,11 @@ export function createApp(options: AppOptions = {}): App {
       liveOpsAuthoring: operators.isConfigured(),
       codeVerification: codeSigner.isConfigured(),
       codeMinting: codeSigner.canMint(),
+      mediaStorage: mediaStorage.name,
+      mediaConfigured: mediaStorage.isConfigured(),
+      mediaBucket: mediaStorage.bucket,
+      mediaMaxBytes: config.mediaMaxBytes,
+      mediaUnavailableReason: mediaStorage.unavailableReason(),
     },
     database,
   };
@@ -168,27 +224,30 @@ export function createApp(options: AppOptions = {}): App {
   const router = new Router(buildRoutes(services));
   const idempotency = createIdempotencyLayer({ repo: repos.idempotency, clock, config, logger });
 
+  async function authenticate(token: string, now: Date) {
+    const payload = tokens.verify(token, now);
+    const account = await identity.requireActiveAccount(payload.sub);
+    return {
+      accountId: account.id,
+      token,
+      issuedAt: new Date(payload.iat * 1000),
+      expiresAt: new Date(payload.exp * 1000),
+    };
+  }
+
   const server = createApiServer({
     router,
     config,
     clock,
     logger,
     idempotency,
-    async authenticate(token, now) {
-      const payload = tokens.verify(token, now);
-      const account = await identity.requireActiveAccount(payload.sub);
-      return {
-        accountId: account.id,
-        token,
-        issuedAt: new Date(payload.iat * 1000),
-        expiresAt: new Date(payload.exp * 1000),
-      };
-    },
+    authenticate,
   });
 
   return {
     server,
     router,
+    authenticate,
     services,
     repos,
     database,
@@ -197,6 +256,7 @@ export function createApp(options: AppOptions = {}): App {
     logger,
     mailer,
     payments,
+    mediaStorage,
     rateLimiter,
     warnings,
   };

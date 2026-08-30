@@ -33,6 +33,27 @@ wear). `?env=<id>` pins an environment — see
 [`packages/content/CONCEPTS.md`](./packages/content/CONCEPTS.md) for the
 catalogue.
 
+## Installing it
+
+`npm run build` produces an installable app: a web manifest, a full set of
+launcher icons and iOS launch images — all drawn from code at build time, like
+every other picture here (ADR-0002) — and a service worker that precaches the
+shell.
+
+**It works with no signal at all.** Not partially, and not as a degraded mode:
+the whole ritual is client-side by design (ARCHITECTURE §1.5), so a campsite
+with no bars behaves like a campsite with bars, only quieter. `npm run
+test:e2e -- --project=offline` proves it by turning the network off at the
+browser and making a s'more from a cold start.
+
+An update never takes over under your hands. A new build installs, waits, and
+says so in the corner; the swap happens when you say yes. `--project=pwa-update`
+deploys a second build over a first and holds the whole chain to that.
+
+The native shells — App Store and Play Store — are configured but not
+generated, and the reasoning is written down in
+[`apps/mobile/README.md`](./apps/mobile/README.md) rather than implied.
+
 ## What is here
 
 | Path | What it is |
@@ -45,6 +66,7 @@ catalogue.
 | `packages/content` | 26 campsite concepts scored, 12 selected, encoded as validated data |
 | `packages/protocol` | Zod contracts shared by client and server |
 | `apps/web` | React + React Three Fiber + Three.js client |
+| `apps/mobile` | Native shell configuration, and an honest account of why `ios/` and `android/` are not committed |
 | `services/api` | Node/TypeScript backend and PostgreSQL schema |
 | `e2e/` | Playwright acceptance tests that drive the real ritual |
 | `artifacts/screenshots/` | Stage-by-stage captures for visual inspection |

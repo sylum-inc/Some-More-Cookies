@@ -8,7 +8,11 @@ import {
 } from './identity.js';
 import { createPostgresPassportRepository, createPostgresPhotoRepository } from './passport.js';
 import { createPostgresCampsiteRepository, createPostgresInviteRepository } from './campsites.js';
-import { createPostgresLandmarkRepository, createPostgresTraceRepository } from './world.js';
+import {
+  createPostgresCampsiteMemoryRepository,
+  createPostgresLandmarkRepository,
+  createPostgresTraceRepository,
+} from './world.js';
 import { createPostgresAuthorityRepository, createPostgresSessionRepository } from './sessions.js';
 import { createPostgresSandwichRepository } from './sandwiches.js';
 import {
@@ -59,6 +63,7 @@ export function createPostgresRepositories(pool: PgPool): Repositories {
     invites: createPostgresInviteRepository(pool),
     traces: createPostgresTraceRepository(pool),
     landmarks: createPostgresLandmarkRepository(pool),
+    campsiteMemories: createPostgresCampsiteMemoryRepository(pool),
     sessions: createPostgresSessionRepository(pool),
     authority: createPostgresAuthorityRepository(pool),
     sandwiches: createPostgresSandwichRepository(pool),

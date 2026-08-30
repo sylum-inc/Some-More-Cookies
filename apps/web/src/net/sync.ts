@@ -15,14 +15,32 @@
 import type { SandwichRecord } from '@somemore/sim';
 import { ApiClient, deviceId, idempotencyKey, type ApiFailure } from './client.js';
 import { toCreateSandwichRequest } from './mapping.js';
+import { uploadPhoto } from './media.js';
+import { applyRemoteMemory, buildSnapshot, loadLedger, saveLedger } from './memory.js';
+import type { CampsiteMemory, PassportPhoto } from '../state/store.js';
 
 /** Work waiting to reach the service. */
-export type PendingOperation = {
-  kind: 'sandwich';
-  id: string;
-  payload: Record<string, unknown>;
-  attempts: number;
-};
+export type PendingOperation =
+  | {
+      kind: 'sandwich';
+      id: string;
+      payload: Record<string, unknown>;
+      attempts: number;
+    }
+  | {
+      /**
+       * A photograph waiting for a bucket.
+       *
+       * The data URL rides in the queue because the queue is what survives a
+       * reload, and because the local copy is the source of truth until the
+       * upload lands — a photo that never uploads is still a photo.
+       */
+      kind: 'photo';
+      id: string;
+      photo: PassportPhoto;
+      campsiteId: string | null;
+      attempts: number;
+    };
 
 export interface SyncStatus {
   /** Whether a session exists. */
@@ -161,9 +179,37 @@ export class SyncEngine {
       const existing = localStorage.getItem(KEY);
       if (existing) return existing;
     } catch {
-      /* fall through and create one */
+      /* fall through and look for one */
     }
     if (!(await this.ensureAccount())) return null;
+
+    /*
+     * Ask the account what it already has before pitching a new one.
+     *
+     * This lookup used to be local only, which meant a second device signed
+     * into the same account created a *second* campsite for the same place —
+     * and campsite memory keyed on a campsite id would then have had nothing
+     * to merge, because the two devices were talking about two different
+     * campsites. The seed is the identity of a place, so that is what is
+     * matched on; the environment id narrows the list first so this is one
+     * extra read, not one per campsite.
+     */
+    const mine = await this.client.listCampsites();
+    if (mine.ok) {
+      for (const summary of mine.value) {
+        if (summary.environmentId !== environmentId) continue;
+        const full = await this.client.fetchCampsite(summary.id);
+        if (full.ok && full.value.seed === seed) {
+          try {
+            localStorage.setItem(KEY, full.value.id);
+          } catch {
+            /* not fatal */
+          }
+          return full.value.id;
+        }
+      }
+    }
+
     const result = await this.client.createCampsite({ name, environmentId, seed });
     if (!result.ok) {
       this.lastError = result.error;
@@ -176,6 +222,80 @@ export class SyncEngine {
       /* not fatal */
     }
     return result.value.id;
+  }
+
+  /**
+   * Queues a photograph for upload. Returns immediately.
+   *
+   * The ritual does not wait on this and never learns whether it worked: the
+   * photo is already in the Passport as a data URL, which is what the player
+   * is looking at.
+   */
+  enqueuePhoto(photo: PassportPhoto, campsiteId: string | null): void {
+    this.enqueue({ kind: 'photo', id: photo.id, photo, campsiteId, attempts: 0 });
+  }
+
+  /**
+   * Called when a photo's bytes have safely reached storage.
+   *
+   * The store uses it to drop the local data URL, which is the whole
+   * player-visible payoff: a Passport that no longer has to throw away last
+   * week to make room for tonight.
+   */
+  onPhotoUploaded: ((localPhotoId: string, remotePhotoId: string, url: string) => void) | undefined;
+
+  /**
+   * Push what this device remembers about a campsite, and take back the merge.
+   *
+   * Deliberately *not* on the retry queue. A campsite memory is a snapshot of a
+   * state that keeps changing, so a stale one waiting in a queue is worth less
+   * than the fresh one the next call will send — and the merge is idempotent,
+   * so the next call fixes whatever this one missed. A failure returns null and
+   * leaves the local memory exactly as it was.
+   */
+  async syncCampsiteMemory(campsiteId: string, memory: CampsiteMemory): Promise<CampsiteMemory | null> {
+    if (!(await this.ensureAccount())) return null;
+
+    const ledger = loadLedger();
+    const ledgerKey = `${campsiteId}:${memory.campsiteSeed}`;
+    const entry = ledger[ledgerKey] ?? { own: 0, lastKnownTotal: 0 };
+
+    let built: ReturnType<typeof buildSnapshot>;
+    try {
+      built = buildSnapshot({ memory, deviceId: deviceId(), entry });
+    } catch {
+      // A memory the shared contract will not accept is a bug worth finding,
+      // and never worth interrupting a night for.
+      return null;
+    }
+
+    const result = await this.client.syncCampsiteMemory(campsiteId, built.snapshot);
+    if (!result.ok) {
+      this.lastError = result.error;
+      this.notify();
+      return null;
+    }
+
+    // Written only after the service accepted the counter, so a failed sync
+    // cannot make this device forget nights it has not yet had credited.
+    ledger[ledgerKey] = { own: built.entry.own, lastKnownTotal: result.value.visits };
+    saveLedger(ledger);
+
+    this.lastError = null;
+    this.notify();
+    return applyRemoteMemory({ local: memory, remote: result.value, localNowMs: Date.now() });
+  }
+
+  /** What a campsite remembers, without pushing anything. For a new device. */
+  async fetchCampsiteMemory(campsiteId: string, local: CampsiteMemory): Promise<CampsiteMemory | null> {
+    if (!(await this.ensureAccount())) return null;
+    const result = await this.client.fetchCampsiteMemory(campsiteId);
+    if (!result.ok) {
+      this.lastError = result.error;
+      this.notify();
+      return null;
+    }
+    return applyRemoteMemory({ local, remote: result.value, localNowMs: Date.now() });
   }
 
   private enqueue(operation: PendingOperation): void {
@@ -228,6 +348,48 @@ export class SyncEngine {
       }
       while (this.queue.length > 0) {
         const operation = this.queue[0] as PendingOperation;
+
+        if (operation.kind === 'photo') {
+          const outcome = await uploadPhoto(this.client, operation.photo, {
+            campsiteId: operation.campsiteId,
+          });
+          if (outcome.kind === 'uploaded') {
+            this.queue.shift();
+            this.lastError = null;
+            this.persist();
+            // The bytes are safely elsewhere, so the local data URL no longer
+            // has to be. This is what stops the twenty-four being a cap on how
+            // many photographs a Passport may hold.
+            this.onPhotoUploaded?.(operation.id, outcome.stored.photo.id, outcome.stored.url);
+            this.notify();
+            continue;
+          }
+          if (outcome.kind === 'not_configured' || outcome.kind === 'rejected') {
+            /*
+             * Neither is worth retrying and neither is worth telling anybody
+             * about. There is no bucket, or these bytes will never be accepted;
+             * either way the photo is still in the Passport where the player
+             * left it, which is the only thing they can see.
+             */
+            this.queue.shift();
+            this.persist();
+            this.notify();
+            continue;
+          }
+          operation.attempts++;
+          this.lastError = outcome.failure;
+          if (operation.attempts >= MAX_ATTEMPTS) {
+            this.queue.shift();
+            this.persist();
+            this.notify();
+            continue;
+          }
+          this.persist();
+          this.notify();
+          this.scheduleRetry(operation.attempts);
+          return;
+        }
+
         const result = await this.client.recordSandwich(operation.payload);
 
         if (result.ok) {

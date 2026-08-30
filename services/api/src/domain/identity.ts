@@ -133,7 +133,16 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
       repos.orders.reassignAccount(absorbedId, survivingId),
       repos.codeRedemptions.reassignAccount(absorbedId, survivingId),
     ]);
+    /*
+     * Campsite memory follows too. A merge is never a reset, and "the fox that
+     * has seen you three times" is exactly the kind of progress the merge
+     * policies exist to protect. Not in the `MergeReport` counts, because
+     * `moved` is a wire contract and a campsite that remembers you is not a
+     * collection anybody counts.
+     */
+    const campsiteMemories = await repos.campsiteMemories.reassignAccount(absorbedId, survivingId);
     await repos.analytics.remapAccount(absorbedId, survivingId);
+    logger.info('identity.memories_merged', { survivingId, absorbedId, campsiteMemories });
 
     await repos.accounts.update(absorbedId, (a) => ({
       ...a,

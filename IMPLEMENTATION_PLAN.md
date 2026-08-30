@@ -105,6 +105,34 @@ assertions passed because every test that could have caught it built its own
 `Rng` and passed it in directly — which is exactly what a careful unit test
 does, and exactly why it could not see this.
 
+### Session 3: measuring the two things that were only ever guessed at
+
+Roasting and the SM-01 run are the two riskiest claims in the product (R1, R2)
+and both had been tuned by reading rather than measuring. Sweeping the whole
+input surface found four more defects, none of which could fail a test,
+because in every case nothing was broken — the system simply did the wrong
+thing correctly.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 12 | **Golden was unreachable over open flame.** A marshmallow held in the flames went from pale straight to blackening. | Browning and charring are both sigmoids on temperature, both saturate over a hot fire, and charring has the higher rate — so above ~300 °C char accumulated 1.18× faster than brown, forever, at every distance. Charring is now gated on the patch's own browning: sugar caramelises, then carbonises through the caramel |
+| 13 | **The SM-01 said nothing for 11.9 seconds of a 50-second run**, right after the lever comes down | The amber pull-down had three scheduled beats in its first two seconds and none after. It now narrates the pull-down, scaled to the program |
+| 14 | **Frost ticked like a metronome** — 129 crackles, evenly spaced at four a second for the back half | The rate was proportional to how much frost there was. It is now driven by how fast frost is *forming* and metal *contracting*, clumped by value noise, so it nucleates and then settles |
+| 15 | **The machine could be permanently wedged by looking inside it.** Opening the empty SM-01 and closing it left it in a state whose only legal action led to a lever that refuses to run empty | An empty machine that is shut now returns to `idle`, where its door eases open again |
+| 16 | **Seventy seconds of browning was invisible on screen.** A marshmallow the model called "scorching" rendered cream on the fire side and cold blue-grey on the other | Self-inflicted. Raising the night so the campsite was navigable at all (defect #11's fix) also raised a *cool* ambient sevenfold, which swamped the marshmallow's 0.35 warm fill. Fixing the world broke the close-up, and only looking at it afterwards showed that |
+
+Number 16 is the one worth dwelling on: it was **caused by an earlier fix in
+this same document**, it made the feedback loop of the longest interaction in
+the product invisible, and every test stayed green throughout — including the
+visual regression suite, which compared the new frame against a baseline
+captured under the same broken lighting.
+
+Two things measured and found *not* to be defects, which is worth recording so
+they are not re-litigated: the spin control is right (a still marshmallow comes
+out visibly one-sided, and a lazy quarter-turn a second evens it), and weather
+genuinely reaches the fire (rain kills the flame inside two minutes, and a gale
+makes the ember bed run hotter and more even than still air).
+
 ---
 
 ## What the tools measured

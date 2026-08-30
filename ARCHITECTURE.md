@@ -300,6 +300,16 @@ Both figures are pinned in `tools/budgets.mjs` so neither can quietly drift.
 
 Settings live in one observable store consumed by simulation (assists), rendering (dither, motion, contrast, fire brightness), audio (per-bus volume, transient taming), and UI (text scale, subtitles). Nothing reads device settings directly, so every knob is testable. Assists change dexterity requirements only, never outcomes.
 
+Overlays share one `useDialog` hook (`apps/web/src/ui/useDialog.ts`) rather than
+six copies of the same contract: `aria-modal`, focus moved in on open, Tab and
+Shift+Tab cycling inside, focus restored to the opener on close. Anything the
+product says that is *not* a transcript of a sound goes to the store's `notice`
+channel rather than to subtitles, because subtitles sit behind a setting and a
+failure report must not be optional. And anything whose only other channel is a
+colour — the SM-01's amber and blue — is also narrated in words by a
+visually-hidden live region, which names the colour so the two channels are
+describing the same machine.
+
 One thing in that store is deliberately **not** a setting: `controls`, which is
 `'pointer'` or `'keyboard'` and follows whatever the player last touched. It has
 exactly one consumer — the guidance line — and exists because an alternate

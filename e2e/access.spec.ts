@@ -286,3 +286,139 @@ test.describe('the assists a player can actually reach', () => {
     await expect(dialog).toContainText('Assemble: pick up, set down');
   });
 });
+
+/*
+ * Audit A4. Every overlay named itself and closed on Escape, and not one of
+ * them moved focus — nothing in `apps/web/src` called `.focus()` at all. So
+ * somebody opening the Passport on a keyboard was not taken to it, and could
+ * Tab straight back out into the campsite behind a panel covering the screen.
+ * `Scan` and `Terminal` are the sharp cases: a code entry form and a checkout.
+ */
+test.describe('an overlay is a place you are taken to', () => {
+  for (const [button, name] of [
+    ['Passport', 'Campfire Passport'],
+    ['Settings', 'Settings'],
+  ] as const) {
+    test(`${name} takes focus, keeps it, and gives it back`, async ({ page }) => {
+      await boot(page);
+      const opener = page.getByRole('button', { name: button });
+      await opener.focus();
+      await page.keyboard.press('Enter');
+
+      const dialog = page.getByRole('dialog', { name });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+      const inside = () =>
+        dialog.evaluate((el) => el.contains(document.activeElement) && document.activeElement !== document.body);
+      expect(await inside(), 'focus was not moved into the dialog').toBe(true);
+
+      // Round the whole cycle and back — more presses than the panel has
+      // controls, so a trap that only holds for one lap would fail here.
+      for (let i = 0; i < 40; i += 1) await page.keyboard.press('Tab');
+      expect(await inside(), 'Tab escaped the dialog').toBe(true);
+
+      // Backwards too, which is the half that is usually forgotten.
+      for (let i = 0; i < 8; i += 1) await page.keyboard.press('Shift+Tab');
+      expect(await inside(), 'Shift+Tab escaped the dialog').toBe(true);
+
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      expect(
+        await opener.evaluate((el) => el === document.activeElement),
+        'focus was not returned to the control that opened it',
+      ).toBe(true);
+    });
+  }
+});
+
+/*
+ * Audit A5. §3.2 makes the SM-01's colour semantic — amber working, blue
+ * transforming, pulsing amber a fault — and `indicatorColor()` was the only
+ * place that lived. `displayText()` is drawn as a texture *inside the canvas*,
+ * so it was never a second channel. §12: no information through one channel.
+ */
+test.describe('the machine says what it is doing', () => {
+  test('narrates its own state in words, and names its colour', async ({ page }) => {
+    await boot(page);
+    const said = page.getByTestId('machine-state');
+
+    // Before anything is loaded.
+    await expect(said).toHaveText(/machine is (open and empty|ready)/i);
+
+    // Drive it to the two stages whose only other channel is a colour.
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      a['arrive']!();
+      a['beginRoasting']!();
+      a['finishRoasting']!();
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'assembling', null, {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      for (let i = 0; i < 4; i += 1) {
+        a['holdComponent']!();
+        a['placeComponent']!();
+      }
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'machine', null, {
+      timeout: 30_000,
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.machine.door > 0.9, null, {
+      timeout: 30_000,
+    });
+
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      a['machine']!({ type: 'load' });
+      a['machine']!({ type: 'close-door' });
+    });
+    await page.waitForFunction(
+      () => window.__someMore!.store.state.ritual.machine.stage === 'door-closed',
+      null,
+      { timeout: 30_000 },
+    );
+    await expect(said).toHaveText(/not yet latched/i);
+
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      a['machine']!({ type: 'engage-latch' });
+      a['machine']!({ type: 'set-program', program: 'standard' });
+      a['machine']!({ type: 'confirm' });
+      a['machine']!({ type: 'pull-lever' });
+    });
+    await page.waitForFunction(
+      () => window.__someMore!.store.state.ritual.machine.stage === 'processing',
+      null,
+      { timeout: 30_000 },
+    );
+    // Amber, said out loud rather than only shown.
+    await expect(said).toHaveText(/amber/i);
+
+    // Fast-forwarded through the real model rather than waited out. In chunks,
+    // because how long the amber stretch runs is the program's business and
+    // this test is about what the machine *says*, not how long it takes.
+    for (let i = 0; i < 40; i += 1) {
+      const stage = await page.evaluate(() => {
+        window.__someMore!.actions['advanceSeconds']!(5);
+        return window.__someMore!.store.state.ritual.machine.stage;
+      });
+      if (stage === 'freezing') break;
+    }
+    await page.waitForFunction(
+      () => window.__someMore!.store.state.ritual.machine.stage === 'freezing',
+      null,
+      { timeout: 30_000 },
+    );
+    await expect(said).toHaveText(/blue/i);
+  });
+
+  test('the canvas is not an anonymous rectangle', async ({ page }) => {
+    await boot(page);
+    const label = await page.evaluate(() => document.querySelector('canvas')?.getAttribute('aria-label'));
+    expect(label, 'the largest element on the page has no accessible name').toBeTruthy();
+    expect(label).toMatch(/campsite/i);
+  });
+});

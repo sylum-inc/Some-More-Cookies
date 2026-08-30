@@ -1292,6 +1292,22 @@ export function App({ store }: AppProps): React.ReactElement {
         onCreated={({ gl, scene, camera }) => {
           rendererRef.current = { gl, scene, camera };
           gl.setClearColor(0x070a0f, 1);
+          /*
+           * The world, named (spec §12, audit A5).
+           *
+           * Everything a player does out here is pixels as far as assistive
+           * technology is concerned, and an unlabelled canvas is announced as
+           * nothing at all. This does not pretend to make a 3D campsite
+           * navigable without sight — the HUD's live regions carry the state
+           * changes, and what is still missing is any way to *survey* what is
+           * there, which is recorded as open in the audit. What it does is
+           * stop the largest element on the page being anonymous.
+           */
+          gl.domElement.setAttribute('role', 'img');
+          gl.domElement.setAttribute(
+            'aria-label',
+            'The campsite, in three dimensions. What happens here is described in the lines above and below it.',
+          );
           // Exposed for the visual-inspection harness and the browser console.
           const handle = window.__someMore;
           if (handle) handle.three = { gl, scene, camera };
@@ -1336,6 +1352,7 @@ export function App({ store }: AppProps): React.ReactElement {
         stage={state.stage}
         subtitle={state.subtitle}
         controls={state.controls}
+        notice={state.notice}
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}
@@ -1410,7 +1427,9 @@ export function App({ store }: AppProps): React.ReactElement {
             void syncRef.current?.link(provider, `dev-credential:${provider}`).then((linked) => {
               if (linked) return;
               store.set({ passport: { ...store.state.passport, linkedProvider: previous } });
-              store.setSubtitle('[this campsite cannot sign you in yet — your Passport stays on this device]');
+              // Not a transcript of a sound, so not a subtitle: this has to
+              // arrive whether or not subtitles are switched on.
+              store.setNotice('This campsite cannot sign you in yet. Your Passport stays on this device.');
             });
           }}
         />

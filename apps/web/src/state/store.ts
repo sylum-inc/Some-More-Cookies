@@ -227,6 +227,16 @@ export interface AppState {
   overlay: 'none' | 'passport' | 'settings' | 'photo' | 'hero' | 'terminal' | 'service' | 'radio' | 'scan' | 'campfire';
   /** Transient subtitle line. */
   subtitle: string | null;
+  /**
+   * A report the player must not miss, whether or not subtitles are on.
+   *
+   * Subtitles are the text channel for something *audible*, and they sit behind
+   * a setting (spec §12). Some of what the client has to say is neither — "this
+   * campsite cannot sign you in yet" is not a transcript of a sound, and
+   * routing it through subtitles meant it vanished silently for anybody who had
+   * switched them off. This channel is never optional.
+   */
+  notice: string | null;
   /** Whether audio has been unlocked by a user gesture. */
   audioReady: boolean;
   environmentId: string;
@@ -468,6 +478,7 @@ export class Store {
       passport,
       overlay: 'none',
       subtitle: null,
+      notice: null,
       audioReady: false,
       environmentId: options.environmentId,
       campsiteSeed: options.campsiteSeed,
@@ -561,6 +572,12 @@ export class Store {
    * Guarded, because this is called from a key and pointer handler: without
    * the early return every keystroke would notify every subscriber.
    */
+  /** A report that is not a transcript. See `AppState.notice`. */
+  setNotice(line: string | null): void {
+    if (this.state.notice === line) return;
+    this.set({ notice: line });
+  }
+
   setControls(controls: AppState['controls']): void {
     if (this.state.controls === controls) return;
     this.set({ controls });

@@ -25,6 +25,8 @@ export interface HudProps {
   subtitle: string | null;
   /** Pointer or keyboard, so the guidance line names the right controls. */
   controls: 'pointer' | 'keyboard';
+  /** A report that must reach the player whether or not subtitles are on. */
+  notice: string | null;
   textScale: number;
   highContrast: boolean;
   subtitlesEnabled: boolean;
@@ -552,8 +554,126 @@ export function Hud(props: HudProps): React.ReactElement {
           {props.subtitle}
         </div>
       )}
+
+      {/*
+        Reports that are not transcripts.
+
+        Subtitles carry the text of something audible and sit behind a setting;
+        this does not. "This campsite cannot sign you in yet" is not a
+        transcript of a sound, and it used to go out as a subtitle, which meant
+        it disappeared without trace for anybody who had subtitles switched off
+        — the §12 rule about single channels, applied to the product's own
+        error reporting.
+      */}
+      {props.notice !== null && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid="notice"
+          style={{
+            position: 'absolute',
+            left: '50%',
+            bottom: '19%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(28,18,10,0.88)',
+            border: `1px solid ${TOKENS.amber}`,
+            color: '#f3e9d8',
+            padding: `${scale(7)} ${scale(14)}`,
+            fontSize: scale(12),
+            borderRadius: 3,
+            maxWidth: '76vw',
+            textAlign: 'center',
+          }}
+        >
+          {props.notice}
+        </div>
+      )}
+
+      {/*
+        The SM-01, in words (spec §12, audit A5).
+
+        §3.2 makes the machine's colour semantic — amber is working, blue is
+        transforming, pulsing amber is a fault — and `indicatorColor()` was the
+        only place that lived. `displayText()` exists, but it is drawn as a
+        texture *inside the canvas*, so it is not a second channel for anybody
+        who cannot see the first one.
+
+        Visually hidden rather than shown, because the panel itself is the
+        display for everyone who can see it, and a caption repeating what the
+        machine already says would be noise on screen. It names the colour as
+        well as the state, so the two channels describe the same machine rather
+        than two different ones.
+      */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="machine-state"
+        style={SR_ONLY}
+      >
+        {machineInWords(ritual.machine)}
+      </div>
     </div>
   );
+}
+
+/**
+ * Off screen, but read aloud.
+ *
+ * The `clip`/`clip-path` pair rather than `display: none` or `visibility:
+ * hidden`, either of which takes the element out of the accessibility tree as
+ * well as out of the picture, which is the opposite of what this is for.
+ */
+const SR_ONLY: React.CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  clipPath: 'inset(50%)',
+  whiteSpace: 'nowrap',
+  border: 0,
+};
+
+/** What the SM-01's panel and its indicator say, as a sentence. */
+function machineInWords(machine: RitualState['machine']): string {
+  switch (machine.stage) {
+    case 'idle':
+      return machine.door > 0.5 ? 'The machine is open and empty.' : 'The machine is ready.';
+    case 'loaded':
+      return 'It is in. The door is still open.';
+    case 'door-closing':
+      return 'The door is closing.';
+    case 'door-closed':
+      return 'The door is shut and not yet latched.';
+    case 'latched':
+      return machine.confirmed
+        ? 'Latched, program confirmed. The lever is up.'
+        : 'Latched. No program chosen yet.';
+    case 'armed':
+      return 'Armed. The lever is up.';
+    case 'processing':
+      return 'Running. The chamber light is amber.';
+    case 'transforming':
+      return 'Transforming.';
+    case 'freezing':
+      return 'Freezing. The chamber light has turned blue.';
+    case 'complete':
+      return 'Finished. The light is steady.';
+    case 'unlatched':
+      return 'Unlatched. The door can be opened.';
+    case 'opening':
+      return 'The door is opening.';
+    case 'revealed':
+      return 'The door is open. There is a sandwich on the tray.';
+    case 'fault':
+      return 'Fault. The light is pulsing amber.';
+    default:
+      return '';
+  }
 }
 
 function CornerButton({

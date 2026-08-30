@@ -217,6 +217,27 @@ picture badly, and both would have been recorded as evidence about multiplayer
 if nobody had looked at them. The lesson from #17 generalises — a screenshot is
 only worth what the pose behind it is worth.
 
+### Session 4: closing the audit's accessibility findings
+
+The adversarial pass left three §12 findings written up rather than fixed,
+because each needed a decision or a refactor across files somebody else was in.
+They are closed now, and two of them were spec violations rather than
+improvements — §12 says no information may be delivered through a single
+channel, and the SM-01's state was a colour.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 37 | **No overlay moved focus.** Six dialogs, every one named, every one closing on Escape, and `.focus()` was not called anywhere in `apps/web/src`. Opening the Passport on a keyboard did not take you to it, and Tab walked straight back out into the campsite behind a panel covering the screen | One shared `useDialog` hook now sets `aria-modal`, moves focus in, cycles Tab and Shift+Tab inside, and gives focus back to the control that opened it. `Scan` and `Terminal` were the sharp cases — a code entry form and a checkout |
+| 38 | **The SM-01's state was a colour and nothing else.** Amber is working, blue is transforming, pulsing amber is a fault; `displayText()` exists but is drawn as a texture *inside* the canvas, so it was never a second channel | A visually-hidden live region narrates the machine in words at every stage and names the colour as well as the state, so the two channels describe the same machine. The canvas itself is no longer an anonymous rectangle |
+| 39 | **A failure report could vanish silently.** "This campsite cannot sign you in yet" went out as a subtitle, and subtitles sit behind a setting | Subtitles are the text channel for something *audible*. A report that is not a transcript now goes to a `notice` channel that is never optional |
+
+The instructive one is #37's second half. The first version of the hook passed
+every assertion about the trap and failed the one about giving focus back,
+because the cleanup asked `panel.contains(document.activeElement)` — and by the
+time it runs React has already detached the panel, so the answer is always no.
+It is the same shape as defect #25: code that is correct about the thing it is
+looking at and wrong about *when* it is looking.
+
 ### Session 4: three found by reading the words on the screen
 
 The visual suite compares whole frames against a baseline, with tolerances of

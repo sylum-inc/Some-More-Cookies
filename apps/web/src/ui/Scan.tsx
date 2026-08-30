@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { cameraScanSupported, startCameraScan, type CameraFailure, type CameraScanner, type ScanFlow, type ScanState } from '../net/codes.js';
 import { FONT_STACK, TOKENS } from './styles.js';
+import { useDialog } from './useDialog.js';
 
 export interface ScanProps {
   flow: ScanFlow;
@@ -45,6 +46,8 @@ const CAMERA_MESSAGES: Readonly<Record<CameraFailure, string>> = {
 };
 
 export function Scan({ flow, textScale, onClose, onCampInvite }: ScanProps): React.ReactElement {
+  // Focus into the panel, trapped inside it, and back where it came from.
+  const dialog = useDialog();
   const px = (n: number): string => `${n * textScale}px`;
   const state = useSyncExternalStore<ScanState>(
     (listener) => flow.subscribe(() => listener()),
@@ -112,7 +115,13 @@ export function Scan({ flow, textScale, onClose, onCampInvite }: ScanProps): Rea
   }, [onClose, stopCamera]);
 
   return (
-    <div className="sm-overlay" role="dialog" aria-label="Add a code" onClick={close}>
+    <div
+      className="sm-overlay"
+      role="dialog"
+      aria-label="Add a code"
+      onClick={close}
+      {...dialog.props}
+    >
       <div
         className="sm-panel"
         onClick={(event) => event.stopPropagation()}

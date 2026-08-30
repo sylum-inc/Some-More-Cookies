@@ -20,6 +20,7 @@ import type { Gesture } from '@somemore/protocol';
 import type { Campfire } from '../net/campfire.js';
 import { MARSHMALLOW_OBJECT_ID } from '../net/authority.js';
 import { FONT_STACK, TOKENS } from './styles.js';
+import { useDialog } from './useDialog.js';
 
 /** The gestures worth a button. The rest are reachable from the world itself. */
 const GESTURES: readonly { id: Gesture; label: string }[] = [
@@ -40,6 +41,8 @@ export interface CampfirePanelProps {
 }
 
 export function CampfirePanel({ fire, textScale, highContrast, onClose }: CampfirePanelProps): React.ReactElement {
+  // Focus into the panel, trapped inside it, and back where it came from.
+  const dialog = useDialog();
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement>(null);
   const people = fire.roster.everyone;
@@ -56,7 +59,13 @@ export function CampfirePanel({ fire, textScale, highContrast, onClose }: Campfi
   const soft = highContrast ? '#3a352c' : TOKENS.inkSoft;
 
   return (
-    <div className="sm-overlay" role="dialog" aria-label="At the fire" onPointerDown={(event) => event.stopPropagation()}>
+    <div
+      className="sm-overlay"
+      role="dialog"
+      aria-label="At the fire"
+      onPointerDown={(event) => event.stopPropagation()}
+      {...dialog.props}
+    >
       <div className="sm-panel" style={{ width: 'min(560px, 94vw)', padding: `${font(18)}px ${font(20)}px` }}>
         <button
           className="sm-focus"

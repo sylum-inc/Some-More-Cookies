@@ -474,9 +474,9 @@ one.
 | A1 | `simplifiedGestures` and `virtualJoystick` were implemented, persisted, honoured — and had no control anywhere | high | fixed |
 | A2 | Assembly and the entire SM-01 ritual had no non-pointer path at all | **critical for §12** | fixed |
 | A3 | Every keyboard path was undocumented; nothing told a player any key existed | high | fixed |
-| A4 | Overlays are `role="dialog"` with names, but nothing moves focus into them and nothing traps it | medium | **not fixed** |
-| A5 | The canvas has no accessible alternative, and the SM-01's state is colour plus a display texture | medium | **not fixed** |
-| A6 | A settings-gated subtitle is the only channel for some failure messages | low | not fixed |
+| A4 | Overlays are `role="dialog"` with names, but nothing moves focus into them and nothing traps it | medium | fixed |
+| A5 | The canvas has no accessible alternative, and the SM-01's state is colour plus a display texture | medium | partly fixed |
+| A6 | A settings-gated subtitle is the only channel for some failure messages | low | fixed |
 | A7 | A keyboard player could not turn their head at all, so every aimed activity in §5.2 was behind a pointer | **critical for §12** | fixed |
 | A8 | A pointer look delta was applied once per *simulation step* rather than once, so one drag turned the player as far as the renderer was slow | medium | fixed |
 
@@ -620,77 +620,81 @@ group listing every binding, under Assists because that is where somebody
 looking for one would look. It is a list, not a rebinding screen; rebinding is
 a larger thing and nobody has asked for it.
 
-### A4 — Overlays: named, but focus is not managed · NOT FIXED
+### A4 — Overlays: named, but focus is not managed · FIXED
 
-**Verified by reading; partially verified by test.** Every overlay
-(`Settings`, `Passport`, `Terminal`, `RadioDial`, `Scan`, `Campfire`) has
+**Was verified by reading; the fix is verified by test.** Every overlay
+(`Settings`, `Passport`, `Terminal`, `RadioDial`, `Scan`, `Campfire`) had
 `role="dialog"` with an `aria-label`, a close button with an accessible name,
-and `Escape` closes it — the `access` suite checks the last two. What none of
-them has is `aria-modal="true"`, a focus move into the dialog on open, a focus
-trap, or focus restoration to the trigger on close. Nothing anywhere in
-`apps/web/src` calls `.focus()`.
+and `Escape` to shut it. What none of them had was `aria-modal="true"`, a focus
+move into the dialog on open, a trap, or restoration on close. Nothing anywhere
+in `apps/web/src` called `.focus()` at all.
 
-The practical consequence: a screen-reader or keyboard user opening the Passport
-is not taken there, and can Tab straight back out into the HUD behind it while
-the dialog visually covers the screen. `Scan` and `Terminal` are the sharpest
-cases — a code entry form and a checkout.
+The practical consequence: somebody opening the Passport on a keyboard was not
+taken to it, and could Tab straight back out into the HUD while the dialog
+visually covered the screen. `Scan` and `Terminal` are the sharp cases — a code
+entry form and a checkout.
 
-**Not fixed** because doing it properly is one shared `useDialog` hook applied
-to six components (initial focus, `aria-modal`, a Tab cycle, restore on close,
-and deciding what "initial focus" means for a dial you tune with arrow keys),
-which is a refactor across files two of which are being actively worked on. It
-is contained and it is worth doing next.
+**Fixed** with one shared `useDialog` hook rather than six copies
+(`apps/web/src/ui/useDialog.ts`). It sets `aria-modal`, moves focus to the first
+focusable thing in the panel — or to the panel itself, for one with nothing to
+operate, because an empty Passport is still a place a reader should be taken —
+cycles Tab and Shift+Tab within it, and returns focus to the control that opened
+it.
 
-The test to write:
+Two details worth keeping, both of which the first version got wrong:
 
-```ts
-test('an overlay takes focus and does not let it out', async ({ page }) => {
-  await page.getByRole('button', { name: 'Passport' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Campfire Passport' });
-  await expect(dialog).toHaveAttribute('aria-modal', 'true');
-  // Focus is inside the dialog on open …
-  expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-  // … and stays there through a full cycle.
-  for (let i = 0; i < 40; i += 1) await page.keyboard.press('Tab');
-  expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
-});
-```
+* **It does not steal focus.** If something inside the panel already has it (an
+  autofocused field), it is left alone.
+* **Restoration cannot test for containment.** By the time the cleanup runs,
+  React has usually detached the panel and `document.activeElement` is `<body>`,
+  so `panel.contains(active)` is false and the first version silently did
+  nothing — it passed every assertion about the trap and failed the one about
+  giving focus back. The question that actually matters is whether the *player*
+  has moved focus somewhere else themselves; if they have, dragging them back
+  would be the rude thing, and if focus has merely fallen to the document it
+  belongs on the opener.
 
-### A5 — The canvas, and the machine's colour · NOT FIXED
+Two tests, one per overlay shape: focus lands inside, survives forty Tabs and
+eight Shift+Tabs — more presses than either panel has controls, so a trap that
+only holds for one lap fails — and comes back to the button on Escape.
 
-**Verified by reading.** The `<canvas>` has no `aria-label`, no
-`role="application"`, and no textual alternative. Everything a player does in
-the world — walking, the fire, the machine, the wildlife, the sky — exists only
-as pixels as far as assistive technology is concerned. The HUD carries a real
-running commentary (the heat word, the reach label, the activity line,
-subtitles) and, now that the two live regions announce, a screen reader gets a
-usable narration of *state changes*. What it does not get is any way to survey
-what is there.
+### A5 — The canvas, and the machine's colour · PARTLY FIXED
 
-Inside that, one specific §12 breach: §3.1 makes the SM-01's colour semantic —
-amber means working, blue means transforming, amber-pulsing means fault — and
-`indicatorColor()` is the only place that lives. `displayText()` exists and is
-rendered into the panel *as a texture inside the canvas*, so it is not a second
-channel for anybody who cannot see the first one. The subtitles do narrate the
-run's beats, which covers most of it in practice; a fault does not obviously
-have a line.
+**Verified by reading; the fix is verified by test.** The `<canvas>` had no
+`aria-label`, no role, and no textual alternative: everything a player does in
+the world existed only as pixels as far as assistive technology was concerned.
+Inside that sat a specific §12 breach — §3.2 makes the SM-01's colour semantic
+(amber working, blue transforming, pulsing amber a fault) and `indicatorColor()`
+was the only place that lived. `displayText()` exists but is rendered into the
+panel *as a texture inside the canvas*, so it was never a second channel for
+anybody who could not see the first one.
 
-**What it needs:** a decision about how much of a 3D world this product intends
-to make legible without sight, which is a design question and not a bug. The
-cheap, useful first step — and the one I would do — is a visually-hidden live
-region that announces the machine's stage transitions in words, driven off the
-same `MachineEvent` stream the subtitles already read, plus an `aria-label` on
-the canvas naming the campsite and the stage.
+**Fixed, in the part that is a bug:** a visually-hidden live region narrates the
+machine's state in words at every stage, and names the colour as well as the
+state — "Running. The chamber light is amber", "Freezing. The chamber light has
+turned blue", "Fault. The light is pulsing amber" — so the two channels describe
+the same machine rather than two different ones. Hidden rather than shown
+because the panel is the display for everyone who can see it, and a caption
+repeating it would be noise. The canvas now carries a role and a name, so the
+largest element on the page is no longer anonymous.
 
-### A6 — Subtitles as a single channel · not fixed
+**Still open, and it is not a bug:** there is no way to *survey* the world —
+to ask what is around you. The live regions carry state changes; they do not
+carry a map. How legible a 3D campsite intends to be without sight is a design
+question, and it stays in §7 rather than being quietly answered here.
 
-Some client-side failure reports go out through `store.setSubtitle` — including
-the one I added when a deployment refuses to sign you in (§4). Subtitles are
-behind a setting a player may have switched off, so a message that is *not* a
-subtitle for something audible can vanish. Small, but it is the §12 rule
-applied to the product's own error reporting. Worth a separate non-optional
-notice channel next to `PwaNotices`, which already does the right thing with
-`role="status"`.
+### A6 — Subtitles as a single channel · FIXED
+
+Some client-side failure reports went out through `store.setSubtitle` —
+including the one raised when a deployment refuses to sign you in. Subtitles are
+the text channel for something *audible* and they sit behind a setting a player
+may have switched off, so a message that is not a transcript could vanish
+without trace. The §12 rule about single channels, applied to the product's own
+error reporting.
+
+**Fixed** with a `notice` channel on the store, rendered unconditionally with
+`role="status"`. There was exactly one call site, which is why this is small;
+what it buys is a place for the next one to go.
 
 ---
 
@@ -789,9 +793,7 @@ Playwright project), plus cases added to
 | --- | --- |
 | S12 `block` row growth | Small, and `realtime/` is under active work by another workstream. |
 | S13 card-scan recursion cap | Argued above: the schema rejects the shape anyway, and raising it costs every request. |
-| A4 overlay focus management | One shared hook across six components, two of which are being actively edited. Contained, worth doing next, test written above. |
-| A5 canvas alternative | A design question about how legible a 3D world intends to be without sight, not a bug. First step named above. |
-| A6 subtitles as a single channel | Needs a non-optional notice channel, which is a small piece of design; `PwaNotices` is the shape to copy. |
+| A5 surveying the world without sight | The narration of *state changes* is there; what is still missing is any way to ask "what is around me". That is a design question about how legible a 3D world intends to be without sight, and it is the honest remainder of A5. |
 | Memory repositories do not enforce claim-once | They are for tests and dev, the HTTP path cannot race on them, and the schema comment that says otherwise is the thing to fix. |
 
 ---

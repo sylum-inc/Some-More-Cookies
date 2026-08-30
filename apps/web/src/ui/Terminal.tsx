@@ -14,6 +14,7 @@ import type { Address } from '@somemore/protocol';
 import { FONT_STACK, TOKENS } from './styles.js';
 import { OrderFlow, formatMoney, type OrderFlowState } from '../net/order.js';
 import type { SyncEngine } from '../net/sync.js';
+import { useDialog } from './useDialog.js';
 
 export interface TerminalProps {
   sandwich: SandwichRecord;
@@ -44,6 +45,8 @@ function emptyAddress(): Address {
 }
 
 export function Terminal({ sandwich, onClose, textScale, sync }: TerminalProps): React.ReactElement {
+  // Focus into the panel, trapped inside it, and back where it came from.
+  const dialog = useDialog();
   const [step, setStep] = useState<Step>('terminal');
   const [lines, setLines] = useState<string[]>([]);
   const [address, setAddress] = useState<Address>(emptyAddress);
@@ -108,7 +111,13 @@ export function Terminal({ sandwich, onClose, textScale, sync }: TerminalProps):
   }, [sandwich]);
 
   return (
-    <div className="sm-overlay" role="dialog" aria-label="Some More order terminal" onClick={onClose}>
+    <div
+      className="sm-overlay"
+      role="dialog"
+      aria-label="Some More order terminal"
+      onClick={onClose}
+      {...dialog.props}
+    >
       <div
         className="sm-panel"
         onClick={(event) => event.stopPropagation()}

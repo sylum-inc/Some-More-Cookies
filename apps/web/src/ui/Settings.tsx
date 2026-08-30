@@ -9,6 +9,7 @@
 import { FONT_STACK, TOKENS } from './styles.js';
 import type { AccessibilitySettings, AudioSettings } from '../state/store.js';
 import type { RenderSettings } from '../render/ps1.js';
+import { useDialog } from './useDialog.js';
 
 export interface SettingsProps {
   render: RenderSettings;
@@ -31,9 +32,17 @@ export function Settings({
 }: SettingsProps): React.ReactElement {
   const scale = accessibility.textScale;
   const px = (n: number) => `${n * scale}px`;
+  // Focus into the panel, trapped inside it, and back where it came from.
+  const dialog = useDialog();
 
   return (
-    <div className="sm-overlay" role="dialog" aria-label="Settings" onClick={onClose}>
+    <div
+      className="sm-overlay"
+      role="dialog"
+      aria-label="Settings"
+      onClick={onClose}
+      {...dialog.props}
+    >
       <div
         className="sm-panel"
         onClick={(event) => event.stopPropagation()}

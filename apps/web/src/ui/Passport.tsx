@@ -9,6 +9,7 @@
 import { provenanceLines, type SandwichRecord } from '@somemore/sim';
 import { FONT_STACK, TOKENS } from './styles.js';
 import type { PassportState } from '../state/store.js';
+import { useDialog } from './useDialog.js';
 
 export interface PassportProps {
   passport: PassportState;
@@ -35,11 +36,19 @@ export function Passport({
   campsiteSeed,
   onAddCode,
 }: PassportProps): React.ReactElement {
+  // Focus into the panel, trapped inside it, and back where it came from.
+  const dialog = useDialog();
   const px = (n: number) => `${n * textScale}px`;
   const here = campsiteSeed === undefined ? undefined : passport.campsites[campsiteSeed];
 
   return (
-    <div className="sm-overlay" role="dialog" aria-label="Campfire Passport" onClick={onClose}>
+    <div
+      className="sm-overlay"
+      role="dialog"
+      aria-label="Campfire Passport"
+      onClick={onClose}
+      {...dialog.props}
+    >
       <div
         className="sm-panel"
         onClick={(event) => event.stopPropagation()}

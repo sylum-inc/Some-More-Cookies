@@ -25,6 +25,7 @@ import {
   type RitualState,
 } from '@somemore/sim';
 import { FONT_STACK, TOKENS } from './styles.js';
+import { useDialog } from './useDialog.js';
 
 /** Dial units travelled per pixel of drag, before the fine-tune gearing. */
 const DRAG_GEARING = 0.0022;
@@ -37,6 +38,8 @@ export interface RadioDialProps {
 }
 
 export function RadioDial({ ritual, textScale, onChange, onClose }: RadioDialProps): React.ReactElement {
+  // Focus into the panel, trapped inside it, and back where it came from.
+  const dialog = useDialog();
   const radio = ritual.radio;
   const plan = radio.bands[radio.band];
   const span = Math.max(1e-6, plan.max - plan.min);
@@ -88,6 +91,7 @@ export function RadioDial({ ritual, textScale, onChange, onClose }: RadioDialPro
     <div
       role="dialog"
       aria-label="Camp radio"
+      {...dialog.props}
       style={{
         position: 'fixed',
         inset: 0,

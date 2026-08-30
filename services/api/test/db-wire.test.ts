@@ -9,7 +9,7 @@ import {
   parseDatabaseUrl,
   parseTextArray,
 } from '../src/db/index.js';
-import { MessageReader, MessageWriter, StreamParser } from '../src/db/wire/buffer.js';
+import { MAX_BACKEND_MESSAGE_BYTES, MessageReader, MessageWriter, StreamParser } from '../src/db/wire/buffer.js';
 
 /*
  * The wire client, tested without a server. Everything below is the part of the
@@ -66,6 +66,35 @@ describe('protocol framing', () => {
     const parser = new StreamParser();
     parser.push(new MessageWriter().cstring('whole').frame('C').subarray(0, 4));
     expect(parser.next()).toBeNull();
+  });
+});
+
+describe('a backend we have not authenticated is still a byte source', () => {
+  /*
+   * Until certificate verification lands (README Blocker 2) `sslmode=require`
+   * encrypts without proving who is on the other end, so the length prefix of
+   * every backend message is four bytes chosen by somebody we cannot name.
+   * Whoever they are, they do not get to decide how much memory this process
+   * allocates.
+   */
+  it('refuses an absurd message length instead of buffering toward it', () => {
+    const parser = new StreamParser();
+    const header = Buffer.alloc(5);
+    header[0] = 'D'.charCodeAt(0);
+    header.writeInt32BE(0x7fff_ffff, 1);
+    parser.push(header);
+    expect(() => parser.next()).toThrow(/announced/);
+  });
+
+  it('still assembles a message right up to the ceiling', () => {
+    const parser = new StreamParser(1024);
+    const body = Buffer.alloc(1024 - 4, 0x41);
+    const header = Buffer.alloc(5);
+    header[0] = 'D'.charCodeAt(0);
+    header.writeInt32BE(1024, 1);
+    parser.push(Buffer.concat([header, body]));
+    expect(parser.next()?.body.length).toBe(1020);
+    expect(MAX_BACKEND_MESSAGE_BYTES).toBeGreaterThan(1024);
   });
 });
 
@@ -160,6 +189,14 @@ describe('connection strings', () => {
   it('refuses a URL that is not Postgres at all', () => {
     expect(() => parseDatabaseUrl('mysql://localhost/somemore')).toThrow(/postgres/);
     expect(() => parseDatabaseUrl('not a url')).toThrow(/valid URL/);
+  });
+
+  it('refuses the sslmodes it cannot honour rather than demoting them', () => {
+    // Asking for verification and silently getting none is worse than not
+    // asking, because it is believed.
+    expect(() => parseDatabaseUrl('postgres://db/somemore?sslmode=verify-full')).toThrow(/verify-full/);
+    expect(() => parseDatabaseUrl('postgres://db/somemore?sslmode=verify-ca')).toThrow(/verify-ca/);
+    expect(parseDatabaseUrl('postgres://db/somemore?sslmode=require').ssl).toBe('require');
   });
 });
 

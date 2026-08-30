@@ -318,19 +318,85 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  # ------------------------------------------------------------- access --
+  # "Can a person who cannot use a pointer still do this?" Its own job because
+  # it fails on its own thing: not "the ritual stopped working" but "the ritual
+  # stopped being reachable". It is also the one suite forbidden from driving
+  # the stage under audit through `window.__someMore.actions`, which is exactly
+  # why it can see what `acceptance` cannot — see
+  # docs/SECURITY_AND_ACCESSIBILITY_AUDIT.md §3.
+  #
+  # Local equivalent: npm run e2e:access
+  access:
+    name: accessibility — §12, driven rather than read
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: .
+
+      - name: Resolve the Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browser-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install system dependencies
+        if: steps.browser-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run the accessibility suite
+        run: npm run e2e:access
+
+      - name: Upload the keyboard-only screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-screenshots
+          path: artifacts/screenshots
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload the Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 14
+          if-no-files-found: ignore
+
   # ------------------------------------------------------------------- all --
   # One required check to protect the branch with, so adding a job later does
   # not mean editing branch-protection settings.
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [verify, acceptance, performance, visual, audio]
+    needs: [verify, acceptance, access, performance, visual, audio]
     if: always()
     steps:
       - name: Fail if any job did not succeed
         run: |
           echo "verify=${{ needs.verify.result }}"
           echo "acceptance=${{ needs.acceptance.result }}"
+          echo "access=${{ needs.access.result }}"
           echo "performance=${{ needs.performance.result }}"
           echo "visual=${{ needs.visual.result }}"
           echo "audio=${{ needs.audio.result }}"

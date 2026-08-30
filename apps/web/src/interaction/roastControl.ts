@@ -13,7 +13,7 @@
  * Pure and DOM-free so it can be unit tested headlessly.
  */
 
-import { vec3, type Vec3 } from '@somemore/sim';
+import { vec3, type RitualState, type Vec3 } from '@somemore/sim';
 
 export interface RoastControlConfig {
   /** Closest the marshmallow can get to the fire centre, metres. */
@@ -144,6 +144,40 @@ export class RoastController {
 
 function clamp01(value: number): number {
   return value < 0 ? 0 : value > 1 ? 1 : value;
+}
+
+/** Scratch pose, so sampling the controller allocates nothing per frame. */
+const SAMPLE: RoastPose = { position: vec3(), rotation: 0, proximity: 0 };
+
+/**
+ * Writes the controller's current pose into the ritual's roast input.
+ *
+ * Called from the frame loop, because the bearing changes as the player walks
+ * round the fire — and called *again* the instant a key is pressed, which is
+ * the part that matters. A drag is continuous, so sampling it a frame late
+ * costs nothing; a key press is a discrete act, and on a device rendering
+ * slowly the presses between two frames collapse into one. That is not a
+ * hypothetical: under software rendering the roasting close-up runs at about
+ * 1.5 frames a second, and twenty-four presses of the turn key browned the
+ * marshmallow on one face, because the simulation stepped sixty times a second
+ * against an input sampled once. The keyboard path is the accessibility
+ * alternative to the drag (spec §12), so the players it is for are exactly the
+ * ones most likely to be on the slow device.
+ */
+export function applyRoastPose(
+  control: RoastController,
+  ritual: RitualState,
+  bearing: number,
+  applyRotation: boolean,
+): void {
+  control.setBearing(bearing);
+  const pose = control.pose(SAMPLE);
+  ritual.roastInput.position.x = pose.position.x;
+  ritual.roastInput.position.y = pose.position.y;
+  ritual.roastInput.position.z = pose.position.z;
+  // The automatic-rotation assist owns the rotation when it is switched on;
+  // overwriting it here would fight the assist every frame.
+  if (applyRotation) ritual.roastInput.rotation = pose.rotation;
 }
 
 /**

@@ -165,13 +165,48 @@ describe('virtual joystick', () => {
 });
 
 describe('keyboard', () => {
-  it('moves on WASD and arrows alike', () => {
+  it('walks on WASD', () => {
     const keys = new KeyboardMovement();
     keys.down('w');
     expect(keys.intent().forward).toBe(1);
     keys.up('w');
-    keys.down('ArrowDown');
+    keys.down('s');
     expect(keys.intent().forward).toBe(-1);
+  });
+
+  /*
+   * The arrows used to be a second set of walk keys, which left `player.facing`
+   * unreachable from the keyboard entirely: it only ever moves from a pointer
+   * look delta or from walking toward a tapped point. So a keyboard player
+   * could cross the campsite and never turn — no sky, no aiming a torch, no
+   * facing the water. The arrows look now; the duplication is what paid for it.
+   */
+  it('looks on the arrows, and does not walk on them', () => {
+    const keys = new KeyboardMovement();
+    keys.down('ArrowLeft');
+    expect(keys.intent()).toEqual({ forward: 0, strafe: 0 });
+    expect(keys.look().yaw).toBeGreaterThan(0);
+    keys.up('ArrowLeft');
+    keys.down('ArrowRight');
+    expect(keys.look().yaw).toBeLessThan(0);
+    keys.up('ArrowRight');
+    keys.down('ArrowUp');
+    expect(keys.look().pitch).toBeGreaterThan(0);
+  });
+
+  it('walks and looks at the same time', () => {
+    const keys = new KeyboardMovement();
+    keys.down('w');
+    keys.down('ArrowRight');
+    expect(keys.intent().forward).toBe(1);
+    expect(keys.look().yaw).toBeLessThan(0);
+  });
+
+  it('stops turning when the key comes up', () => {
+    const keys = new KeyboardMovement();
+    keys.down('ArrowRight');
+    keys.up('ArrowRight');
+    expect(keys.look()).toEqual({ yaw: 0, pitch: 0 });
   });
 
   it('is case insensitive', () => {

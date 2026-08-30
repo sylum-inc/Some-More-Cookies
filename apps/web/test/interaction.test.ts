@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createRitual, beginRoasting } from '@somemore/sim';
 import {
+  applyRoastPose,
   BlowGestureDetector,
   DEFAULT_ROAST_CONTROL,
   RoastController,
@@ -140,6 +142,39 @@ describe('roast control', () => {
     control.addRotation(1);
     control.move(500, 500);
     expect(control.totalRotation).toBeCloseTo(1, 6);
+  });
+
+  it('every keyboard nudge reaches the ritual, not just the last before a frame', () => {
+    // The regression this exists for: the pose used to be sampled once per
+    // rendered frame, so on a slowly rendering device a burst of presses
+    // collapsed into one and the marshmallow browned on a single face. The
+    // simulation runs at sixty steps a second whatever the frame rate, so the
+    // input has to be applied when it is given.
+    const ritual = createRitual({ campsiteSeed: 'keyboard-nudge', environmentId: 'pine_hollow' });
+    beginRoasting(ritual);
+    const control = new RoastController();
+    for (let i = 0; i < 24; i += 1) {
+      control.nudge(0, 0.22);
+      applyRoastPose(control, ritual, 0, true);
+    }
+    expect(ritual.roastInput.rotation).toBeCloseTo(24 * 0.22, 6);
+  });
+
+  it('leaves the rotation alone when the auto-rotate assist owns it', () => {
+    const ritual = createRitual({ campsiteSeed: 'auto-rotate', environmentId: 'pine_hollow' });
+    beginRoasting(ritual);
+    ritual.roastInput.rotation = 1.5;
+    const control = new RoastController();
+    control.nudge(-0.2, 0.9);
+    applyRoastPose(control, ritual, 0, false);
+    expect(ritual.roastInput.rotation).toBe(1.5);
+    // The distance is still the player's to set while the assist turns it.
+    expect(Math.hypot(ritual.roastInput.position.x, ritual.roastInput.position.z)).toBeCloseTo(
+      DEFAULT_ROAST_CONTROL.minRadius +
+        (DEFAULT_ROAST_CONTROL.maxRadius - DEFAULT_ROAST_CONTROL.minRadius) *
+          (DEFAULT_ROAST_CONTROL.startPosition - 0.2),
+      6,
+    );
   });
 });
 

@@ -8,6 +8,7 @@ import {
   TimestampSchema,
   addMoney,
   containsRawCardData,
+  stringCarriesPan,
   looksLikeCardNumber,
   money,
   multiplyMoney,
@@ -88,5 +89,40 @@ describe('raw card data guard', () => {
   it('rejects a PAN smuggled into an innocent field', () => {
     expect(containsRawCardData({ note: '4242424242424242' })).toBe(true);
     expect(containsRawCardData({ note: 'my order reference is SM-7K3Q9F' })).toBe(false);
+  });
+
+  /*
+   * A card number reaches an API it has no business reaching inside free
+   * text — a delivery note, a gift message, a campsite named after whatever
+   * was on the desk. Luhn-checking the whole field only ever caught the case
+   * where the PAN *is* the field.
+   */
+  it('finds a PAN written the way a person writes one', () => {
+    for (const text of [
+      'my card is 4242 4242 4242 4242 thanks',
+      'card: 4242-4242-4242-4242.',
+      'amex 3782 822463 10005',
+      'leave it with 4000056655665556 please',
+    ]) {
+      expect(stringCarriesPan(text)).toBe(true);
+    }
+  });
+
+  /*
+   * And leaves identifiers alone. A run of digits inside a hyphenated or
+   * alphanumeric token is a token: `6250-7247-4727-9` is four-four-four and
+   * Luhn-clean, and it is the middle of a v4 UUID.
+   */
+  it('does not mistake this service’s own ids for card numbers', () => {
+    for (const text of [
+      'swh-0eca6250-7247-4727-9a05-b5e355d6233e',
+      'SM01-4X7Q-92BK',
+      '2026-08-30T03:00:00.000Z',
+      'call me on 555 0134',
+      // Thirteen digits, but not a card number: Luhn says no.
+      '1234567890123',
+    ]) {
+      expect(stringCarriesPan(text)).toBe(false);
+    }
   });
 });

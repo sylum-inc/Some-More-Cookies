@@ -76,6 +76,19 @@ Pure, deterministic, framework-free. Fixed-timestep, explicitly advanced by the 
 
 Simulation runs at **60 Hz fixed** (`SIM_DT = 1/60`), decoupled from render framerate via an accumulator with a max catch-up clamp (250 ms) to prevent spiral-of-death. Render interpolation is the renderer's problem.
 
+**The corollary, learned the hard way: input must be applied on the input's
+clock, not the frame's.** Decoupling the simulation from the frame rate means a
+slow frame runs many simulation steps, and anything sampled once per frame is
+held constant across all of them. Continuous input (a drag) can afford that,
+because its next sample is a few milliseconds away and differs by a few pixels.
+A discrete input (a key press) cannot: under software rendering the roasting
+close-up runs at about 1.5 frames a second, and twenty-four presses of the turn
+key were applied as one. So a handler that receives a discrete input applies it
+there and then — `applyRoastPose` is called from the key handler as well as from
+the frame loop — and the frame loop's job is only to keep up with the things
+that change on their own, such as the bearing a walking player holds the stick
+from. See defect #25 in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).
+
 ### 3.2 The heat model
 
 Two heat sources, deliberately separated because they behave differently and their difference is a gameplay discovery:
@@ -286,6 +299,14 @@ Both figures are pinned in `tools/budgets.mjs` so neither can quietly drift.
 ## 11. Accessibility architecture
 
 Settings live in one observable store consumed by simulation (assists), rendering (dither, motion, contrast, fire brightness), audio (per-bus volume, transient taming), and UI (text scale, subtitles). Nothing reads device settings directly, so every knob is testable. Assists change dexterity requirements only, never outcomes.
+
+One thing in that store is deliberately **not** a setting: `controls`, which is
+`'pointer'` or `'keyboard'` and follows whatever the player last touched. It has
+exactly one consumer — the guidance line — and exists because an alternate
+control scheme that is never named is one nobody finds. There is nothing to
+switch on and nothing to discover in a menu; play with a key and the line starts
+talking about keys. It is ephemeral and never persisted, because it is an
+observation about this minute rather than a preference.
 
 ---
 

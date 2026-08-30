@@ -207,6 +207,9 @@ export function createApp(options: AppOptions = {}): App {
     capabilities: {
       paymentProvider: payments.name,
       paymentsConfigured: payments.isConfigured(),
+      identityProviders: config.allowUnverifiedOidc
+        ? (['apple', 'google', 'email'] as const)
+        : (['email'] as const),
       mailer: mailer.name,
       persistence: database === null ? 'memory' : 'postgres',
       liveOpsAuthoring: operators.isConfigured(),

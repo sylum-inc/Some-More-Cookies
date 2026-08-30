@@ -50,10 +50,27 @@ export function parseDatabaseUrl(url: string, options: ParseUrlOptions = {}): Po
 
   const params = parsed.searchParams;
   const sslModeRaw = params.get('sslmode') ?? params.get('ssl') ?? 'prefer';
+  /*
+   * `verify-ca` and `verify-full` are refused rather than quietly demoted.
+   *
+   * This client encrypts but does not verify a server certificate (README
+   * Blocker 2), and these two modes exist precisely to ask for verification.
+   * Mapping them onto `require` gave an operator who typed the strongest
+   * setting libpq has exactly the protection of the weakest one, and said
+   * nothing about it — which is the failure mode that turns a documented gap
+   * into a believed guarantee.
+   */
+  if (sslModeRaw === 'verify-ca' || sslModeRaw === 'verify-full') {
+    throw new Error(
+      `DATABASE_URL asks for sslmode=${sslModeRaw}, which this client cannot honour: it encrypts but does not `
+        + 'verify the server certificate chain. Use sslmode=require and accept that, or wait for certificate '
+        + 'verification (README "Blockers", 2). It will not be silently downgraded.',
+    );
+  }
   const ssl: ConnectionOptions['ssl'] =
     sslModeRaw === 'disable' || sslModeRaw === 'false' || sslModeRaw === '0'
       ? 'disable'
-      : sslModeRaw === 'require' || sslModeRaw === 'verify-ca' || sslModeRaw === 'verify-full'
+      : sslModeRaw === 'require'
         ? 'require'
         : 'prefer';
 

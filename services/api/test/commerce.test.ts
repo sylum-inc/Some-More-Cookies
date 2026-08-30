@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FAKE_DECLINE_TOKEN } from '../src/payments/fake.js';
+import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 import {
   US_ADDRESS,
   bootstrap,
@@ -12,8 +13,19 @@ import {
 
 let api: TestHarness;
 
+/*
+ * Fulfillment is an operator action (audit S9). There is no staff identity
+ * provider yet, so "operator" is the same two-credential gate live ops uses: a
+ * real bearer token *and* the shared `LIVE_OPS_TOKEN`. These tests used to
+ * drive `in_production → packed → shipped` on a customer's own token, which is
+ * exactly the hole — a customer could ship their own order and then refund it
+ * in full.
+ */
+const OPS_TOKEN = 'commerce-ops-token-for-tests';
+const asOperator = { [OPS_TOKEN_HEADER]: OPS_TOKEN };
+
 beforeEach(async () => {
-  api = await startTestApi();
+  api = await startTestApi({ LIVE_OPS_TOKEN: OPS_TOKEN });
 });
 
 afterEach(async () => {
@@ -344,6 +356,7 @@ describe('the full commerce path', () => {
       const moved = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
         method: 'POST',
         token: player.token,
+        headers: asOperator,
         body: { idempotencyKey: key('move'), to, note: `to ${to}`, ...(tracking === undefined ? {} : { tracking }) },
       });
       expect(moved.status, `${to}: ${JSON.stringify(moved.body)}`).toBe(200);
@@ -363,9 +376,12 @@ describe('the full commerce path', () => {
       'delivered',
     ]);
 
+    // Delivered, so this is an operator's refund to give — see the S9 tests
+    // below for what a customer gets if they try it themselves.
     const refunded = await api.request(`/v1/commerce/orders/${order.body.id}/refunds`, {
       method: 'POST',
       token: player.token,
+      headers: asOperator,
       body: { idempotencyKey: key('refund'), reason: 'melted' },
     });
     expect(refunded.status).toBe(201);
@@ -420,6 +436,7 @@ describe('order legality and authorization', () => {
     const skipping = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
       method: 'POST',
       token: player.token,
+      headers: asOperator,
       body: { idempotencyKey: key('move'), to: 'shipped' },
     });
     expect(skipping.status).toBe(409);
@@ -428,6 +445,7 @@ describe('order legality and authorization', () => {
     const reserved = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
       method: 'POST',
       token: player.token,
+      headers: asOperator,
       body: { idempotencyKey: key('move'), to: 'paid' },
     });
     expect(reserved.status).toBe(400);
@@ -435,6 +453,7 @@ describe('order legality and authorization', () => {
     const bogus = await api.request(`/v1/commerce/orders/${order.body.id}/transitions`, {
       method: 'POST',
       token: player.token,
+      headers: asOperator,
       body: { idempotencyKey: key('move'), to: 'incinerated' },
     });
     expect(bogus.status).toBe(422);
@@ -461,6 +480,7 @@ describe('order legality and authorization', () => {
       await api.request(`/v1/commerce/orders/${shipped.id}/transitions`, {
         method: 'POST',
         token: player.token,
+        headers: asOperator,
         body: { idempotencyKey: key('move'), to },
       });
     }
@@ -559,6 +579,91 @@ describe('order legality and authorization', () => {
       body: { idempotencyKey: key('confirm') },
     });
     expect(paid.body.status).toBe('paid');
+  });
+});
+
+/*
+ * Audit finding S9. Ordering, marking your own order shipped, and then
+ * refunding yourself in full was a way of being sent a frozen sandwich for
+ * nothing. There is no staff identity provider yet (README, Blocker 9), so the
+ * gate is the same two credentials live ops uses; these tests are about the
+ * boundary, not about the mechanism, and should keep passing when a real role
+ * model replaces it.
+ */
+describe('a customer is not an operator', () => {
+  it('refuses to let a customer advance their own order', async () => {
+    const player = await bootstrap(api);
+    const order = await paidOrder(player.token);
+
+    const moved = await api.request(`/v1/commerce/orders/${order.id}/transitions`, {
+      method: 'POST',
+      token: player.token,
+      body: { idempotencyKey: key('move'), to: 'in_production' },
+    });
+    expect(moved.status).toBe(403);
+
+    // And the order really did not move, which is the part that matters.
+    const after = await api.request(`/v1/commerce/orders/${order.id}`, { token: player.token });
+    expect(after.body.status).toBe('paid');
+  });
+
+  it('refuses to let a customer refund an order that has been packed', async () => {
+    const player = await bootstrap(api);
+    const order = await paidOrder(player.token);
+    for (const to of ['in_production', 'packed', 'shipped'] as const) {
+      const moved = await api.request(`/v1/commerce/orders/${order.id}/transitions`, {
+        method: 'POST',
+        token: player.token,
+        headers: asOperator,
+        body: { idempotencyKey: key('move'), to },
+      });
+      expect(moved.status, `${to}: ${JSON.stringify(moved.body)}`).toBe(200);
+    }
+
+    const refund = await api.request(`/v1/commerce/orders/${order.id}/refunds`, {
+      method: 'POST',
+      token: player.token,
+      body: { idempotencyKey: key('refund'), reason: 'requested_by_customer' },
+    });
+    expect(refund.status).toBe(403);
+
+    // The operator can still make it right, and the refund is recorded as
+    // theirs rather than as the customer's.
+    const allowed = await api.request(`/v1/commerce/orders/${order.id}/refunds`, {
+      method: 'POST',
+      token: player.token,
+      headers: asOperator,
+      body: { idempotencyKey: key('refund'), reason: 'melted' },
+    });
+    expect(allowed.status).toBe(201);
+    expect(allowed.body.refunds[0].requestedBy).toBe('operator');
+  });
+
+  it('still lets a customer refund their own order before it is packed', async () => {
+    const player = await bootstrap(api);
+    const order = await paidOrder(player.token);
+
+    const refund = await api.request(`/v1/commerce/orders/${order.id}/refunds`, {
+      method: 'POST',
+      token: player.token,
+      body: { idempotencyKey: key('refund'), reason: 'requested_by_customer' },
+    });
+    expect(refund.status).toBe(201);
+    expect(refund.body.status).toBe('refunded');
+    expect(refund.body.refunds[0].requestedBy).toBe('customer');
+  });
+
+  it('does not accept a wrong ops token as an operator', async () => {
+    const player = await bootstrap(api);
+    const order = await paidOrder(player.token);
+
+    const moved = await api.request(`/v1/commerce/orders/${order.id}/transitions`, {
+      method: 'POST',
+      token: player.token,
+      headers: { [OPS_TOKEN_HEADER]: `${OPS_TOKEN}-nearly` },
+      body: { idempotencyKey: key('move'), to: 'in_production' },
+    });
+    expect(moved.status).toBe(403);
   });
 });
 

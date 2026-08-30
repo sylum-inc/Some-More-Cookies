@@ -32,7 +32,7 @@ function googleIdToken(subject: string): string {
 let api: TestHarness;
 
 beforeEach(async () => {
-  api = await startTestApi();
+  api = await startTestApi({ AUTH_ALLOW_UNVERIFIED_OIDC: 'true' });
 });
 
 afterEach(async () => {
@@ -343,7 +343,7 @@ describe('two devices, both offline, both visiting', () => {
   it('lets a landmark outlive everything else, ninety days on', async () => {
     // A year of simulated time needs a token that lasts a year; the default is
     // thirty days, and an expired token is not what this case is about.
-    const longLived = await startTestApi({ AUTH_TOKEN_TTL_SECONDS: '31536000' });
+    const longLived = await startTestApi({ AUTH_TOKEN_TTL_SECONDS: '31536000', AUTH_ALLOW_UNVERIFIED_OIDC: 'true' });
     try {
       const player = await bootstrap(longLived);
       const campsite = await createCampsite(longLived, player);

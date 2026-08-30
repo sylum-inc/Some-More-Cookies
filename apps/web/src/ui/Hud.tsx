@@ -23,6 +23,8 @@ export interface HudProps {
   exploring: boolean;
   stage: RitualStage;
   subtitle: string | null;
+  /** Pointer or keyboard, so the guidance line names the right controls. */
+  controls: 'pointer' | 'keyboard';
   textScale: number;
   highContrast: boolean;
   subtitlesEnabled: boolean;
@@ -96,25 +98,54 @@ export function describeGrip(power: number, tilt: number, spin: number): string 
   return `${wind}, ${face}, ${wrist}`;
 }
 
-function guidanceFor(ritual: RitualState, stage: RitualStage): string {
+/**
+ * The one line of guidance, in the language of whatever the player is using.
+ *
+ * Only the stages whose wording is genuinely about *how* change. The rest —
+ * "Take it out", "Bite from whichever side you like" — say what to do rather
+ * than how to do it and read the same either way, and every action they refer
+ * to is a real focusable button rather than something in the canvas.
+ *
+ * Telling a keyboard player to "drag sideways" is not a small infelicity: the
+ * non-gestural path is the whole of spec §12, and a path nobody is told about
+ * is a path nobody takes.
+ */
+function guidanceFor(
+  ritual: RitualState,
+  stage: RitualStage,
+  controls: 'pointer' | 'keyboard' = 'pointer',
+): string {
+  const keys = controls === 'keyboard';
   switch (stage) {
     case 'arriving':
       return 'Walk toward the fire.';
     case 'at-fire':
-      return isEmberBed(ritual.fire)
-        ? 'The fire has burned down to coals.'
+      if (isEmberBed(ritual.fire)) return 'The fire has burned down to coals.';
+      return keys
+        ? 'Look around. WASD walks, the arrow keys look.'
         : 'Look around. Tap to walk, drag to look.';
     case 'roasting':
-      return ritual.marshmallow.burning
-        ? 'It has caught. Shake it out, or let it burn.'
+      if (ritual.marshmallow.burning) {
+        return keys
+          ? 'It has caught. Press B to blow it out, or let it burn.'
+          : 'It has caught. Shake it out, or let it burn.';
+      }
+      return keys
+        ? 'Arrows move it in and out, and turn it.'
         : 'Drag to move it in and out. Drag sideways to turn it.';
     case 'assembling': {
       const next = ritual.assembly.heldKind;
-      if (next) return 'Set it down where you want it.';
-      return 'Pick up the next piece.';
+      if (next) {
+        return keys
+          ? 'Arrows shift it, [ and ] turn it. Enter sets it down.'
+          : 'Set it down where you want it.';
+      }
+      return keys ? 'Enter picks up the next piece.' : 'Pick up the next piece.';
     }
     case 'machine':
-      return 'Load it, shut the door, and set the machine running.';
+      return keys
+        ? 'L loads, D the door, X the latch, P the lever.'
+        : 'Load it, shut the door, and set the machine running.';
     case 'reveal':
       return 'Take it out.';
     case 'eating':
@@ -340,16 +371,23 @@ export function Hud(props: HudProps): React.ReactElement {
         }}
       >
         <span
+          role="status"
+          aria-live="polite"
+          data-testid="guidance"
           style={{
             fontSize: scale(13),
             letterSpacing: '0.04em',
             color: highContrast ? '#fff' : 'rgba(232,224,205,0.82)',
             textShadow: '0 1px 4px rgba(0,0,0,0.95)',
             textAlign: 'center',
-            maxWidth: '46ch',
+            // `min`, not a bare `46ch`: at the largest text scale on the
+            // narrowest phone 46ch is wider than the screen, and the line was
+            // one word from running off the side of it.
+            maxWidth: 'min(46ch, 100%)',
+            overflowWrap: 'break-word',
           }}
         >
-          {guidanceFor(ritual, stage)}
+          {guidanceFor(ritual, stage, props.controls)}
         </span>
       </div>
 
@@ -417,9 +455,22 @@ export function Hud(props: HudProps): React.ReactElement {
         />
       )}
 
-      {/* Subtitles */}
+      {/*
+        Subtitles.
+
+        `role="status"` with `aria-live="polite"` because a subtitle *is* the
+        text channel for something audible (spec §12): without it a screen
+        reader never says the line, and the one accessibility feature whose
+        whole job is to carry sound to somebody who cannot hear it reaches
+        nobody who is not looking at that corner of the screen. `aria-atomic`
+        so a changed line is read whole rather than as a diff.
+      */}
       {props.subtitlesEnabled && props.subtitle && (
         <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-testid="subtitle"
           style={{
             position: 'absolute',
             left: '50%',

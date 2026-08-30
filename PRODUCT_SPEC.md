@@ -384,6 +384,15 @@ Accessibility is part of the architecture, not a settings screen bolted on.
 - Assists never change what the player can achieve, only the dexterity required.
 - No information is delivered through a single channel — anything audible has a visible counterpart and vice versa.
 - The fire brightness and flicker controls must genuinely tame the fire without removing it.
+- An alternate control scheme must be **discoverable in the scheme it belongs
+  to**. The guidance line follows whatever the player last used, so a keyboard
+  player is told about the arrow keys rather than told to drag. A path nobody
+  is told about is a path nobody takes, and it is not a settings toggle: there
+  is nothing to find and nothing to switch on.
+- Input given is input applied. A discrete press must reach the simulation when
+  it is pressed rather than on the next rendered frame — the simulation runs at
+  a fixed rate whatever the renderer manages, and the players an alternate
+  scheme exists for are the likeliest to be on the device that renders slowly.
 
 ---
 

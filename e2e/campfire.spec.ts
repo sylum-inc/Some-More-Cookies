@@ -269,7 +269,41 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
   page.on('pageerror', (error) => failures.push(error.message));
   const url = `${WEB_ORIGIN}/?fire=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(player.token)}&ws=${encodeURIComponent(WS_URL)}`;
   await page.goto(url);
-  await page.waitForFunction(() => window.__someMore?.campfire?.joined === true, undefined, { timeout: 30_000 });
+  try {
+    await page.waitForFunction(() => window.__someMore?.campfire?.joined === true, undefined, { timeout: 30_000 });
+  } catch (error) {
+    /*
+     * Say why the socket did not open.
+     *
+     * "Timed out waiting for `joined`" is true of a refused handshake, a
+     * server that never answered, a bundle that never booted and a page that
+     * was never given a frame — four different bugs with one symptom. The
+     * client already records the close reason and every error the server sent;
+     * not reading them here was the difference between a finding and a shrug.
+     */
+    const seen = await page.evaluate(() => {
+      const handle = window.__someMore;
+      if (handle === undefined) return { booted: false };
+      const fire = handle.campfire;
+      if (fire === undefined || fire === null) return { booted: true, campfire: false };
+      return {
+        booted: true,
+        campfire: true,
+        status: fire.status,
+        detail: fire.statusDetail,
+        accountId: fire.accountId,
+        hasTimeline: fire.timeline !== null,
+        serverErrors: (fire.transport?.serverErrors ?? []).map((e) => `${e.code}: ${e.message}`),
+      };
+    });
+    const failures = pageFailures.get(page) ?? [];
+    throw new Error(
+      `never reached the fire: ${JSON.stringify(seen)}.${
+        failures.length > 0 ? ` Page errors: ${failures.join(' | ')}` : ''
+      }`,
+      { cause: error },
+    );
+  }
   /*
    * Out of the trees and into the clearing, so the camera is at the fire.
    *

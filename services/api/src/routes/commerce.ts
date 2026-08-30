@@ -13,8 +13,11 @@ import {
   TransitionOrderRequestSchema,
   UpdateCartItemRequestSchema,
 } from '@somemore/protocol';
+import { ApiError } from '../errors.js';
 import { defineRoute, type AnyRoute } from '../http/router.js';
+import type { RequestContext } from '../http/router.js';
 import type { ServiceRegistry } from '../services.js';
+import { OPS_TOKEN_HEADER } from './liveops.js';
 
 const orderParams = z.object({ orderId: IdSchema });
 
@@ -24,7 +27,27 @@ const orderParams = z.object({ orderId: IdSchema });
  * provider's signature instead of a bearer token.
  */
 export function commerceRoutes(services: ServiceRegistry): AnyRoute[] {
-  const { commerce } = services;
+  const { commerce, operators } = services;
+
+  /**
+   * The operator half of the two-credential gate, shared with live ops.
+   *
+   * Two routes here are operator-shaped and were reachable by any customer
+   * holding a bearer token for their own order: advancing fulfillment, and
+   * refunding an order that has already shipped. Together those were a
+   * free-product machine — order it, mark it shipped yourself, refund yourself
+   * in full. Both now need `LIVE_OPS_TOKEN` on top of a real account, which is
+   * not RBAC and does not pretend to be; README Blocker 9 stays open until
+   * there is a staff identity provider.
+   *
+   * Returns the actor rather than throwing when the token is absent, because
+   * a customer refunding their own unshipped order is a legitimate customer
+   * action — the domain decides which of the two it will accept.
+   */
+  function actorOf(ctx: RequestContext<unknown, unknown>): 'customer' | 'operator' {
+    return operators.matches(ctx.headers[OPS_TOKEN_HEADER]) ? 'operator' : 'customer';
+  }
+
   return [
     defineRoute({
       method: 'GET',
@@ -212,7 +235,19 @@ export function commerceRoutes(services: ServiceRegistry): AnyRoute[] {
       body: TransitionOrderRequestSchema,
       async handle(ctx) {
         const auth = ctx.requireAuth();
-        return { status: 200, body: await commerce.transitionOrder(auth.accountId, ctx.params.orderId, ctx.body) };
+        const actor = actorOf(ctx);
+        if (actor !== 'operator') {
+          const reason = operators.unavailableReason();
+          throw new ApiError(
+            reason === null ? 'forbidden' : 'service_not_configured',
+            reason ??
+              `Advancing fulfillment is an operator action and needs a valid ${OPS_TOKEN_HEADER} header.`,
+          );
+        }
+        return {
+          status: 200,
+          body: await commerce.transitionOrder(auth.accountId, ctx.params.orderId, ctx.body, actor),
+        };
       },
     }),
 
@@ -226,7 +261,10 @@ export function commerceRoutes(services: ServiceRegistry): AnyRoute[] {
       body: CreateRefundRequestSchema,
       async handle(ctx) {
         const auth = ctx.requireAuth();
-        return { status: 201, body: await commerce.refundOrder(auth.accountId, ctx.params.orderId, ctx.body) };
+        return {
+          status: 201,
+          body: await commerce.refundOrder(auth.accountId, ctx.params.orderId, ctx.body, actorOf(ctx)),
+        };
       },
     }),
 

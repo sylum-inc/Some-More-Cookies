@@ -249,6 +249,39 @@ Walk to the log by the fire and pick up the radio. Tune it by ear.
 
 ---
 
+## 11. Put the mouse down (5 minutes)
+
+Do a whole s'more without touching the pointer, trackpad or touchscreen once —
+walk in, tend the fire, roast, assemble, run the SM-01, take it out and eat it.
+
+**Do not read the key list first.** Open Settings, where every key is written
+down under "Keys", only when you get stuck — and when you do, tell us what you
+were stuck on. That is the measurement: the guidance line follows whatever you
+last used, so once you are playing on the keys it should be naming keys, and
+anything you still had to look up is somewhere it failed to.
+
+The short version, for when you have finished: `W`/`A`/`S`/`D` or the arrows
+walk, `E` reaches for what is in front of you, the arrows move and turn the
+marshmallow, `B` blows it out, `L`/`D`/`X` and `1`/`2`/`3`/`Enter`/`P` work the
+SM-01, and everything in the corners of the screen is a real button you can
+reach with Tab.
+
+This is the alternate control scheme (spec §12) and it is a real path, not a
+fallback — so it should feel like a way of playing rather than a way of coping.
+
+- Did you ever have to guess a key? The guidance line follows whatever you last
+  used and should have named the keys for you. If it told you to drag something
+  after you had been playing on the keys, that is a bug — say where.
+- Roasting is the one that matters. Could you get it golden with the arrows,
+  and did each press feel like it landed?
+- Was there anything you simply could not reach without a pointer? Anything at
+  all counts, including a button you could not tab to.
+- If you use a screen reader, keyboard or switch access normally, please ignore
+  the key list above and tell us what you actually reached for. Where we have
+  guessed wrong is more useful to us than where we have guessed right.
+
+---
+
 ## What we most want to know
 
 In priority order, because a report that says everything is fine is a report

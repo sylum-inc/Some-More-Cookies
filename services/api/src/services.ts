@@ -37,6 +37,17 @@ export interface Capabilities {
   readonly mediaBucket: string;
   readonly mediaMaxBytes: number;
   readonly mediaUnavailableReason: string | null;
+  /**
+   * Which sign-in providers this deployment can actually verify.
+   *
+   * `email` is always here because a magic link is verified against a row this
+   * service wrote. Apple and Google appear only where an id token could be
+   * checked against its issuer — which today means only where a deployment has
+   * explicitly opted into the unverified development path (README Blocker 5).
+   * Reported for the same reason `paymentsConfigured` is (deviation D8): a
+   * client that asks does not have to offer a button that cannot work.
+   */
+  readonly identityProviders: readonly ('apple' | 'google' | 'email')[];
 }
 
 /**

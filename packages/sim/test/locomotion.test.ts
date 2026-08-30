@@ -184,6 +184,48 @@ describe('looking', () => {
     expect(player.facing).toBeLessThan(Math.PI * 2);
   });
 
+  /*
+   * A delta describes a movement that already happened. Holding one across
+   * every fixed step of a frame turns the player once per step, so one drag of
+   * a thumb turns you as far as the renderer is slow — at 60 fps that is one
+   * step and invisible, and under a software renderer it is dozens. The caller
+   * was clearing it *after* `advance` returned, which is after all of them.
+   */
+  it('spends a look delta on the step that applies it', () => {
+    const player = createPlayer(vec3(2, 0, 0), 0);
+    const intent: MoveIntent = { look: { yaw: 0.5, pitch: 0.1 } };
+    for (let i = 0; i < 12; i += 1) stepPlayer(player, WORLD, intent, SIM_DT);
+    expect(player.facing).toBeCloseTo(0.5, 5);
+    expect(player.pitch).toBeCloseTo(0.1, 5);
+    expect(intent.look).toEqual({ yaw: 0, pitch: 0 });
+  });
+
+  /*
+   * A held key is the opposite: a rate, applied every step, so that turning
+   * takes the same time on a fast machine and a slow one.
+   */
+  it('turns at a rate for as long as a look key is held', () => {
+    const player = createPlayer(vec3(2, 0, 0), 0);
+    const intent: MoveIntent = { lookRate: { yaw: 1.8, pitch: 0 } };
+    // One second of held key, at the fixed timestep.
+    for (let i = 0; i < 60; i += 1) stepPlayer(player, WORLD, intent, SIM_DT);
+    expect(player.facing).toBeCloseTo(1.8, 2);
+
+    // Twice as many half-length steps is the same turn, which is the whole
+    // point of a rate.
+    const other = createPlayer(vec3(2, 0, 0), 0);
+    for (let i = 0; i < 120; i += 1) stepPlayer(other, WORLD, { lookRate: { yaw: 1.8, pitch: 0 } }, SIM_DT / 2);
+    expect(other.facing).toBeCloseTo(player.facing, 5);
+  });
+
+  it('stops turning when the rate goes to zero', () => {
+    const player = createPlayer(vec3(2, 0, 0), 0);
+    for (let i = 0; i < 30; i += 1) stepPlayer(player, WORLD, { lookRate: { yaw: 1.8, pitch: 0 } }, SIM_DT);
+    const held = player.facing;
+    for (let i = 0; i < 60; i += 1) stepPlayer(player, WORLD, { lookRate: { yaw: 0, pitch: 0 } }, SIM_DT);
+    expect(player.facing).toBe(held);
+  });
+
   it('produces a unit look direction', () => {
     const player = createPlayer(vec3(2, 0, 0), 1.1);
     player.pitch = -0.4;

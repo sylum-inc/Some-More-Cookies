@@ -34,10 +34,11 @@ containing one line). Everything below was built from zero.
 | Media storage · photo upload · campsite memory sync | ✅ |
 | Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**1,526 unit, integration and seam tests across 84 files**, plus Playwright
-projects for acceptance, activities, multiplayer, offline boot, service-worker
-update, mobile layout, night legibility, performance budgets and visual
-regression. 23 further tests run only against Postgres.
+**1,564 unit, integration and seam tests across 88 files**, plus Playwright
+projects for acceptance, activities, accessibility, multiplayer, offline boot,
+service-worker update, mobile layout, night legibility, code redemption, the
+live-ops console, performance budgets and visual regression. 23 further tests
+run only against Postgres.
 
 ### What "playable" currently means
 
@@ -192,6 +193,60 @@ they are not re-litigated: the spin control is right (a still marshmallow comes
 out visibly one-sided, and a lazy quarter-turn a second evens it), and weather
 genuinely reaches the fire (rain kills the flame inside two minutes, and a gale
 makes the ember bed run hotter and more even than still air).
+
+### Session 4: what two browsers at one fire looked like
+
+Eight defects found the only way they could be: by opening two browsers on one
+campfire and looking at the pictures. Not one of them could fail a test, because
+in every case the code did what it said.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 26 | **The second player's browser showed a title card instead of a campsite** | Chromium throttles a backgrounded tab's animation frames to nothing, and `scene/World.tsx` publishes the ritual stage from inside its render loop — so a page never brought to the front never leaves the trail. The spec now brings each page forward before anything that needs a frame, and waits on the shared tick advancing rather than on the wall clock |
+| 27 | **Two people at one fire, with no fire in shot** | `framePortrait` stood the camera a fixed 2.6 m from the pit on the bearing opposite the other player, which frames both only when they happen to be far from it |
+| 28 | **A photograph taken from inside another player's jacket** — a flat brown slab filling the frame | The same fixed standoff, when *they* are near the fire, lands about a metre from where they are standing. The standoff is now measured from the person, and the spec asserts a minimum separation, so it fails rather than quietly captures that picture again |
+| 29 | **Nobody had a name.** No nameplate appeared above any remote player, at any distance | `scene/Campfire.tsx` drew it as a `THREE.Sprite`, which does not survive the PS1 pass, and faded it 2.2 m → 7 m — invisible at exactly the distance people sit apart at a fire. Now a camera-facing quad with `fog: false`, faded 4 m → 11 m |
+| 30 | **"[Ash Creek is coming down the trail]" stayed on screen for the rest of the night** | The simulation's own cues expire on a timer inside `onSimStep`; campfire lines arrive from the socket outside that loop and had no timer of their own |
+| 31 | **Two buttons printed on top of each other** — "AT THE FIRE · 2" over "TAKE IT TO THE PLATE" | The campfire panel button was placed bottom-left, which is the HUD's own action-button zone. Moved to the top-left, the one corner nothing else uses |
+| 32 | **A joining player was stranded on the trail**, drawn to everyone else as a silhouette at the treeline that never came closer | Adopting a shared world changes the campsite seed and environment, which recreates the `walkable` memo and with it the `PlayerState` — *after* `World`'s `lastStage` ref has already spent the `arriving → at-fire` transition that would have placed them |
+| 33 | **A title card over a live campsite**: a player already sitting at the fire was invited to walk in to it | `arriving → at-fire` is deliberately local — it is where a camera is, not a fact about the world — but it lives on the *shared* ritual, so every snapshot rebuild undid it |
+
+Numbers 27 and 28 are worth keeping as a pair, because they are the same
+mistake twice and neither is a rendering bug: both are the *test* framing a
+picture badly, and both would have been recorded as evidence about multiplayer
+if nobody had looked at them. The lesson from #17 generalises — a screenshot is
+only worth what the pose behind it is worth.
+
+### Session 4: and one found by refusing to accept a plausible diagnosis
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 25 | **Keyboard roasting dropped nearly every press.** Twenty-four presses of the turn key moved the marshmallow through *one* turn, so it browned on a single face — and every visual baseline downstream was generated from that marshmallow | The controller accumulated all of them correctly; the *ritual* only read it once per rendered frame, in `useFrame`. The simulation steps sixty times a second regardless of frame rate, so on a slow renderer the sim ran a full second against an input sampled at the start of it |
+
+The harness reported this as "the keyboard-only roasting path is broken (spec
+§12)", which was a reasonable reading of the symptom and the wrong diagnosis.
+The path was wired correctly end to end: the handler ran, the controller took
+every press, `RoastController.nudge` did exactly what it says. Under software
+rendering the roasting close-up runs at about 1.5 frames a second, and ten
+presses spaced 60 ms apart landed inside a single frame; waiting 1.5 s
+afterwards, without touching the keyboard, made all ten appear at once. That
+observation is what separated "the input never arrives" from "the input arrives
+and is then held for six hundred milliseconds".
+
+It is a real product defect and not only a harness one, and the fix is in the
+product rather than in the test: `applyRoastPose` now writes the pose the
+instant a key is pressed as well as on the frame. A drag can afford to be
+sampled a frame late because it is continuous; a key press is a discrete act,
+and the keyboard is the accessibility alternative to the drag — so the players
+it exists for are precisely the ones most likely to be on the device that
+renders slowly.
+
+The test-side lesson is the sharper one. The end-to-end driver advances
+simulation time through `advanceSeconds`, which steps the model directly
+without rendering. That is what makes long waits bearable, and it is exactly
+what hid this: input applied on the frame and time advanced off the frame are
+two clocks, and every roast baseline in the repository had been generated
+between them.
 
 ---
 

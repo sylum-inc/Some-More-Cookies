@@ -212,7 +212,28 @@ export const FORBIDDEN_CARD_FIELDS: readonly string[] = [
   'track2',
 ];
 
-const PAN_LIKE = /(?:\d[ -]?){13,19}/;
+/**
+ * The two shapes a person actually writes a card number in, and only where a
+ * person would have written one.
+ *
+ * `PAN_BARE` is thirteen to nineteen digits in a row; `PAN_GROUPED` is the
+ * same digits in the groups printed on the card, with one consistent
+ * separator — 4-4-4-4 and 4-4-4-3 for most schemes, 4-6-5 for Amex, 4-4-4-4-3
+ * for the nineteen-digit ones. Nothing else is how a card number gets typed.
+ *
+ * The `[0-9A-Za-z_-]` lookarounds are the part that took a second attempt. A
+ * candidate has to be delimited by whitespace, punctuation or the ends of the
+ * string — because a run of digits *inside* an identifier is an identifier.
+ * Without that guard a v4 UUID hands over `6250-7247-4727-9`, four-four-four
+ * and Luhn-clean, roughly one time in eighty thousand, and a suite that mints
+ * a few hundred ids a run goes quietly flaky. It also means a PAN glued to a
+ * word is not caught, which is the honest limit of the whole idea: this scan
+ * exists to turn a client's mistake into a loud refusal, not to defeat someone
+ * who is trying to smuggle a card number past it.
+ */
+const PAN_BARE = /(?<![0-9A-Za-z_-])[0-9]{13,19}(?![0-9A-Za-z_-])/g;
+const PAN_GROUPED =
+  /(?<![0-9A-Za-z_-])(?:[0-9]{4}([ -])[0-9]{4}\1[0-9]{4}\1[0-9]{3,4}(?:\1[0-9]{3})?|[0-9]{4}([ -])[0-9]{6}\2[0-9]{5})(?![0-9A-Za-z_-])/g;
 
 function normalizeKey(key: string): string {
   return key.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -239,13 +260,34 @@ export function looksLikeCardNumber(value: string): boolean {
 }
 
 /**
+ * Does this string contain a card number *anywhere in it*?
+ *
+ * The obvious version — Luhn-check the whole string — only catches a PAN that
+ * is a field of its own, and the way a PAN actually reaches an API it has no
+ * business reaching is inside free text: a delivery note, a gift message, a
+ * campsite somebody named after the card they were holding. So every delimited
+ * digit run is checked, not just the whole value.
+ */
+export function stringCarriesPan(value: string): boolean {
+  if (value.length > 100_000) return false;
+  // `matchAll` on a /g regex needs no lastIndex bookkeeping, which a shared
+  // module-level /g regex with `.test()` very much would.
+  for (const pattern of [PAN_BARE, PAN_GROUPED]) {
+    for (const match of value.matchAll(pattern)) {
+      if (looksLikeCardNumber(match[0])) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Deep-scan an arbitrary decoded JSON body for raw card data. Used by the API
  * edge *before* schema parsing (which would otherwise silently strip the keys)
  * so that a client mistake is loudly rejected instead of quietly dropped.
  */
 export function containsRawCardData(value: unknown, depth = 0): boolean {
   if (depth > 12 || value === null || value === undefined) return false;
-  if (typeof value === 'string') return PAN_LIKE.test(value) && looksLikeCardNumber(value);
+  if (typeof value === 'string') return stringCarriesPan(value);
   if (typeof value !== 'object') return false;
   if (Array.isArray(value)) return value.some((v) => containsRawCardData(v, depth + 1));
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {

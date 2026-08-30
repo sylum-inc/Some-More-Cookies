@@ -209,10 +209,10 @@ export class KeyboardMovement {
   intent(): { forward: number; strafe: number } {
     let forward = 0;
     let strafe = 0;
-    if (this.held.has('w') || this.held.has('arrowup')) forward += 1;
-    if (this.held.has('s') || this.held.has('arrowdown')) forward -= 1;
-    if (this.held.has('d') || this.held.has('arrowright')) strafe += 1;
-    if (this.held.has('a') || this.held.has('arrowleft')) strafe -= 1;
+    if (this.held.has('w')) forward += 1;
+    if (this.held.has('s')) forward -= 1;
+    if (this.held.has('d')) strafe += 1;
+    if (this.held.has('a')) strafe -= 1;
     const magnitude = Math.hypot(forward, strafe);
     if (magnitude > 1) {
       forward /= magnitude;
@@ -220,7 +220,44 @@ export class KeyboardMovement {
     }
     return { forward, strafe };
   }
+
+  /**
+   * Yaw and pitch *rate* from the arrow keys, radians per second.
+   *
+   * The arrows used to duplicate WASD, which meant a keyboard player could
+   * translate around the campsite and never change which way they were facing:
+   * `player.facing` only ever moves from a pointer look delta or from walking
+   * toward a tapped point, so on the keyboard alone you could not look at the
+   * sky, aim the torch, face the water to fish, or look at an animal. Every
+   * one of §5.2's activities was behind a pointer.
+   *
+   * So the arrows look. This removes a duplication rather than adding a
+   * binding, and it is the conventional split. Every other arrow-key meaning
+   * in the product — the roasting nudge, the assembly nudge, the stone's
+   * wind-up — belongs to an anchored stage, where walking and looking are both
+   * already off.
+   *
+   * Yaw is faster than pitch because there is a great deal more world sideways
+   * than there is up, and pitch is clamped by the simulation anyway.
+   */
+  look(): { yaw: number; pitch: number } {
+    let yaw = 0;
+    let pitch = 0;
+    if (this.held.has('arrowright')) yaw -= LOOK_KEY_YAW_RATE;
+    if (this.held.has('arrowleft')) yaw += LOOK_KEY_YAW_RATE;
+    if (this.held.has('arrowup')) pitch += LOOK_KEY_PITCH_RATE;
+    if (this.held.has('arrowdown')) pitch -= LOOK_KEY_PITCH_RATE;
+    return { yaw, pitch };
+  }
 }
+
+/**
+ * A full turn in about three and a half seconds held, which is brisk enough to
+ * follow a fox and slow enough to aim a torch.
+ */
+export const LOOK_KEY_YAW_RATE = 1.8;
+/** The pitch range is only 1.4 rad end to end, so this crosses it in a second. */
+export const LOOK_KEY_PITCH_RATE = 1.4;
 
 function normaliseKey(key: string): string {
   return key.length === 1 ? key.toLowerCase() : key.toLowerCase();

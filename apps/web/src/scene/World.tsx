@@ -62,7 +62,7 @@ import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js
 import { createPs1Material } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import type { Store } from '../state/store.js';
-import type { RoastController } from '../interaction/roastControl.js';
+import { applyRoastPose, type RoastController } from '../interaction/roastControl.js';
 
 /** Where everything stands. The fire pit is the origin of the world. */
 export const LAYOUT = {
@@ -400,12 +400,12 @@ export function World({
       if (ritual.stage === 'roasting') {
         // The marshmallow is held from wherever the player is standing, so
         // walking round the fire genuinely changes the roast.
-        roastControl.setBearing(bearingFromFire(player));
-        const pose = roastControl.pose();
-        ritual.roastInput.position.x = pose.position.x;
-        ritual.roastInput.position.y = pose.position.y;
-        ritual.roastInput.position.z = pose.position.z;
-        if (state.accessibility.autoRotate <= 0) ritual.roastInput.rotation = pose.rotation;
+        applyRoastPose(
+          roastControl,
+          ritual,
+          bearingFromFire(player),
+          state.accessibility.autoRotate <= 0,
+        );
       }
       // The torch is aimed where the player is looking. This is the *real*
       // light sweep: the model measures how fast the beam is moving and the

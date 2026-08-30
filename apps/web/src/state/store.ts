@@ -241,6 +241,16 @@ export interface AppState {
    * like, and all three are complete campsites.
    */
   overlaySource: 'network' | 'cache' | 'none';
+  /**
+   * Which way this player is actually playing.
+   *
+   * Not a setting and never shown as one — it follows whatever they last
+   * touched. Its only job is to keep the guidance line honest: a line reading
+   * "drag sideways to turn it" tells a keyboard player nothing, and the
+   * non-gestural path (spec §12) is worth very little if nobody can find out
+   * that it is there.
+   */
+  controls: 'pointer' | 'keyboard';
 }
 
 type Listener = () => void;
@@ -277,26 +287,98 @@ function loadPassport(): PassportState {
   }
 }
 
+/**
+ * Settings arrive from `localStorage`, which is to say from a *file* — an old
+ * build's shape, a half-written record, a synced profile from a version that
+ * has not shipped yet, or something a person edited in a console. A spread
+ * merge trusts every field in it.
+ *
+ * That mattered more than it looks: `accessibility.autoRotate` is handed
+ * straight to `createRitual`, so `"fast"` from a corrupt record put a `NaN`
+ * into the marshmallow's rotation and the roast never turned again. And
+ * `textScale` multiplies every font size in the interface, so a string there
+ * renders `NaNpx` and silently un-scales the text for exactly the person who
+ * asked for it to be larger.
+ *
+ * So: numbers are numbers or they are the default, and they are clamped to the
+ * range the settings screen offers. Nothing here rejects a record — a settings
+ * file must never be a reason the campsite does not open.
+ */
+function num(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
+/** Only a plain object can contribute fields; anything else is ignored whole. */
+function fields(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export function sanitizeSettings(raw: unknown): {
+  render: RenderSettings;
+  accessibility: AccessibilitySettings;
+  audio: AudioSettings;
+} {
+  const document = fields(raw);
+  const render = fields(document['render']);
+  const accessibility = fields(document['accessibility']);
+  const audio = fields(document['audio']);
+  const d = DEFAULT_RENDER_SETTINGS;
+  const a = DEFAULT_ACCESSIBILITY;
+  const s = DEFAULT_AUDIO;
+  return {
+    render: {
+      dither: num(render['dither'], d.dither, 0, 1),
+      jitter: num(render['jitter'], d.jitter, 0, 1),
+      affine: num(render['affine'], d.affine, 0, 1),
+      colorDepth: Math.round(num(render['colorDepth'], d.colorDepth, 3, 8)),
+      fireBrightness: num(render['fireBrightness'], d.fireBrightness, 0.35, 1.5),
+      flicker: num(render['flicker'], d.flicker, 0, 1),
+      contrast: num(render['contrast'], d.contrast, 0.5, 2),
+      reducedMotion: bool(render['reducedMotion'], d.reducedMotion),
+      resolutionScale: num(render['resolutionScale'], d.resolutionScale, 0.5, 2),
+    },
+    accessibility: {
+      autoRotate: num(accessibility['autoRotate'], a.autoRotate, 0, 2),
+      assemblyAssist: num(accessibility['assemblyAssist'], a.assemblyAssist, 0, 1),
+      subtitles: bool(accessibility['subtitles'], a.subtitles),
+      textScale: num(accessibility['textScale'], a.textScale, 0.85, 1.8),
+      haptics: bool(accessibility['haptics'], a.haptics),
+      simplifiedGestures: bool(accessibility['simplifiedGestures'], a.simplifiedGestures),
+      virtualJoystick: bool(accessibility['virtualJoystick'], a.virtualJoystick),
+      highContrast: bool(accessibility['highContrast'], a.highContrast),
+    },
+    audio: {
+      master: num(audio['master'], s.master, 0, 1),
+      ambience: num(audio['ambience'], s.ambience, 0, 1),
+      fire: num(audio['fire'], s.fire, 0, 1),
+      machine: num(audio['machine'], s.machine, 0, 1),
+      foley: num(audio['foley'], s.foley, 0, 1),
+      ui: num(audio['ui'], s.ui, 0, 1),
+      voice: num(audio['voice'], s.voice, 0, 1),
+      muted: bool(audio['muted'], s.muted),
+      reducedIntensity: bool(audio['reducedIntensity'], s.reducedIntensity),
+    },
+  };
+}
+
 function loadSettings(): {
   render: RenderSettings;
   accessibility: AccessibilitySettings;
   audio: AudioSettings;
 } {
-  const fallback = {
-    render: { ...DEFAULT_RENDER_SETTINGS },
-    accessibility: { ...DEFAULT_ACCESSIBILITY },
-    audio: { ...DEFAULT_AUDIO },
-  };
+  const fallback = sanitizeSettings({});
   if (typeof localStorage === 'undefined') return fallback;
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<typeof fallback>;
-    return {
-      render: { ...fallback.render, ...parsed.render },
-      accessibility: { ...fallback.accessibility, ...parsed.accessibility },
-      audio: { ...fallback.audio, ...parsed.audio },
-    };
+    return sanitizeSettings(JSON.parse(raw));
   } catch {
     return fallback;
   }
@@ -391,6 +473,7 @@ export class Store {
       campsiteSeed: options.campsiteSeed,
       liveEvents: options.liveEvents ? [...options.liveEvents] : [],
       overlaySource: options.overlaySource ?? 'none',
+      controls: 'pointer',
     };
 
     // Written immediately, not at the end of the session: the visit happened
@@ -470,6 +553,17 @@ export class Store {
   setSubtitle(line: string | null): void {
     if (this.state.subtitle === line) return;
     this.set({ subtitle: line });
+  }
+
+  /**
+   * Records how the player just did something.
+   *
+   * Guarded, because this is called from a key and pointer handler: without
+   * the early return every keystroke would notify every subscriber.
+   */
+  setControls(controls: AppState['controls']): void {
+    if (this.state.controls === controls) return;
+    this.set({ controls });
   }
 
   setOverlay(overlay: AppState['overlay']): void {

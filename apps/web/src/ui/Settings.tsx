@@ -189,6 +189,61 @@ export function Settings({
             onChange={(v) => onAccessibility({ haptics: v })}
             scale={scale}
           />
+          {/*
+            Two assists that were implemented, persisted and honoured by the
+            input layer, and had no control here — so the only way to turn them
+            on was to write them into `localStorage` by hand, which is what the
+            offline suite was doing. An assist a player cannot reach is not an
+            assist (spec §12).
+          */}
+          <Toggle
+            label="Simplified gestures"
+            hint="Buttons for tending the fire, instead of reaching for it."
+            checked={accessibility.simplifiedGestures}
+            onChange={(v) => onAccessibility({ simplifiedGestures: v })}
+            scale={scale}
+          />
+          <Toggle
+            label="Walk with a joystick"
+            hint="A thumb pad instead of tapping where you want to go."
+            checked={accessibility.virtualJoystick}
+            onChange={(v) => onAccessibility({ virtualJoystick: v })}
+            scale={scale}
+          />
+        </Group>
+
+        {/*
+          The keys, written down.
+
+          Every interaction in this world has a keyboard path (spec §12) and
+          none of them was written anywhere a player could read it, which makes
+          an alternate control scheme that exists and cannot be found. It sits
+          under Assists because that is where somebody looking for one would
+          look, and it is a list rather than a rebinding screen because
+          rebinding is a bigger thing than this and nobody has asked for it.
+        */}
+        <Group title="Keys" scale={scale}>
+          <KeyList
+            scale={scale}
+            rows={[
+              ['Walk', 'W A S D'],
+              ['Look around', 'Arrow keys'],
+              ['Reach for what is in front of you', 'E, Enter or Space'],
+              ['Roast: nearer, further, turn', 'Arrow keys'],
+              ['Blow it out', 'B'],
+              ['Assemble: pick up, set down', 'Enter or Space'],
+              ['Assemble: shift the piece, turn it', 'Arrow keys, then [ and ]'],
+              ['SM-01: load, door, latch', 'L, D, X'],
+              ['SM-01: program, confirm, lever', '1 2 3, Enter, P'],
+              ['Torch on and off, and its beam', 'F, then G'],
+              ['Lie back, raise the binoculars', 'C, V'],
+              ['Stone: wind up, spin, throw', 'Arrow keys, [ and ], T'],
+              ['— while a stone is in your hand, the arrows wind it up', ''],
+              ['The rod: cast, strike, put it back', 'R'],
+              ['Who is at the fire', 'K'],
+              ['Close anything that is open', 'Escape'],
+            ]}
+          />
         </Group>
 
         <Group title="Sound" scale={scale}>
@@ -215,6 +270,21 @@ export function Settings({
         </Group>
       </div>
     </div>
+  );
+}
+
+function KeyList({ rows, scale }: { rows: readonly (readonly [string, string])[]; scale: number }): React.ReactElement {
+  return (
+    <dl style={{ margin: 0, fontSize: `${12 * scale}px`, color: TOKENS.ink, lineHeight: 1.7 }}>
+      {rows.map(([what, keys]) => (
+        <div key={what} style={{ display: 'flex', justifyContent: 'space-between', gap: `${12 * scale}px` }}>
+          <dt style={{ margin: 0 }}>{what}</dt>
+          <dd style={{ margin: 0, fontFamily: FONT_STACK.mono, color: TOKENS.inkSoft, textAlign: 'right' }}>
+            {keys}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 

@@ -22,6 +22,7 @@
     "api": "npm run dev --workspace @somemore/api",
     "test:tools": "vitest run --config tools/vitest.config.mjs",
     "e2e:acceptance": "playwright test --project=acceptance",
+    "e2e:access": "playwright test --project=access",
     "perf": "npm run perf:sim && npm run perf:render && npm run perf:report",
     "perf:sim": "node --expose-gc --max-semi-space-size=64 tools/perf/sim-bench.mjs",
     "perf:render": "playwright test --project=perf",

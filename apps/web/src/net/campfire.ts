@@ -192,6 +192,18 @@ export class Campfire {
   /** When the socket went, in local milliseconds. Zero while connected. */
   private strandedSinceMs = 0;
   /**
+   * Whether this player has already walked in.
+   *
+   * `arriving -> at-fire` is a local transition — there is no `arrive` intent
+   * on this wire, and there should not be, because it is where somebody's
+   * camera is rather than anything about the world. But it lives on the
+   * *shared* ritual, so every time that world is rebuilt from a snapshot the
+   * transition is undone and the player is put back on the trail: title card
+   * up, "walk toward the fire", at a fire they have been sitting at for ten
+   * minutes. Remembered here and reapplied after an adoption.
+   */
+  private arrived = false;
+  /**
    * Who last did the thing the ritual is currently doing.
    *
    * The ritual's stage is shared — it has to be, it is part of the world — but
@@ -371,6 +383,9 @@ export class Campfire {
         // history up in one go, which is cheap (see `BULK_CATCH_UP_TICKS`) and
         // happens while the local player is still walking in.
         this.timeline.pump();
+        // A rebuilt world starts on the trail. Somebody who had already walked
+        // in has not un-walked in because their socket blinked.
+        if (this.arrived) simArrive(this.timeline.ritual);
         this.options.onAdopt?.(this.timeline.ritual, message.seed, message.environmentId);
         this.announce();
         this.options.onChange?.();
@@ -699,6 +714,7 @@ export class Campfire {
   arrive(): void {
     // Purely local: 'arriving' → 'at-fire' is where the camera is, not what the
     // simulation is doing, and `stepRitual` branches on neither.
+    this.arrived = true;
     const ritual = this.target;
     if (ritual !== null) simArrive(ritual);
   }

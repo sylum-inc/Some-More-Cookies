@@ -84,6 +84,14 @@ export default defineConfig({
      * "you can no longer do anything at this campsite except make a s'more".
      */
     { name: 'activities', testMatch: /activities\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * §12, driven rather than read. Its own project because it fails on its
+     * own thing: not "the ritual stopped working" but "the ritual stopped
+     * being reachable" — and because it is the one suite forbidden from using
+     * the `__someMore.actions` bridge for the stage it is auditing, which is
+     * exactly why it can see what `acceptance` cannot.
+     */
+    { name: 'access', testMatch: /access\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'visual', testMatch: /visual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*

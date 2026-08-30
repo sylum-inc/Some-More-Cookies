@@ -349,7 +349,22 @@ export class PgConnection {
     const code = reader.int32();
     try {
       switch (code) {
-        case 0: // AuthenticationOk
+        case 0:
+          /*
+           * AuthenticationOk. Mutual authentication is the whole point of
+           * SCRAM: `finish()` checks the server's signature and is the only
+           * thing that proves the peer knows the password verifier. A server
+           * that starts SASL and then declares success without sending
+           * SASLFinal has proved nothing, and accepting that would hand a
+           * man-in-the-middle a session — and, with a salt and an iteration
+           * count of its own choosing, an offline crack of the client proof
+           * it just collected.
+           */
+          if (this.scram !== null) {
+            throw new PgConnectionError(
+              'postgres: server declared authentication complete without finishing SCRAM — refusing to trust it',
+            );
+          }
           return;
         case 3: // cleartext
           this.write(new MessageWriter().cstring(this.requirePassword()).frame('p'));

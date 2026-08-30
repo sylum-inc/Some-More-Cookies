@@ -46,6 +46,15 @@ export interface IdentityService {
  * token's `sub` claim (or, for opaque dev tokens, the token itself) and record
  * that it is unverified. Wiring real verification is a contained change here:
  * fetch JWKS, verify RS256, check `aud`/`iss`/`nonce`, then return `sub`.
+ *
+ * **Nothing may call this without passing `requireVerifiableProvider` first.**
+ * An unverified id token is not a weaker credential, it is not a credential:
+ * the payload is base64, not a signature, so presenting somebody else's `sub`
+ * costs one line of JavaScript — and because `linkIdentity` merges on a
+ * subject match, that is a complete account takeover rather than a nuisance.
+ * The signing keys in `codes/signing.ts` refuse rather than accept-everything
+ * when their material is missing, and this is the same rule applied to the one
+ * place where accepting everything means becoming anybody.
  */
 export function resolveCredentialSubject(credential: LinkCredential): { subject: string; email: string | null } {
   if (credential.provider === 'email') {
@@ -67,6 +76,28 @@ export function resolveCredentialSubject(credential: LinkCredential): { subject:
     }
   }
   return { subject: `opaque:${createHash('sha256').update(token).digest('hex').slice(0, 32)}`, email: null };
+}
+
+/**
+ * The honest report for a credential this deployment cannot check.
+ *
+ * Shaped like every other missing-credential answer in the service (voice,
+ * media, payments, code signing): a 503 that names the variable, so a client
+ * can say "sign-in with Google is not available here" instead of showing a
+ * button that silently does something dangerous.
+ */
+export function requireVerifiableProvider(
+  provider: LinkCredential['provider'],
+  allowUnverifiedOidc: boolean,
+): void {
+  if (provider === 'email' || allowUnverifiedOidc) return;
+  throw new ApiError(
+    'service_not_configured',
+    `Sign-in with ${provider === 'apple' ? 'Apple' : 'Google'} is not configured on this deployment: there are `
+      + 'no issuer credentials, so an id token cannot be verified and will not be trusted. '
+      + 'See README "Blockers", 5. Development builds may set AUTH_ALLOW_UNVERIFIED_OIDC=true.',
+    { details: { provider } },
+  );
 }
 
 export function createIdentityService(deps: DomainDeps, passports: PassportService): IdentityService {
@@ -253,6 +284,9 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
       const nowIso = clock.isoNow();
       const account = await requireActiveAccount(accountId);
       const { credential } = request;
+      // Before anything is read out of the token, and before any account is
+      // looked up by it.
+      requireVerifiableProvider(credential.provider, config.allowUnverifiedOidc);
 
       let subject: string;
       let email: string | null = null;

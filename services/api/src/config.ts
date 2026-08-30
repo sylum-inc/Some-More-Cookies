@@ -24,6 +24,28 @@ export interface ApiConfig {
   readonly ipHashSalt: string;
 
   /**
+   * How many reverse proxies sit in front of this process.
+   *
+   * `X-Forwarded-For` is appended to by each hop, so the *last* `n` entries are
+   * the ones our own infrastructure wrote and everything to their left was
+   * supplied by the client. Zero — the default — means "nothing is in front of
+   * me", and the header is ignored entirely: a client that can pick its own
+   * rate-limit bucket has no rate limit.
+   */
+  readonly trustedProxyHops: number;
+
+  /**
+   * Accept an Apple/Google id token without verifying it against the issuer.
+   *
+   * There is no JWKS verification yet (README, Blocker 5), so `sub` is read
+   * out of an unsigned JWT — which means anybody can be anybody. That is a
+   * usable local development shortcut and an account-takeover hole anywhere
+   * else, so it is off unless a deployment asks for it out loud, and cannot be
+   * switched on in production at all.
+   */
+  readonly allowUnverifiedOidc: boolean;
+
+  /**
    * Postgres connection string. Present => durable storage; absent => the
    * in-memory repositories, which is what `npm run api` gets with no database.
    */
@@ -157,6 +179,7 @@ export interface ConfigWarning {
     | 'ephemeral_ip_salt'
     | 'memory_persistence'
     | 'live_ops_read_only'
+    | 'unverified_oidc'
     | 'codes_not_configured'
     | 'local_media_storage'
     | 'media_not_configured';
@@ -195,6 +218,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     warnings.push({
       code: 'ephemeral_ip_salt',
       message: 'IP_HASH_SALT is not set; using an ephemeral salt. Anti-abuse history will not survive a restart.',
+    });
+  }
+
+  /*
+   * Unverified OIDC. Production never gets it, whatever the environment says;
+   * everywhere else it is opt-in and warned about, in the same shape as every
+   * other "we do not have that credential" report in this file.
+   */
+  const allowUnverifiedOidc = nodeEnv !== 'production' && envBool(env, 'AUTH_ALLOW_UNVERIFIED_OIDC', false);
+  if (allowUnverifiedOidc) {
+    warnings.push({
+      code: 'unverified_oidc',
+      message:
+        'AUTH_ALLOW_UNVERIFIED_OIDC is set; Apple/Google id tokens are accepted WITHOUT verifying them against '
+        + 'the issuer. Anyone can present anyone else\'s subject. Development only — production ignores this '
+        + 'flag and refuses the credential. See README "Blockers", 5.',
     });
   }
 
@@ -282,6 +321,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): LoadedConfig {
     authTokenTtlSeconds: envInt(env, 'AUTH_TOKEN_TTL_SECONDS', 60 * 60 * 24 * 30),
     magicLinkTtlSeconds: envInt(env, 'MAGIC_LINK_TTL_SECONDS', 60 * 15),
     ipHashSalt,
+    trustedProxyHops: Math.max(0, envInt(env, 'TRUSTED_PROXY_HOPS', 0)),
+    allowUnverifiedOidc,
     databaseUrl,
     databaseAutoMigrate: envBool(env, 'DATABASE_AUTO_MIGRATE', true),
     databasePoolMax: envInt(env, 'DATABASE_POOL_MAX', 10),

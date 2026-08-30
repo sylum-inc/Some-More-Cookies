@@ -136,11 +136,28 @@ export class MessageReader {
 }
 
 /**
+ * The largest backend message this client will assemble.
+ *
+ * PostgreSQL's own limit is 1 GB and a `DataRow` for a `jsonb` document is the
+ * biggest thing we ever ask for, so 64 MiB is generous by two orders of
+ * magnitude for this schema. It exists because the length field is four bytes
+ * of *someone else's* choosing: without a ceiling, a server — or, until
+ * certificate verification lands (README Blocker 2), anything sitting between
+ * us and one — announces 2 GB and this process buffers until it dies.
+ */
+export const MAX_BACKEND_MESSAGE_BYTES = 64 * 1024 * 1024;
+
+/**
  * Splits a TCP byte stream into backend messages. Every backend message after
  * the handshake is `type byte | int32 length (inclusive of itself) | payload`.
  */
 export class StreamParser {
   private pending: Buffer = Buffer.alloc(0);
+  private readonly maxMessageBytes: number;
+
+  constructor(maxMessageBytes: number = MAX_BACKEND_MESSAGE_BYTES) {
+    this.maxMessageBytes = maxMessageBytes;
+  }
 
   push(chunk: Buffer): void {
     this.pending = this.pending.length === 0 ? chunk : Buffer.concat([this.pending, chunk]);
@@ -151,6 +168,11 @@ export class StreamParser {
     if (this.pending.length < 5) return null;
     const length = this.pending.readInt32BE(1);
     if (length < 4) throw new Error(`postgres: nonsensical message length ${length}`);
+    // Checked against the announcement, before a single byte of the body is
+    // waited for, so an absurd claim costs one error rather than the heap.
+    if (length > this.maxMessageBytes) {
+      throw new Error(`postgres: backend announced a ${length} byte message; the ceiling is ${this.maxMessageBytes}`);
+    }
     const total = length + 1;
     if (this.pending.length < total) return null;
     const type = String.fromCharCode(this.pending[0] ?? 0);

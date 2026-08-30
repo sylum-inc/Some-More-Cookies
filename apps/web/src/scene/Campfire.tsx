@@ -214,6 +214,8 @@ export function CampfireScene({
 }: CampfireSceneProps): React.ReactElement {
   const rootRef = useRef<THREE.Group>(null);
   const torchHeld = useRef(false);
+  /** The campsite seed the local player has been placed at, once. */
+  const placedAtSeed = useRef<number | null>(null);
   const listenerScratch = useMemo(() => ({ eye: vec3(), look: vec3() }), []);
   const speakersScratch = useMemo<{ accountId: string; position: { x: number; y: number; z: number } }[]>(() => [], []);
 
@@ -367,6 +369,35 @@ export function CampfireScene({
   useFrame((frameState, delta) => {
     const dt = Math.min(0.1, delta);
     const tick = fire.tick;
+
+    /*
+     * Put the arriving player down at the fire, once.
+     *
+     * Adopting somebody else's world changes the campsite seed and the
+     * environment, which recreates the walkable world and with it the
+     * `PlayerState` — at `LAYOUT.trailStart`, nine and a half metres out. The
+     * one thing that would have walked them in is `World`'s
+     * `arriving -> at-fire` relocation, and that fires off a ref which has
+     * usually already been spent by the time the new player exists. So a
+     * joining player stood on the trail for the rest of the night, sending
+     * presence from out in the dark: every other client drew them as a
+     * silhouette at the treeline that never came any closer.
+     *
+     * Placed here rather than in `World` because this is a fact about joining
+     * a fire, and a campsite of one never reaches this component at all.
+     */
+    if (fire.timeline !== null && placedAtSeed.current !== ritual.seed && ritual.stage !== 'arriving') {
+      placedAtSeed.current = ritual.seed;
+      const bearing = Math.atan2(player.position.z, player.position.x);
+      player.position.x = Math.cos(bearing) * 2.4;
+      player.position.z = Math.sin(bearing) * 2.4;
+      player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
+      player.facing = Math.atan2(-player.position.z, -player.position.x);
+      player.pitch = -0.1;
+      player.velocity.x = 0;
+      player.velocity.z = 0;
+      player.moveTarget = null;
+    }
 
     // Tell the fire where we are. Throttled inside; presence is lossy by design.
     fire.reportPresence({

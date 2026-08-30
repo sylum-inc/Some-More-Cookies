@@ -4,7 +4,10 @@ import { bootstrap, createCampsite, key, sandwichPayload, startTestApi, type Tes
 let api: TestHarness;
 
 beforeEach(async () => {
-  api = await startTestApi();
+  // Apple/Google id tokens cannot be verified without issuer credentials
+  // (README Blocker 5), so the service refuses them unless a deployment opts
+  // in. These cases are about what linking *does*, so they opt in.
+  api = await startTestApi({ AUTH_ALLOW_UNVERIFIED_OIDC: 'true' });
 });
 
 afterEach(async () => {

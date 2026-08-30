@@ -39,7 +39,9 @@ import {
   nightEpoch,
   toggleRadio,
   vec3,
+  canPerform,
   type Interactable,
+  type MachineAction,
   type MachineEvent,
   type MoveIntent,
   type RitualState,
@@ -60,6 +62,7 @@ import {
   finishRoasting,
   holdComponent,
   moveComponent,
+  operateMachine,
   placeComponent,
   takeSandwich as takeSandwichAction,
   tendFire,
@@ -75,7 +78,12 @@ import { RadioDial } from './ui/RadioDial.js';
 import { GLOBAL_CSS, TOKENS, FONT_STACK } from './ui/styles.js';
 import { Store } from './state/store.js';
 import { AdaptiveQuality, applyRenderSettings, probeQualityTier, QUALITY, type QualityTier } from './render/ps1.js';
-import { BlowGestureDetector, RoastController, screenToTableOffset } from './interaction/roastControl.js';
+import {
+  applyRoastPose,
+  BlowGestureDetector,
+  RoastController,
+  screenToTableOffset,
+} from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
 import { AudioBridge, type AudioCue } from './audio/bridge.js';
 import { SyncEngine } from './net/sync.js';
@@ -439,7 +447,21 @@ export function App({ store }: AppProps): React.ReactElement {
           if (store.state.subtitle === line) store.setSubtitle(null);
         }, 3_200);
       },
-      onChange: () => store.touch(),
+      onChange: () => {
+        /*
+         * Republish the stage as well as nudging React.
+         *
+         * `setStageFromRitual` is otherwise only called by the render loop when
+         * it *observes a transition*, and adopting a shared world swaps the
+         * ritual out from under a ref that may already have consumed one. The
+         * symptom was a joining player looking at a live campsite with the
+         * title card still over it, invited to tap to walk in to a fire they
+         * were already sitting at. It is idempotent, so calling it on every
+         * campfire event costs a comparison.
+         */
+        store.setStageFromRitual();
+        store.touch();
+      },
     });
 
     bindCampfire(fire);
@@ -651,6 +673,7 @@ export function App({ store }: AppProps): React.ReactElement {
     (event: React.PointerEvent) => {
       unlockAudio();
       if (state.overlay !== 'none') return;
+      store.setControls('pointer');
 
       if (ritual.stage === 'arriving') {
         beginArrival();
@@ -780,6 +803,10 @@ export function App({ store }: AppProps): React.ReactElement {
         return;
       }
       if (state.overlay !== 'none') return;
+      // Whatever they last used is what the guidance line should describe.
+      // Escape is excluded on purpose: dismissing an overlay is not a
+      // statement about how somebody intends to play.
+      store.setControls('keyboard');
       // Who is at the fire. A key as well as a button, because every social
       // act at a shared fire needs a non-gestural path (spec §12).
       if (event.key === 'k' && campfire !== null) {
@@ -789,11 +816,32 @@ export function App({ store }: AppProps): React.ReactElement {
       if (ritual.stage === 'arriving' && (event.key === 'Enter' || event.key === ' ')) {
         beginArrival();
       }
-      // Walking on the keyboard, as an alternate control scheme (spec §12).
+      /*
+       * Walking and looking on the keyboard, as an alternate control scheme
+       * (spec §12). WASD walks; the arrows look.
+       *
+       * The look half is the one that was missing, and it was missing
+       * completely: `player.facing` only ever moved from a pointer look delta
+       * or from walking toward a tapped point, so on the keyboard alone a
+       * player could translate around the campsite and never turn — no sky, no
+       * aiming the torch, no facing the water to fish, no looking at an
+       * animal. Every one of §5.2's activities was behind a pointer.
+       *
+       * A held key is a *rate*, not a delta, so it goes in `lookRate` and the
+       * simulation multiplies it by `dt`. Putting it in `look` would have made
+       * one keypress turn the player once per fixed step — which is the bug
+       * the pointer path had.
+       */
       if (!isAnchored(ritual.stage) && ritual.stage !== 'arriving') {
         const before = keyboard.active;
         keyboard.down(event.key);
-        if (keyboard.active || before) intentRef.current.move = keyboard.intent();
+        if (keyboard.active || before) {
+          intentRef.current.move = keyboard.intent();
+          // A stone in the hand borrows the arrows to wind itself up, exactly
+          // as a stone in the hand borrows the drag. Looking resumes the
+          // moment it leaves.
+          intentRef.current.lookRate = ritual.skipping.held ? NO_LOOK : keyboard.look();
+        }
         if (event.key === 'e' || event.key === 'Enter' || event.key === ' ') handleUse();
       }
       // Keyboard alternatives for the secondary activities (spec §12). Every
@@ -852,17 +900,140 @@ export function App({ store }: AppProps): React.ReactElement {
         if (event.key === 'ArrowDown') roastControl.nudge(0.04, 0);
         if (event.key === 'ArrowLeft') roastControl.nudge(0, -0.22);
         if (event.key === 'ArrowRight') roastControl.nudge(0, 0.22);
+        // Applied here rather than left for the next frame: see
+        // `applyRoastPose`. Presses that arrive between two frames must all
+        // reach the marshmallow, not just the last one.
+        applyRoastPose(
+          roastControl,
+          ritual,
+          bearingFromFire(player),
+          state.accessibility.autoRotate <= 0,
+        );
         if (event.key === 'b' && blowOutMarshmallow(ritual)) store.touch();
+      }
+
+      /*
+       * Assembly, on the keyboard.
+       *
+       * This stage was reachable by pointer drag and by nothing else: pick up
+       * happens on `pointerdown`, the offset comes from pointer travel, and
+       * set-down happens on `pointerup`. Roasting and exploring both had a
+       * keyboard alternative from the start; assembly never did, which meant
+       * the ritual simply stopped here for anyone who cannot drag — and §12
+       * asks for an alternate control scheme, not a shorter ritual.
+       *
+       * It reaches the same three calls the drag reaches, so placement still
+       * genuinely matters: what you set down where is recorded and shows up on
+       * the finished sandwich. This is not a "Build" button (§1.3).
+       */
+      if (ritual.stage === 'assembling') {
+        const assembly = ritual.assembly;
+        if (event.key === 'Enter' || event.key === ' ') {
+          if (assembly.heldKind) {
+            placeComponent(ritual);
+            audioRef.current?.playFoley(
+              ritual.assembly.placedThisStep === 'graham-top' ? 'squish' : 'graham-snap',
+            );
+          } else {
+            holdComponent(ritual);
+          }
+          store.touch();
+        } else if (assembly.heldKind) {
+          // A step small enough that the stack still comes out handmade: the
+          // drag writes offsets of a few millimetres and so does this.
+          const step = 0.003;
+          const offset = vec3(assembly.heldOffset.x, assembly.heldOffset.y, assembly.heldOffset.z);
+          let rotation = assembly.heldRotation;
+          let moved = true;
+          switch (event.key) {
+            case 'ArrowUp':
+              offset.z -= step;
+              break;
+            case 'ArrowDown':
+              offset.z += step;
+              break;
+            case 'ArrowLeft':
+              offset.x -= step;
+              break;
+            case 'ArrowRight':
+              offset.x += step;
+              break;
+            case '[':
+              rotation -= 0.08;
+              break;
+            case ']':
+              rotation += 0.08;
+              break;
+            default:
+              moved = false;
+          }
+          if (moved) {
+            moveComponent(ritual, offset, rotation);
+            store.touch();
+          }
+        }
+      }
+
+      /*
+       * The SM-01, on the keyboard.
+       *
+       * Its controls are meshes inside the canvas, so until now the whole of
+       * §3.2 — the door, the latch, the program, the confirm, the lever — was
+       * a pointer-only sequence. One key per control, never one key for the
+       * run: the twelve stages are the product, and a single "go" key would be
+       * the canned-video substitution §1.3 rules out. `canPerform` decides
+       * what a key means where a control does two things, which is exactly
+       * what the mesh under the pointer does.
+       */
+      if (ritual.stage === 'machine' || ritual.stage === 'reveal') {
+        const machine = ritual.machine;
+        const operate = (action: MachineAction): void => {
+          if (operateMachine(ritual, action)) store.touch();
+        };
+        switch (event.key) {
+          case 'l':
+            operate({ type: 'load' });
+            break;
+          case 'd':
+            operate(canPerform(machine, 'close-door') ? { type: 'close-door' } : { type: 'open-door' });
+            break;
+          case 'x':
+            operate(
+              canPerform(machine, 'engage-latch') ? { type: 'engage-latch' } : { type: 'release-latch' },
+            );
+            break;
+          case '1':
+            operate({ type: 'set-program', program: 'soft-set' });
+            break;
+          case '2':
+            operate({ type: 'set-program', program: 'standard' });
+            break;
+          case '3':
+            operate({ type: 'set-program', program: 'deep-freeze' });
+            break;
+          case 'Enter':
+          case ' ':
+            operate({ type: 'confirm' });
+            break;
+          case 'p':
+            operate({ type: 'pull-lever' });
+            break;
+          default:
+            break;
+        }
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
       keyboard.up(event.key);
       intentRef.current.move = keyboard.intent();
+      intentRef.current.lookRate = ritual.skipping.held ? NO_LOOK : keyboard.look();
     };
-    // Losing focus mid-stride must not leave the player walking forever.
+    // Losing focus mid-stride must not leave the player walking forever — or,
+    // worse, turning forever, which a rate very much would.
     const onBlur = () => {
       keyboard.clear();
       intentRef.current.move = { forward: 0, strafe: 0 };
+      intentRef.current.lookRate = NO_LOOK;
       movement.cancel();
     };
     window.addEventListener('keydown', onKey);
@@ -875,6 +1046,7 @@ export function App({ store }: AppProps): React.ReactElement {
     };
   }, [
     state.overlay,
+    state.accessibility.autoRotate,
     ritual,
     roastControl,
     beginArrival,
@@ -1163,6 +1335,7 @@ export function App({ store }: AppProps): React.ReactElement {
         exploring={!isAnchored(state.stage) && state.stage !== 'arriving'}
         stage={state.stage}
         subtitle={state.subtitle}
+        controls={state.controls}
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}
@@ -1219,10 +1392,26 @@ export function App({ store }: AppProps): React.ReactElement {
           onClose={() => store.setOverlay('none')}
           onAddCode={() => store.setOverlay('scan')}
           onLink={(provider) => {
-            // Optimistic: the Passport is already this device's, so linking
-            // uploads it rather than replacing it (spec §6.1).
+            /*
+             * Optimistic, and then honest.
+             *
+             * The Passport is already this device's, so linking uploads it
+             * rather than replacing it (spec §6.1) and showing it linked
+             * immediately is the right first move. What was missing is the
+             * second one: the service can refuse — a deployment with no Apple
+             * or Google credentials answers `service_not_configured` rather
+             * than trusting an id token nobody verified — and the booklet went
+             * on saying "Linked with google" anyway. A Passport that claims an
+             * account exists when none does is the one lie this object may not
+             * tell.
+             */
+            const previous = state.passport.linkedProvider;
             store.set({ passport: { ...state.passport, linkedProvider: provider } });
-            void syncRef.current?.link(provider, `dev-credential:${provider}`);
+            void syncRef.current?.link(provider, `dev-credential:${provider}`).then((linked) => {
+              if (linked) return;
+              store.set({ passport: { ...store.state.passport, linkedProvider: previous } });
+              store.setSubtitle('[this campsite cannot sign you in yet — your Passport stays on this device]');
+            });
           }}
         />
       )}
@@ -1374,6 +1563,9 @@ export function App({ store }: AppProps): React.ReactElement {
     </div>
   );
 }
+
+/** Shared, never mutated: the simulation only ever reads a look rate. */
+const NO_LOOK = { yaw: 0, pitch: 0 } as const;
 
 function SideButton({ label, onClick, textScale }: { label: string; onClick: () => void; textScale: number }): React.ReactElement {
   return (

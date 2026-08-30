@@ -270,8 +270,26 @@ export interface MoveIntent {
   move?: { forward: number; strafe: number };
   /** A tapped destination. Cleared automatically on arrival. */
   target?: Vec3 | null;
-  /** Look delta in radians, applied directly. */
+  /**
+   * Look delta in radians — a movement that has already happened.
+   *
+   * **Consumed by the step that applies it**, and zeroed in place. A delta is
+   * not a rate: a caller that sets it once a frame and lets it stand across
+   * every fixed step in that frame turns the player once per step, so one drag
+   * of the thumb turns you as far as the renderer is slow. At 60 fps that is
+   * one step and invisible; under software rendering it is dozens. Same family
+   * as `applyRoastPose` — input belongs on its own clock, not the frame's.
+   */
   look?: { yaw: number; pitch: number };
+  /**
+   * Look *rate* in radians per second, for input that is held rather than
+   * moved: the keyboard's look keys, and a right stick later.
+   *
+   * Kept separate from `look` precisely because the two have different
+   * semantics — this one is multiplied by `dt` and applied on every step, and
+   * it is the caller's business to clear it when the key comes up.
+   */
+  lookRate?: { yaw: number; pitch: number };
   /** Extra noise the player is making this frame (shouting, chopping). */
   noise?: number;
   /** Sitting still by the fire. */
@@ -283,9 +301,22 @@ const scratchDirection = vec3();
 /** Advances the player one fixed timestep. */
 export function stepPlayer(player: PlayerState, world: WalkableWorld, intent: MoveIntent, dt: number): void {
   // --- Look ------------------------------------------------------------
+  let yaw = 0;
+  let pitch = 0;
   if (intent.look) {
-    player.facing = wrapAngle(player.facing + intent.look.yaw);
-    player.pitch = clamp(player.pitch + intent.look.pitch, LOCOMOTION.minPitch, LOCOMOTION.maxPitch);
+    yaw += intent.look.yaw;
+    pitch += intent.look.pitch;
+    // Spent. See the note on `MoveIntent.look`.
+    intent.look.yaw = 0;
+    intent.look.pitch = 0;
+  }
+  if (intent.lookRate) {
+    yaw += intent.lookRate.yaw * dt;
+    pitch += intent.lookRate.pitch * dt;
+  }
+  if (yaw !== 0 || pitch !== 0) {
+    player.facing = wrapAngle(player.facing + yaw);
+    player.pitch = clamp(player.pitch + pitch, LOCOMOTION.minPitch, LOCOMOTION.maxPitch);
   }
 
   if (intent.sit !== undefined) player.seated = intent.sit;

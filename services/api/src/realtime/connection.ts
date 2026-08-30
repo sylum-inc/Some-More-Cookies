@@ -41,6 +41,17 @@ export interface WsConnectionOptions {
    * up. A slow client must not be allowed to grow the server's heap.
    */
   readonly maxBufferedBytes: number;
+  /**
+   * How many frames one fragmented message may be split into.
+   *
+   * `maxMessageBytes` alone does not bound a fragmented message, because a
+   * *zero-length* continuation frame costs six bytes on the wire and adds
+   * nothing to the byte count while still adding a `Buffer` to the
+   * accumulator. Two hundred thousand of them — 1.2 MB of traffic — held two
+   * hundred thousand buffers, and the message-rate limiter never saw any of it
+   * because it only ever sees completed messages.
+   */
+  readonly maxFragments?: number;
   /** Milliseconds to wait for the peer's close frame before dropping the TCP. */
   readonly closeTimeoutMs?: number;
   readonly id?: string;
@@ -72,6 +83,12 @@ export class WsConnection {
   private closeInfo: ConnectionClose | null = null;
   private closeTimer: NodeJS.Timeout | null = null;
 
+  /**
+   * Default fragment ceiling: enough that a peer splitting a full-size message
+   * into 512-byte pieces still gets through, and far short of a flood.
+   */
+  private readonly maxFragments: number;
+
   /** Fragment accumulator. `null` when no message is in flight. */
   private fragments: Buffer[] | null = null;
   private fragmentOpcode = 0;
@@ -88,6 +105,7 @@ export class WsConnection {
     this.options = options;
     this.handlers = handlers;
     this.lastInboundMs = nowMs;
+    this.maxFragments = options.maxFragments ?? Math.max(16, Math.ceil(options.maxMessageBytes / 512));
     this.reader = new FrameReader({
       requireMask: options.role === 'server',
       maxFrameBytes: options.maxFrameBytes,
@@ -141,19 +159,28 @@ export class WsConnection {
   ping(payload: Buffer = Buffer.alloc(0), nowMs: number = Date.now()): void {
     this.lastPingMs = nowMs;
     this.awaitingPong = true;
-    this.write(OPCODE.ping, payload, true);
+    this.write(OPCODE.ping, payload);
   }
 
   pong(payload: Buffer = Buffer.alloc(0)): void {
-    this.write(OPCODE.pong, payload, true);
+    this.write(OPCODE.pong, payload);
   }
 
-  private write(opcode: number, payload: Buffer, control = false): boolean {
+  private write(opcode: number, payload: Buffer): boolean {
     if (this.state !== 'open') return false;
 
-    // Backpressure: a peer that cannot drain gets hung up on rather than being
-    // allowed to queue unbounded state in our process.
-    if (!control && this.bufferedBytes > this.options.maxBufferedBytes) {
+    /*
+     * Backpressure: a peer that cannot drain gets hung up on rather than being
+     * allowed to queue unbounded state in our process.
+     *
+     * This deliberately covers control frames too. The RFC requires a pong for
+     * every ping, so a peer that pings hard and never reads makes us mirror its
+     * traffic into a socket buffer nobody is emptying — measured at 6.35 MB
+     * queued from 6.55 MB of pings, on a connection whose ceiling was one
+     * kilobyte. The one frame exempt is `close`, because refusing to write that
+     * would mean refusing to hang up on exactly the peer we are hanging up on.
+     */
+    if (opcode !== OPCODE.close && this.bufferedBytes > this.options.maxBufferedBytes) {
       this.close(1013, 'Falling behind; try again later.');
       return false;
     }
@@ -275,6 +302,10 @@ export class WsConnection {
   }
 
   private fail(error: unknown): void {
+    // Whatever happens next, a half-assembled message is not going anywhere.
+    this.fragments = null;
+    this.fragmentBytes = 0;
+    this.fragmentOpcode = 0;
     if (error instanceof WsProtocolError) {
       this.handlers.onError?.(error);
       this.close(error.closeCode, error.message);
@@ -293,11 +324,21 @@ export class WsConnection {
       return;
     }
 
+    /*
+     * Once we have said close — for a framing violation or any other reason —
+     * data frames are dropped rather than accumulated. Without this a peer
+     * that keeps writing after being told to stop carries on filling the
+     * fragment accumulator, which makes every ceiling below advisory: a
+     * violation detected at frame 33 still ended up holding all 200,001.
+     * Control frames continue to be answered so the closing handshake works.
+     */
+    if (this.state !== 'open') return;
+
     if (opcode === OPCODE.continuation) {
       if (this.fragments === null) throw new WsProtocolError(1002, 'Continuation frame with nothing to continue.');
       this.fragmentBytes += payload.length;
-      this.enforceMessageSize();
       this.fragments.push(payload);
+      this.enforceMessageSize();
       if (!fin) return;
       const complete = Buffer.concat(this.fragments);
       const startOpcode = this.fragmentOpcode;
@@ -327,6 +368,12 @@ export class WsConnection {
   private enforceMessageSize(): void {
     if (this.fragmentBytes > this.options.maxMessageBytes) {
       throw new WsProtocolError(1009, `Message exceeds the ${this.options.maxMessageBytes} byte limit.`);
+    }
+    // Counted as well as measured: see `maxFragments`. A peer that needs more
+    // pieces than this to say sixteen kilobytes is not fragmenting, it is
+    // spending our heap at twenty times what it spends of its own bandwidth.
+    if (this.fragments !== null && this.fragments.length > this.maxFragments) {
+      throw new WsProtocolError(1009, `A message may not be split into more than ${this.maxFragments} frames.`);
     }
   }
 

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { generateCodeKeyPair } from '../src/codes/signing.js';
 import { bootstrap, createCampsite, key, sandwichPayload, startTestApi, type TestHarness } from './harness.js';
 
 /*
@@ -98,26 +99,58 @@ describe('identity: a token nobody verified is not a credential', () => {
 describe('rate limiting: a header is not an identity', () => {
   /*
    * `code_fail:<ipHash>` is the budget that makes working through a scraped
-   * list of wrapper codes expensive. The IP it hashes comes from
-   * `X-Forwarded-For` with no trusted-proxy configuration, so the client picks
-   * its own bucket.
+   * list of wrapper codes expensive. It is only a budget if the client cannot
+   * choose which one it spends: reading the leftmost `X-Forwarded-For` entry
+   * hands the choice to the caller, and one header away is an unlimited
+   * guessing rate from one socket.
+   *
+   * Three accounts, thirty guesses, one socket, thirty different claimed
+   * addresses. `CODE_FAILURES_PER_WINDOW` is 20, so ten of them have to be
+   * refused however the header is decorated.
    */
   it('does not let X-Forwarded-For refresh the code failure budget', async () => {
-    const player = await bootstrap(api);
-    const attempt = (ip: string) =>
-      api.request('/v1/codes/redeem', {
-        method: 'POST',
+    const keys = generateCodeKeyPair();
+    const scanner = await startTestApi({
+      CODE_SIGNING_KEY_ID: 'k1',
+      CODE_SIGNING_PRIVATE_KEY: keys.privateKeyBase64,
+      CODE_VERIFY_PUBLIC_KEYS: `k1:${keys.publicKeyBase64}`,
+    });
+    try {
+      const statuses: number[] = [];
+      let claimed = 0;
+      for (let account = 0; account < 3; account += 1) {
+        const player = await bootstrap(scanner, `Scraper ${account}`);
+        for (let guess = 0; guess < 10; guess += 1) {
+          claimed += 1;
+          const response = await scanner.request('/v1/codes/redeem', {
+            method: 'POST',
+            token: player.token,
+            headers: { 'x-forwarded-for': `203.0.113.${claimed}` },
+            body: { idempotencyKey: key('scan'), code: 'SM1.bm90LWEtY29kZQ.bm9wZQ' },
+          });
+          statuses.push(response.status);
+        }
+      }
+      expect(statuses.filter((status) => status === 429).length).toBeGreaterThanOrEqual(10);
+    } finally {
+      await scanner.close();
+    }
+  });
+
+  it('uses a forwarded address only when a deployment says how many proxies it has', async () => {
+    // Two hops in front, so the entry two from the right is the last one our
+    // own infrastructure wrote. Everything left of it is the client talking.
+    const behindProxies = await startTestApi({ TRUSTED_PROXY_HOPS: '2' });
+    try {
+      const player = await bootstrap(behindProxies);
+      const response = await behindProxies.request('/v1/passport', {
         token: player.token,
-        headers: { 'x-forwarded-for': ip },
-        body: { idempotencyKey: key('scan'), code: 'SM1.not-a-real-code.nope' },
+        headers: { 'x-forwarded-for': '198.51.100.9, 10.0.0.1, 10.0.0.2' },
       });
-
-    const statuses: number[] = [];
-    for (let i = 0; i < 40; i += 1) statuses.push((await attempt(`203.0.113.${i}`)).status);
-
-    // CODE_FAILURES_PER_WINDOW is 20. Forty guesses from one socket must not
-    // all be answered, whatever the client claims its address is.
-    expect(statuses.filter((status) => status === 429).length).toBeGreaterThan(0);
+      expect(response.status).toBe(200);
+    } finally {
+      await behindProxies.close();
+    }
   });
 });
 

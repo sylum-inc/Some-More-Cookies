@@ -31,6 +31,8 @@ function opsEnv(overrides: Record<string, string> = {}): Record<string, string> 
     CODE_SIGNING_KEY_ID: 'k1',
     CODE_SIGNING_PRIVATE_KEY: KEYS.privateKeyBase64,
     CODE_VERIFY_PUBLIC_KEYS: `k1:${KEYS.publicKeyBase64}`,
+    // One case links a Google identity to prove a merge carries redemptions.
+    AUTH_ALLOW_UNVERIFIED_OIDC: 'true',
     ...overrides,
   };
 }

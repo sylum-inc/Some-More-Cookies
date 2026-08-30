@@ -62,13 +62,39 @@ const CORS_REQUEST_HEADERS = 'authorization, content-type, idempotency-key, if-n
 /** What a browser client is allowed to *read* off a response. */
 const CORS_EXPOSED_HEADERS = 'etag, retry-after, x-request-id, x-schema-version, idempotent-replay, location';
 
-function clientIpOf(req: IncomingMessage, headers: Readonly<Record<string, string>>): string {
+/**
+ * Who is actually talking to us.
+ *
+ * This value keys the anti-abuse budgets that make a scraped list of wrapper
+ * codes expensive (`domain/codes.ts`) and the anonymous idempotency scope, so
+ * "whatever the client said" is not an acceptable answer: reading the leftmost
+ * `X-Forwarded-For` entry lets a caller mint a fresh bucket per request by
+ * changing one header, which is a rate limit that does not exist.
+ *
+ * Each proxy *appends* the address it saw, so with `n` trusted hops in front
+ * of us the entry `n` from the right is the last one a client could not have
+ * written. With no proxies — the default — the header is ignored outright and
+ * the socket is the only source of truth.
+ */
+function clientIpOf(
+  req: IncomingMessage,
+  headers: Readonly<Record<string, string>>,
+  trustedProxyHops: number,
+): string {
+  const socketAddress = req.socket.remoteAddress ?? '0.0.0.0';
+  if (trustedProxyHops <= 0) return socketAddress;
   const forwarded = headers['x-forwarded-for'];
-  if (forwarded !== undefined) {
-    const first = forwarded.split(',')[0]?.trim();
-    if (first !== undefined && first.length > 0) return first;
-  }
-  return req.socket.remoteAddress ?? '0.0.0.0';
+  if (forwarded === undefined) return socketAddress;
+  const hops = forwarded
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  // The nearest proxy's own entry is `hops[len-1]`; one more hop out is
+  // `hops[len-2]`, and so on. Fewer entries than we expected means the request
+  // did not come through the proxy chain we were told about, so trust nothing.
+  const index = hops.length - trustedProxyHops;
+  const candidate = index >= 0 ? hops[index] : undefined;
+  return candidate === undefined || candidate.length === 0 ? socketAddress : candidate;
 }
 
 /**
@@ -220,7 +246,7 @@ export function createApiServer(deps: ServerDeps): Server {
         auth,
         log,
         idempotencyKey,
-        clientIp: clientIpOf(req, headers),
+        clientIp: clientIpOf(req, headers, config.trustedProxyHops),
         requireAuth() {
           if (auth === null) throw new ApiError('unauthorized', 'A bearer token is required.');
           return auth;

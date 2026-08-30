@@ -60,10 +60,50 @@ export interface CommerceService {
     request: CreatePaymentIntentRequest,
   ): Promise<PaymentIntentResponse>;
   confirmPayment(accountId: string, orderId: string, request: ConfirmPaymentRequest): Promise<Order>;
-  transitionOrder(accountId: string, orderId: string, request: TransitionOrderRequest): Promise<Order>;
-  refundOrder(accountId: string, orderId: string, request: CreateRefundRequest): Promise<Order>;
+  transitionOrder(
+    accountId: string,
+    orderId: string,
+    request: TransitionOrderRequest,
+    actor?: CommerceActor,
+  ): Promise<Order>;
+  refundOrder(
+    accountId: string,
+    orderId: string,
+    request: CreateRefundRequest,
+    actor?: CommerceActor,
+  ): Promise<Order>;
   cancelOrder(accountId: string, orderId: string, request: CancelOrderRequest): Promise<Order>;
   handlePaymentWebhook(rawBody: string, headers: Readonly<Record<string, string>>): Promise<{ handled: boolean; orderId: string | null }>;
+}
+
+/**
+ * Who is asking.
+ *
+ * There is no staff identity provider yet (README, Blocker 9), so "operator"
+ * here means the caller presented the shared `LIVE_OPS_TOKEN` on top of a real
+ * bearer token — the same two-credential gate live-ops writes use. It is not
+ * RBAC and does not pretend to be; what it does is stop the *customer* path
+ * from being an operator path, which it was.
+ *
+ * Defaulted to `'customer'` at every entry point on purpose: a new call site
+ * that forgets to say gets the least privilege, not the most.
+ */
+export type CommerceActor = 'customer' | 'operator';
+
+/**
+ * Whether a customer may refund this order without an operator.
+ *
+ * Asked of the fulfillment timestamps rather than of the status, because the
+ * status collapses: an order refunded in part is `partially_refunded` whether
+ * it is sitting in the freezer or already on somebody's doorstep, and the
+ * question here is only ever whether the goods have left the building. Until
+ * they are packed, a self-service refund is ordinary customer service. After
+ * that it is a decision about product that is already gone, and "order it,
+ * ship it, refund it in full" was a free-product machine.
+ */
+function customerMayRefund(order: Order): boolean {
+  const f = order.fulfillment;
+  return f.packedAt == null && f.shippedAt == null && f.deliveredAt == null;
 }
 
 const CURRENCY = 'USD';
@@ -621,7 +661,16 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
      * Operator-shaped fulfillment transitions. Payment, refund and cancellation
      * have their own endpoints because they have side effects beyond status.
      */
-    async transitionOrder(accountId, orderId, request) {
+    async transitionOrder(accountId, orderId, request, actor = 'customer') {
+      // Fulfillment is somebody else's job. A player marking their own order
+      // shipped is not a workflow this product has, and combined with the
+      // refund path below it used to be a way of being sent a sandwich for
+      // nothing. The route gates on the operator token; this is the same rule
+      // stated where the behaviour lives, so a future caller cannot bypass it
+      // by going round the route.
+      if (actor !== 'operator') {
+        throw forbidden('Fulfillment transitions are an operator action.');
+      }
       const order = await loadOrder(accountId, orderId);
       const restricted: OrderStatus[] = ['paid', 'refunded', 'partially_refunded', 'cancelled', 'awaiting_payment'];
       if (restricted.includes(request.to)) {
@@ -651,10 +700,13 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
       }));
     },
 
-    async refundOrder(accountId, orderId, request) {
+    async refundOrder(accountId, orderId, request, actor = 'customer') {
       const order = await loadOrder(accountId, orderId);
       if (order.payment === null || order.payment.status !== 'succeeded') {
         throw conflict('There is nothing to refund on that order.');
+      }
+      if (actor !== 'operator' && !customerMayRefund(order)) {
+        throw forbidden('An order that has been packed can only be refunded by an operator.');
       }
       const remaining = order.total.amountMinor - order.refundedTotal.amountMinor;
       const amountMinor = request.amountMinor ?? remaining;
@@ -681,7 +733,7 @@ export function createCommerceService(deps: DomainDeps, rewards: RewardsService)
         reason: request.reason,
         state: providerRefund.status === 'succeeded' ? 'succeeded' : providerRefund.status === 'pending' ? 'pending' : 'failed',
         providerRefundId: providerRefund.refundId,
-        requestedBy: 'customer',
+        requestedBy: actor,
         createdAt: now,
         updatedAt: now,
         failureCode: providerRefund.failureCode,

@@ -121,12 +121,17 @@ test.describe('visual regression', () => {
      */
     if (roast) {
       const r = roast as RoastOutcome;
-      if (r.rotation === 0) {
+      // Twenty-four presses of a quarter-radian each. Anything much short of
+      // that means presses are being dropped somewhere between the key and the
+      // simulation — which is what defect #25 was, and which produced sixteen
+      // entirely plausible screenshots of a marshmallow browned on one face.
+      if (r.rotation < 24 * 0.22 * 0.9) {
         warnings.push(
-          `The marshmallow never turned: roastInput.rotation is ${r.rotation} after 24 ArrowRight presses. ` +
-            'Arrow keys now also drive walking, so the roast stages here are one-sided and every baseline ' +
-            'downstream of them shows a marshmallow browned on one face only. The keyboard-only roasting ' +
-            'path is the accessibility alternative to the drag (spec §12); ritual.spec.ts asserts it and is ' +
+          `The marshmallow barely turned: roastInput.rotation is ${r.rotation} after 24 ArrowRight ` +
+            `presses, which should give ${(24 * 0.22).toFixed(2)}. Presses are being dropped between the ` +
+            'key and the simulation, so these roast stages are one-sided and every baseline downstream of ' +
+            'them shows a marshmallow browned on one face only. The keyboard-only roasting path is the ' +
+            'accessibility alternative to the drag (spec §12); ritual.spec.ts asserts it directly and is ' +
             'the test that should be red for it.',
         );
       }

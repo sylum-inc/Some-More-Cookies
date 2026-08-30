@@ -246,17 +246,30 @@ test.describe('accessibility', () => {
     await act(page, 'beginRoasting');
     await page.waitForTimeout(300);
 
-    const before = await page.evaluate(
-      () => (window.__someMore!.store.state.ritual as unknown as { roastInput: { rotation: number } }).roastInput.rotation,
-    );
-    for (let i = 0; i < 10; i++) {
-      await page.keyboard.press('ArrowRight');
-      await page.waitForTimeout(60);
-    }
-    const after = await page.evaluate(
-      () => (window.__someMore!.store.state.ritual as unknown as { roastInput: { rotation: number } }).roastInput.rotation,
-    );
-    expect(after).toBeGreaterThan(before);
+    const rotation = () =>
+      page.evaluate(
+        () =>
+          (window.__someMore!.store.state.ritual as unknown as { roastInput: { rotation: number } })
+            .roastInput.rotation,
+      );
+
+    // Before a key is touched the line teaches the gesture, because a pointer
+    // is what most people arrive with.
+    await expect(page.getByTestId('guidance')).toContainText('Drag');
+
+    const before = await rotation();
+    // No waiting between presses, deliberately. Every press must reach the
+    // marshmallow, not just the last one before a frame: the simulation steps
+    // sixty times a second whatever the renderer manages, and this ran at
+    // about 1.5 frames a second under SwiftShader while twenty-three of every
+    // twenty-four presses were being dropped. See defect #25.
+    for (let i = 0; i < 10; i++) await page.keyboard.press('ArrowRight');
+    const after = await rotation();
+    expect(after - before).toBeCloseTo(10 * 0.22, 5);
+
+    // And having used a key, the line now names the keys. The non-gestural
+    // path is worth little if nobody is told it is there (spec §12).
+    await expect(page.getByTestId('guidance')).toContainText('Arrows');
   });
 });
 

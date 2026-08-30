@@ -119,9 +119,25 @@ const MACHINE_FRONT: [number, number] = [Math.sin(LAYOUT.machineRotation), Math.
 const EXPLORE_FOV = 68;
 /** Leaning in over something small. The old anchored roast pose used 44°. */
 const CLOSE_WORK_FOV = 48;
+/**
+ * How close to the fire's centre you kneel to roast.
+ *
+ * The anchored camera this replaces sat at 0.78 m. A body cannot: the fire is a
+ * soft obstacle of radius 0.55 and walking into it is meant to cost you. This
+ * is as close as someone would actually kneel — near enough to read the
+ * browning, far enough that the coals are not in your lap.
+ */
+const ROASTING_STAND_DISTANCE = 0.95;
 
 /** A player who is mid-interaction takes no movement input. */
-const EMPTY_INTENT: MoveIntent = {};
+/**
+ * Movement ignored, posture still honoured.
+ *
+ * Replaces a frozen empty intent: the hands-busy stages must still be able to
+ * kneel, so the one field that is not movement has to get through. Reused
+ * rather than rebuilt so no frame allocates.
+ */
+const restingIntent: MoveIntent = {};
 
 /**
  * Reused presence and places buffers.
@@ -189,6 +205,7 @@ interface CameraPose {
  * settles into place when you actually start doing something.
  */
 const ANCHORED_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>([
+  'roasting',
   'assembling',
   'machine',
   'reveal',
@@ -211,8 +228,34 @@ const ANCHORED_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>([
  */
 const KNEELING_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>(['roasting']);
 
+/**
+ * Whether the pointer belongs to the task rather than to looking around.
+ *
+ * Two different questions were being answered by this one predicate: "are the
+ * player's hands busy" and "has the camera left the player's eyes". They used
+ * to have the same answer everywhere, so one name did both jobs — and then
+ * unanchoring roasting silently changed the input model too, which set the
+ * withdraw gesture fighting free-look over the same drag. Two names now.
+ *
+ * This is the input one, and it is what every call site in `App.tsx` means:
+ * while you are holding a roasting stick, a drag pulls the marshmallow, not
+ * your head.
+ */
 export function isAnchored(stage: RitualStage): boolean {
   return ANCHORED_STAGES.has(stage);
+}
+
+/**
+ * Whether the camera has left the player's eyes.
+ *
+ * This is the one that matters for the complaint that the game reads as a
+ * series of screens. Kneeling stages keep the camera on the player: their
+ * hands are busy, but they are still standing in their own body, in one
+ * continuous campsite, and getting there and leaving are movements rather
+ * than cuts.
+ */
+export function isCameraAnchored(stage: RitualStage): boolean {
+  return ANCHORED_STAGES.has(stage) && !KNEELING_STAGES.has(stage);
 }
 
 function poseFor(
@@ -383,7 +426,11 @@ export function World({
    * stick. Alone at a campsite there is no campfire session and this is exactly
    * `isAnchored(stage)`, as it always was.
    */
-  const anchored = isAnchored(ritual.stage) && !(store.campfire?.spectating ?? false);
+  const spectating = store.campfire?.spectating ?? false;
+  /** Hands busy: the pointer drives the task, so movement intent is ignored. */
+  const anchored = isAnchored(ritual.stage) && !spectating;
+  /** Camera taken off the player entirely. Kneeling stages are deliberately not. */
+  const cameraAnchored = isCameraAnchored(ritual.stage) && !spectating;
   const lastReach = useRef<string | null>(null);
   /** Where a hand closed on the sandwich, while it is being lifted out. */
   const liftFrom = useRef<{ x: number; y: number } | null>(null);
@@ -439,10 +486,18 @@ export function World({
     advance(clock, delta, (dt) => {
       // The player moves in every stage; the anchored stages simply stop
       // taking movement input, so the world keeps simulating around them.
-      // Posture is decided by what the player is doing, not by a key they hold:
-      // starting to roast kneels you down, finishing stands you back up.
-      intentRef.current.kneel = KNEELING_STAGES.has(ritual.stage);
-      stepPlayer(player, walkable, anchored ? EMPTY_INTENT : intentRef.current, dt);
+      /*
+       * Posture is decided by what the player is doing, not by a key they hold:
+       * starting to roast kneels you down, finishing stands you back up.
+       *
+       * It has to survive the hands-busy branch, which is the whole point --
+       * roasting ignores movement intent and still needs the body to lower, so
+       * the resting intent carries posture and nothing else.
+       */
+      const kneeling = KNEELING_STAGES.has(ritual.stage);
+      intentRef.current.kneel = kneeling;
+      restingIntent.kneel = kneeling;
+      stepPlayer(player, walkable, anchored ? restingIntent : intentRef.current, dt);
 
       if (ritual.stage === 'roasting') {
         // The marshmallow is held from wherever the player is standing, so
@@ -519,6 +574,30 @@ export function World({
       if (isAnchored(ritual.stage) && !isAnchored(lastStage.current)) {
         anchorBearing.current = bearingFromFire(player);
       }
+
+      /*
+       * Kneeling down is not enough on its own: you have to come closer.
+       *
+       * The first attempt at removing the anchored roast camera lowered the eye
+       * and left the player standing where they were, two metres out, and the
+       * marshmallow became a dozen pixels over a distant pit. The old composed
+       * pose was 0.78 m from the fire, and that proximity was doing as much
+       * work as the height was.
+       *
+       * So the body closes the distance too, by walking: a move target on the
+       * player's own bearing, near enough to work over the coals but outside
+       * the fire's soft obstacle. Locomotion carries them in and collision
+       * still applies, which is what keeps this a movement rather than the
+       * teleport it is replacing.
+       */
+      if (KNEELING_STAGES.has(ritual.stage) && !KNEELING_STAGES.has(lastStage.current)) {
+        const bearing = bearingFromFire(player);
+        player.moveTarget = vec3(
+          Math.cos(bearing) * ROASTING_STAND_DISTANCE,
+          0,
+          Math.sin(bearing) * ROASTING_STAND_DISTANCE,
+        );
+      }
       lastStage.current = ritual.stage;
       store.setStageFromRitual();
     }
@@ -526,9 +605,12 @@ export function World({
     // --- Camera ----------------------------------------------------------
     const perspective = camera as THREE.PerspectiveCamera;
 
-    if (!anchored && ritual.stage !== 'arriving') {
-      // Exploring: the camera is the player's own eyes. No easing — a first
-      // person view that lags its own head is nauseating.
+    if (!cameraAnchored && ritual.stage !== 'arriving') {
+      // The camera is the player's own eyes. No easing — a first person view
+      // that lags its own head is nauseating. This branch now also carries the
+      // kneeling stages, where the hands are busy but the body is still the
+      // player's own: the eye height comes down through `stance`, so leaning in
+      // over the coals is a movement rather than a cut to a composed pose.
       eyePosition(player, eyeScratch);
       lookDirection(player, lookScratch);
       // Lying back: the same head, tipped up. The pitch limits in locomotion

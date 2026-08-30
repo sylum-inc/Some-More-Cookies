@@ -740,6 +740,23 @@ export class SessionRoom {
 
   async handleBlock(peer: RoomPeer, seq: number, accountId: string, blocked: boolean): Promise<void> {
     await this.serialize(async () => {
+      /*
+       * Its own budget, because this writes a moderation row per message and
+       * the only thing metering it was the ninety-a-second global message
+       * bucket (audit S12). Not an attack — each row needs a real account id —
+       * but a peer should not be able to grow a table at ninety rows a second.
+       *
+       * Checked before the self-block guard so that a loop cannot spend its
+       * time being told off for free.
+       */
+      const nowMs = this.nowMs();
+      if (!peer.meters.blocks.tryTake(nowMs)) {
+        this.sendError(peer, 'rate_limited', 'Too many blocks at once.', {
+          seq,
+          retryAfterMs: peer.meters.blocks.retryAfterMs(nowMs),
+        });
+        return;
+      }
       if (accountId === peer.accountId) {
         this.sendError(peer, 'invalid_message', 'You cannot block yourself.', { seq });
         return;

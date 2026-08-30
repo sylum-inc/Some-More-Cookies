@@ -257,7 +257,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
        * alternative failure — a school, a campsite with one hotspot, a CGNAT
        * range — is a player who cannot start at all.
        */
-      const signups = rateLimiter.consume(`anon_signup:${origin.clientIp}`, config.anonymousSignupsPerHour, 3600);
+      const signups = await rateLimiter.consume(`anon_signup:${origin.clientIp}`, config.anonymousSignupsPerHour, 3600);
       if (!signups.allowed) {
         logger.warn('identity.bootstrap_velocity', { count: signups.count });
         throw new ApiError('rate_limited', 'Too many new campers from here at once. Try again shortly.', {
@@ -452,7 +452,7 @@ export function createIdentityService(deps: DomainDeps, passports: PassportServi
 
     async requestMagicLink(accountId, request) {
       const email = request.email.toLowerCase();
-      const decision = rateLimiter.consume(`magic_link:${email}`, config.magicLinksPerWindow, 3600);
+      const decision = await rateLimiter.consume(`magic_link:${email}`, config.magicLinksPerWindow, 3600);
       if (!decision.allowed) {
         throw new ApiError('rate_limited', 'Too many sign-in links requested for that address. Try again later.', {
           headers: { 'retry-after': String(Math.ceil((decision.resetAt.getTime() - clock.now().getTime()) / 1000)) },

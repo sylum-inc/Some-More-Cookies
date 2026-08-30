@@ -291,7 +291,7 @@ export function createRewardsService(deps: DomainDeps, passports: PassportServic
         });
       }
 
-      const decision = rateLimiter.consume(
+      const decision = await rateLimiter.consume(
         `reward_claim:${accountId}`,
         config.rewardClaimsPerWindow,
         config.rewardClaimWindowSeconds,

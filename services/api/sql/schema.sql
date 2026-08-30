@@ -921,3 +921,13 @@ COMMIT;
 --     ones a merge must reconcile rather than blindly re-point.
 --   * Sweeping faded traces and expired idempotency records are cron jobs, not
 --     request-path work: see `world_traces_sweep_idx` and `idempotency_expiry_idx`.
+
+-- Backs RateLimiter (README Blocker 11): the shared velocity windows. Fixed
+-- windows, matching `createMemoryRateLimiter` exactly — the two have to be the
+-- same thing or testing against one says nothing about the other.
+CREATE TABLE rate_limit_windows (
+  key       text        PRIMARY KEY,
+  count     integer     NOT NULL DEFAULT 0,
+  reset_at  timestamptz NOT NULL
+);
+CREATE INDEX rate_limit_windows_reset_idx ON rate_limit_windows (reset_at);

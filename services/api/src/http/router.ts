@@ -3,7 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
   SCHEMA_VERSION,
-  containsRawCardData,
+  MAX_SCANNABLE_DEPTH,
+  scanForCardData,
   type ApiErrorCode,
   type ErrorEnvelope,
   type JsonValue,
@@ -237,11 +238,30 @@ export function parseJsonBody(rawBody: string, contentType: string | undefined):
   } catch {
     throw new ApiError('bad_request', 'Request body is not valid JSON.');
   }
-  if (containsRawCardData(decoded)) {
+  const scan = scanForCardData(decoded);
+  if (scan === 'card-data') {
     // Loud, deliberate rejection: we are never in PCI scope for raw card data.
     throw new ApiError(
       'raw_card_data_rejected',
       'Raw card data must never be sent to this API. Tokenize with the payment provider SDK instead.',
+    );
+  }
+  if (scan === 'too-deep') {
+    /*
+     * A body the scan could not finish is refused, not admitted.
+     *
+     * This used to be admitted, on the reasoning that nothing nested that
+     * deeply would survive schema validation. `JsonValueSchema` is recursive
+     * with no depth bound and the live-ops document routes take exactly that,
+     * so it did survive — a card number under sixteen levels of nesting was
+     * reported clean and stored. "I could not check this" is not a pass.
+     *
+     * Nothing legitimate is anywhere near the limit: the deepest environment
+     * manifest in the catalogue is five levels.
+     */
+    throw new ApiError(
+      'bad_request',
+      `Request body is nested more than ${MAX_SCANNABLE_DEPTH} levels deep, which is deeper than this service will inspect for card data. Flatten it.`,
     );
   }
   return decoded;

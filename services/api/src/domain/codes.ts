@@ -112,8 +112,25 @@ export function createCodesService(
    * withdrawn, already used) are distinguished because they are already obvious
    * from the code itself or from the fact that it worked once.
    */
-  function reject(reason: CodeRejection, ipHash: string, accountId: string): never {
-    const failures = rateLimiter.consume(
+  /*
+   * `async` because the failure counter it feeds is now shared (Blocker 11),
+   * and the counter has to land before the refusal is answered: the enforcing
+   * check is a `peek` on the *next* request, so an unawaited write lets a fast
+   * attacker out-run their own budget.
+   *
+   * It *builds* the error rather than throwing it, and every caller writes
+   * `throw await rejection(...)`. TypeScript only applies never-return
+   * narrowing to a direct call, not to an `await`, so an async function that
+   * threw would have quietly stopped narrowing at thirteen call sites — which
+   * is how the first attempt at this failed, loudly and immediately, with
+   * "'batch' is possibly null" four lines further down.
+   */
+  async function rejection(
+    reason: CodeRejection,
+    ipHash: string,
+    accountId: string,
+  ): Promise<ApiError> {
+    const failures = await rateLimiter.consume(
       `code_fail:${ipHash}`,
       config.codeFailuresPerWindow,
       config.codeRedemptionWindowSeconds,
@@ -130,17 +147,17 @@ export function createCodesService(
       'wrong_kind',
     ];
     if (opaque.includes(reason)) {
-      throw new ApiError('code_invalid', REJECTION_MESSAGES[reason], {
+      return new ApiError('code_invalid', REJECTION_MESSAGES[reason], {
         details: { reason: 'invalid' },
       });
     }
     if (reason === 'expired') {
-      throw new ApiError('code_invalid', REJECTION_MESSAGES.expired, { details: { reason } });
+      return new ApiError('code_invalid', REJECTION_MESSAGES.expired, { details: { reason } });
     }
     if (reason === 'batch_retired' || reason === 'batch_not_active') {
-      throw new ApiError('code_revoked', REJECTION_MESSAGES[reason], { details: { reason } });
+      return new ApiError('code_revoked', REJECTION_MESSAGES[reason], { details: { reason } });
     }
-    throw new ApiError('code_already_redeemed', REJECTION_MESSAGES[reason], { details: { reason } });
+    return new ApiError('code_already_redeemed', REJECTION_MESSAGES[reason], { details: { reason } });
   }
 
   async function loadBatch(batchId: string): Promise<CodeBatch> {
@@ -267,12 +284,12 @@ export function createCodesService(
 
       // Velocity, before anything else. A scraper working through a list should
       // hit this long before it learns whether any single code was real.
-      const attempts = rateLimiter.consume(
+      const attempts = await rateLimiter.consume(
         `code_redeem:${accountId}`,
         config.codeRedemptionsPerWindow,
         config.codeRedemptionWindowSeconds,
       );
-      const failures = rateLimiter.peek(
+      const failures = await rateLimiter.peek(
         `code_fail:${ipHash}`,
         config.codeFailuresPerWindow,
         config.codeRedemptionWindowSeconds,
@@ -287,41 +304,41 @@ export function createCodesService(
       }
 
       const parsed = parseSomeMoreCode(request.code);
-      if (!parsed.ok) reject('malformed', ipHash, accountId);
+      if (!parsed.ok) throw await rejection('malformed', ipHash, accountId);
 
       const verdict = signer.verify(parsed.code);
-      if (verdict === 'unknown_key') reject('unknown_key', ipHash, accountId);
-      if (verdict !== 'ok') reject('bad_signature', ipHash, accountId);
+      if (verdict === 'unknown_key') throw await rejection('unknown_key', ipHash, accountId);
+      if (verdict !== 'ok') throw await rejection('bad_signature', ipHash, accountId);
 
       const body = parsed.code.body;
       const nowMs = clock.now().getTime();
       if (body.expiresAtUnix !== 0 && body.expiresAtUnix * 1000 <= nowMs) {
-        reject('expired', ipHash, accountId);
+        throw await rejection('expired', ipHash, accountId);
       }
       // A campsite invite is a join, not a redemption; it goes through
       // `POST /v1/campsites/join`, which is where membership rules live.
-      if (body.kind === 'camp') reject('wrong_kind', ipHash, accountId);
+      if (body.kind === 'camp') throw await rejection('wrong_kind', ipHash, accountId);
 
       const batch = await repos.codeBatches.get(body.batchId);
-      if (batch === null) reject('unknown_batch', ipHash, accountId);
-      if (batch.kind !== body.kind) reject('unknown_batch', ipHash, accountId);
-      if (batch.status === 'retired') reject('batch_retired', ipHash, accountId);
-      if (batch.status === 'paused') reject('batch_not_active', ipHash, accountId);
+      if (batch === null) throw await rejection('unknown_batch', ipHash, accountId);
+      if (batch.kind !== body.kind) throw await rejection('unknown_batch', ipHash, accountId);
+      if (batch.status === 'retired') throw await rejection('batch_retired', ipHash, accountId);
+      if (batch.status === 'paused') throw await rejection('batch_not_active', ipHash, accountId);
 
       const nowIso = clock.isoNow();
-      if (batch.activeFrom !== null && nowIso < batch.activeFrom) reject('batch_not_active', ipHash, accountId);
-      if (batch.activeUntil !== null && nowIso >= batch.activeUntil) reject('batch_not_active', ipHash, accountId);
+      if (batch.activeFrom !== null && nowIso < batch.activeFrom) throw await rejection('batch_not_active', ipHash, accountId);
+      if (batch.activeUntil !== null && nowIso >= batch.activeUntil) throw await rejection('batch_not_active', ipHash, accountId);
 
       // A signature already proves we minted it, so this is belt-and-braces
       // against a key that leaked without our noticing: a serial beyond what
       // the run ever printed cannot be a real wrapper.
       const serial = Number.parseInt(body.ref, 16);
       if (!Number.isFinite(serial) || serial < 0 || serial >= batch.mintedCount) {
-        reject('never_minted', ipHash, accountId);
+        throw await rejection('never_minted', ipHash, accountId);
       }
 
       const held = await repos.codeRedemptions.countForAccountAndBatch(accountId, batch.id);
-      if (held >= batch.perAccountLimit) reject('limit_reached', ipHash, accountId);
+      if (held >= batch.perAccountLimit) throw await rejection('limit_reached', ipHash, accountId);
 
       const redemption: CodeRedemption = {
         id: ids.next(ID_PREFIX.codeRedemption),
@@ -347,7 +364,7 @@ export function createCodesService(
         // A real code presented twice is exactly what working through a scraped
         // list looks like, so it counts against the failure budget too.
         if (error instanceof ApiError && error.code === 'code_already_redeemed') {
-          rateLimiter.consume(
+          await rateLimiter.consume(
             `code_fail:${ipHash}`,
             config.codeFailuresPerWindow,
             config.codeRedemptionWindowSeconds,

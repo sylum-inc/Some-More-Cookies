@@ -285,14 +285,72 @@ export function stringCarriesPan(value: string): boolean {
  * edge *before* schema parsing (which would otherwise silently strip the keys)
  * so that a client mistake is loudly rejected instead of quietly dropped.
  */
-export function containsRawCardData(value: unknown, depth = 0): boolean {
-  if (depth > 12 || value === null || value === undefined) return false;
-  if (typeof value === 'string') return stringCarriesPan(value);
-  if (typeof value !== 'object') return false;
-  if (Array.isArray(value)) return value.some((v) => containsRawCardData(v, depth + 1));
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (FORBIDDEN_CARD_FIELDS.includes(normalizeKey(key))) return true;
-    if (containsRawCardData(child, depth + 1)) return true;
+/**
+ * How deep the scan will walk before it gives up.
+ *
+ * The cap has to exist: this runs on every request body, before validation, and
+ * an unbounded recursive walk over a hostile hundred-thousand-deep body is a
+ * stack overflow rather than a rejection. Twelve is more than double the
+ * deepest thing the product legitimately has — the largest environment manifest
+ * in the catalogue is five.
+ */
+export const MAX_SCANNABLE_DEPTH = 12;
+
+/**
+ * What the scan found, including the case where it could not finish.
+ *
+ * The third outcome is the point. This used to return a plain `false` past the
+ * depth cap, and the argument for that was that a body nested deeper than
+ * twelve is not a shape any route's schema accepts — so the data would be
+ * rejected anyway.
+ *
+ * **That argument was wrong, and this is the bug it hid.** `JsonValueSchema` is
+ * recursive with no depth bound, and the live-ops document routes take exactly
+ * that and store what they are given. Measured: a body with `cardNumber` under
+ * sixteen levels of nesting is reported clean by the scan *and* accepted by
+ * Zod. There was a real path to storing a card number in this service, and it
+ * was guarded by a function that answered "no card data here" when what it
+ * meant was "I stopped looking".
+ *
+ * So the scan now says which of those it means, and the caller refuses both.
+ * "I could not check this" is not a pass.
+ */
+export type CardScanResult = 'clean' | 'card-data' | 'too-deep';
+
+export function scanForCardData(value: unknown, depth = 0): CardScanResult {
+  if (value === null || value === undefined) return 'clean';
+  if (depth > MAX_SCANNABLE_DEPTH) return 'too-deep';
+  if (typeof value === 'string') return stringCarriesPan(value) ? 'card-data' : 'clean';
+  if (typeof value !== 'object') return 'clean';
+
+  // `too-deep` is remembered rather than returned at once, because a body that
+  // is both too deep *and* carries a card number at a shallower level should be
+  // reported as what it actually is.
+  let deep = false;
+  if (Array.isArray(value)) {
+    for (const child of value) {
+      const found = scanForCardData(child, depth + 1);
+      if (found === 'card-data') return 'card-data';
+      if (found === 'too-deep') deep = true;
+    }
+    return deep ? 'too-deep' : 'clean';
   }
-  return false;
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (FORBIDDEN_CARD_FIELDS.includes(normalizeKey(key))) return 'card-data';
+    const found = scanForCardData(child, depth + 1);
+    if (found === 'card-data') return 'card-data';
+    if (found === 'too-deep') deep = true;
+  }
+  return deep ? 'too-deep' : 'clean';
+}
+
+/**
+ * The narrow question: does this definitely carry card data?
+ *
+ * Kept because it reads well at a call site that has already established the
+ * body is scannable. Anything guarding an ingress wants `scanForCardData`,
+ * because a `false` from here still means "or I could not tell".
+ */
+export function containsRawCardData(value: unknown): boolean {
+  return scanForCardData(value) === 'card-data';
 }

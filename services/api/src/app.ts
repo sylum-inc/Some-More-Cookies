@@ -4,7 +4,7 @@ import { loadConfig, type ApiConfig, type ConfigWarning } from './config.js';
 import { createLogger, type Logger } from './logging.js';
 import { idFactory, type IdFactory } from './ids.js';
 import { createConsoleMailer, type Mailer } from './mailer.js';
-import { createMemoryRateLimiter, type RateLimiter } from './ratelimit.js';
+import { createMemoryRateLimiter, createPostgresRateLimiter, type RateLimiter } from './ratelimit.js';
 import { createTokenSigner } from './auth/tokens.js';
 import { createIdempotencyLayer } from './idempotency.js';
 import { createFakePaymentProvider } from './payments/fake.js';
@@ -49,6 +49,8 @@ export interface AppOptions {
    * pool and a fresh migration run.
    */
   readonly database?: Database;
+  /** Overrides the limiter the database would otherwise choose. For tests. */
+  readonly rateLimiter?: RateLimiter;
   readonly mailer?: Mailer;
   readonly payments?: PaymentProvider;
   readonly logger?: Logger;
@@ -125,7 +127,18 @@ export function createApp(options: AppOptions = {}): App {
   const repos = options.repositories ?? database?.repos ?? createInMemoryRepositories(seed);
 
   const mailer = options.mailer ?? createConsoleMailer(logger);
-  const rateLimiter = createMemoryRateLimiter(clock);
+  /*
+   * The limiter follows the database, exactly as the repositories do.
+   *
+   * With Postgres it is a shared budget across every instance (Blocker 11);
+   * without one it is the in-memory counter, which is the right answer for a
+   * single node and for the tests and is what it always was. One question,
+   * asked in one place, and the two implementations are the same fixed-window
+   * arithmetic so the tests mean something either way.
+   */
+  const rateLimiter =
+    options.rateLimiter ??
+    (database !== null ? createPostgresRateLimiter(database.pool, clock) : createMemoryRateLimiter(clock));
   const tokens = createTokenSigner(config.authTokenSecret, config.authTokenTtlSeconds);
 
   const payments: PaymentProvider =

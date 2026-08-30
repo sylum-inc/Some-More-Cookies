@@ -28,7 +28,7 @@ export function createAnalyticsService(deps: DomainDeps): AnalyticsService {
        * limiter is in-process (README Blocker 11), so a second instance
        * doubles this number.
        */
-      const decision = rateLimiter.consume(`events:${origin.clientIp}`, config.eventBatchesPerHour, 3600);
+      const decision = await rateLimiter.consume(`events:${origin.clientIp}`, config.eventBatchesPerHour, 3600);
       if (!decision.allowed) {
         logger.warn('analytics.ingest_velocity', { accountId, count: decision.count });
         throw new ApiError('rate_limited', 'Too much telemetry from here at once.', {

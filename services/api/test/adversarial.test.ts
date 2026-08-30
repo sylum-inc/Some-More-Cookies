@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SCHEMA_VERSION } from '@somemore/protocol';
 import { generateCodeKeyPair } from '../src/codes/signing.js';
 import { bootstrap, createCampsite, key, sandwichPayload, startTestApi, type TestHarness } from './harness.js';
+import { createInMemoryRepositories } from '../src/repos/memory/index.js';
 
 /*
  * The adversary's file.
@@ -266,6 +267,52 @@ describe('rewards: claim-once under concurrency', () => {
   });
 });
 
+describe('the memory repositories keep the invariants the schema claims', () => {
+  /*
+   * `sql/schema.sql` says at the top that where it declares a UNIQUE constraint
+   * the memory implementation enforces the same invariant by hand. For
+   * `reward_grants_one_live_per_account_reward` it did not.
+   *
+   * The audit found claim-once still held under a real two-request race — but
+   * only because no `await` in that path crosses an I/O boundary, so the two
+   * handlers cannot interleave. That is a property of the runtime, not an
+   * invariant, and it would evaporate the first time anything in the claim path
+   * started actually waiting for something. This asks the repository directly,
+   * where there is no race to hide behind.
+   */
+  it('refuses a second live grant of the same reward to the same account', async () => {
+    const repos = createInMemoryRepositories();
+    const base = {
+      rewardId: 'rwd_free_kit',
+      accountId: 'acct_someone',
+      rewardCode: 'free_kit',
+      kind: 'perk' as const,
+      valueTier: 'high' as const,
+      points: 0,
+      status: 'granted' as const,
+      source: { type: 'gameplay' as const },
+      grantedAt: new Date().toISOString(),
+      revokedAt: null,
+      consumedAt: null,
+      redeemedOnOrderId: null,
+    };
+
+    const first = await repos.rewardGrants.create({ ...base, id: 'grant_1' });
+    expect(first.id).toBe('grant_1');
+
+    await expect(repos.rewardGrants.create({ ...base, id: 'grant_2' })).rejects.toMatchObject({
+      code: 'conflict',
+    });
+
+    // Revoke the live one and the account may hold it again, which is the
+    // whole point of the index being partial on `status <> 'revoked'`.
+    await repos.rewardGrants.update('grant_1', (g) => ({ ...g, status: 'revoked' }));
+    const third = await repos.rewardGrants.create({ ...base, id: 'grant_3' });
+    expect(third.id).toBe('grant_3');
+    expect(await repos.rewardGrants.countForAccountAndReward('acct_someone', 'rwd_free_kit')).toBe(1);
+  });
+});
+
 describe('cards: the API is never in scope for a PAN', () => {
   /*
    * `containsRawCardData` tests a string with `PAN_LIKE` and then re-tests the
@@ -285,5 +332,46 @@ describe('cards: the API is never in scope for a PAN', () => {
     });
     expect(response.status).toBe(400);
     expect(response.body.error.code).toBe('raw_card_data_rejected');
+  });
+
+  /*
+   * Audit S13, which was recorded as "not fixed, argued" — the argument being
+   * that a body nested deeper than the scan walks is not a shape any route's
+   * schema accepts, so the data is rejected either way.
+   *
+   * It is not rejected either way. `JsonValueSchema` is recursive with no depth
+   * bound, and the live-ops document routes take exactly that and store what
+   * they are given. This is that path, over HTTP: a card number under sixteen
+   * levels of nesting, at an ingress that would have kept it.
+   */
+  it('refuses a body it cannot finish checking, rather than storing it', async () => {
+    const player = await bootstrap(api);
+    let deep: unknown = { cardNumber: '4242424242424242' };
+    for (let i = 0; i < 15; i += 1) deep = { nest: deep };
+
+    const response = await api.request('/v1/live-ops/documents/validate', {
+      method: 'POST',
+      token: player.token,
+      body: { kind: 'environment', body: deep },
+    });
+
+    // A 400 with a sentence about depth, not a 201 with a card number in it.
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toMatch(/nested more than \d+ levels/i);
+  });
+
+  it('still accepts content nested as deeply as the product actually nests it', async () => {
+    // The deepest environment manifest in the catalogue is five levels. A guard
+    // that refused real content would be a worse bug than the one it fixed.
+    const player = await bootstrap(api);
+    let fine: unknown = { leaf: 'nothing to see' };
+    for (let i = 0; i < 8; i += 1) fine = { nest: fine };
+
+    const response = await api.request('/v1/live-ops/documents/validate', {
+      method: 'POST',
+      token: player.token,
+      body: { kind: 'environment', body: fine },
+    });
+    expect(response.status).not.toBe(400);
   });
 });

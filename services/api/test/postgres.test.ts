@@ -10,6 +10,8 @@ import {
 } from './harness.js';
 import { listApplied, loadMigrations, migrate, truncateData } from '../src/db/index.js';
 import { generateCodeKeyPair } from '../src/codes/signing.js';
+import { createPostgresRateLimiter } from '../src/ratelimit.js';
+import { systemClock } from '../src/clock.js';
 import { OPS_TOKEN_HEADER } from '../src/routes/liveops.js';
 
 /*
@@ -762,5 +764,69 @@ describePostgres('publishing content from two places at once', () => {
       expect(new Set(versions).size).toBe(versions.length);
       expect(Math.max(...versions)).toBe(versions.length);
     });
+  });
+});
+
+/*
+ * README Blocker 11. The velocity limiter counted in process memory, so two
+ * instances of this service were two budgets — a second instance could not let
+ * anybody claim a reward twice (that is a partial unique index and holds
+ * regardless) but it could let them claim faster than intended, and every other
+ * rate in the service had the same shape.
+ *
+ * The point of these is that they use *two separate limiter instances* over one
+ * database. A single instance sharing a budget with itself proves nothing.
+ */
+describePostgres('one budget across two instances of the service', () => {
+  it('counts a shared window in the database, not in a process', async () => {
+    const instanceA = createPostgresRateLimiter(api.app.database!.pool, systemClock);
+    const instanceB = createPostgresRateLimiter(api.app.database!.pool, systemClock);
+    const key = `test:${Math.random().toString(36).slice(2)}`;
+
+    // Three allowed in total, asked for alternately by two instances.
+    expect((await instanceA.consume(key, 3, 60)).allowed).toBe(true);
+    expect((await instanceB.consume(key, 3, 60)).allowed).toBe(true);
+    expect((await instanceA.consume(key, 3, 60)).allowed).toBe(true);
+
+    const fourth = await instanceB.consume(key, 3, 60);
+    expect(fourth.allowed, 'the second instance had its own budget').toBe(false);
+    expect(fourth.count).toBe(4);
+    expect(fourth.remaining).toBe(0);
+
+    // And one instance can see what the other spent without spending anything.
+    const seen = await instanceA.peek(key, 3, 60);
+    expect(seen.count).toBe(4);
+    expect(seen.allowed).toBe(false);
+
+    await instanceA.reset(key);
+    expect((await instanceB.consume(key, 3, 60)).allowed).toBe(true);
+  });
+
+  it('counts concurrent consumes exactly once each', async () => {
+    // The upsert does the arithmetic inside one statement precisely so that a
+    // read-then-write cannot lose an increment between the two.
+    const limiter = createPostgresRateLimiter(api.app.database!.pool, systemClock);
+    const key = `race:${Math.random().toString(36).slice(2)}`;
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => limiter.consume(key, 5, 60)),
+    );
+    const counts = results.map((r) => r.count).sort((a, b) => a - b);
+    expect(counts, 'an increment was lost to a race').toEqual(
+      Array.from({ length: 20 }, (_, i) => i + 1),
+    );
+    expect(results.filter((r) => r.allowed)).toHaveLength(5);
+  });
+
+  it('starts a fresh window once the old one has expired', async () => {
+    const limiter = createPostgresRateLimiter(api.app.database!.pool, systemClock);
+    const key = `window:${Math.random().toString(36).slice(2)}`;
+
+    // A window of zero seconds is already over by the time it is read back.
+    expect((await limiter.consume(key, 1, 0)).count).toBe(1);
+    await new Promise((done) => setTimeout(done, 40));
+    const next = await limiter.consume(key, 1, 0);
+    expect(next.count, 'the expired window was continued rather than replaced').toBe(1);
+    expect(next.allowed).toBe(true);
   });
 });

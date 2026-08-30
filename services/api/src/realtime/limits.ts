@@ -24,6 +24,15 @@ export interface RealtimeLimitsConfig extends RealtimeLimits {
   readonly closeTimeoutMs: number;
   /** How long a `walk_off` silhouette stays on the trail before it is gone. */
   readonly departureLingerMs: number;
+  /**
+   * Blocks a peer may register per minute.
+   *
+   * Server-side only, deliberately: it is not on the wire like the chat and
+   * authority budgets are, because blocking is not a thing a client paces
+   * itself for. Nobody blocks twelve people a minute by hand, and a client that
+   * is doing so does not need to be told its budget politely.
+   */
+  readonly blocksPerMinute: number;
 }
 
 export const DEFAULT_REALTIME_LIMITS: RealtimeLimitsConfig = Object.freeze({
@@ -40,6 +49,19 @@ export const DEFAULT_REALTIME_LIMITS: RealtimeLimitsConfig = Object.freeze({
   authorityRequestsPerMinute: 60,
   // "A short cooldown on repeated interference" (spec §9).
   interferencePerMinute: 12,
+  /*
+   * Blocking somebody is a rare, deliberate social act — you do it once about
+   * one person. Twelve a minute is far more than anybody means and far less
+   * than a loop.
+   *
+   * It needs its own bucket because `handleBlock` writes a moderation row per
+   * message, and the only thing metering it was the ninety-a-second global
+   * message budget. That is not an attack — you need somebody's account id for
+   * each row — but it is unbounded storage growth driven by a peer, which is
+   * the kind of thing that is only ever noticed by the person paying for the
+   * disk. Audit S12.
+   */
+  blocksPerMinute: 12,
   interferenceCooldownMs: 8_000,
   connectionsPerAccount: 3,
   maxInputHistory: MAX_INPUT_HISTORY,
@@ -103,6 +125,7 @@ export class ConnectionMeters {
   readonly chat: TokenBucket;
   readonly authority: TokenBucket;
   readonly interference: TokenBucket;
+  readonly blocks: TokenBucket;
   strikes = 0;
   /** Epoch ms until which interference-prone intents are refused outright. */
   interferenceCooldownUntilMs = 0;
@@ -113,6 +136,7 @@ export class ConnectionMeters {
     this.chat = new TokenBucket(limits.chatPerMinute, limits.chatPerMinute / 60, nowMs);
     this.authority = new TokenBucket(limits.authorityRequestsPerMinute, limits.authorityRequestsPerMinute / 60, nowMs);
     this.interference = new TokenBucket(limits.interferencePerMinute, limits.interferencePerMinute / 60, nowMs);
+    this.blocks = new TokenBucket(limits.blocksPerMinute, limits.blocksPerMinute / 60, nowMs);
   }
 }
 

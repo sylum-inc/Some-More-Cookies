@@ -8,6 +8,9 @@ import {
   TimestampSchema,
   addMoney,
   containsRawCardData,
+  JsonValueSchema,
+  MAX_SCANNABLE_DEPTH,
+  scanForCardData,
   stringCarriesPan,
   looksLikeCardNumber,
   money,
@@ -89,6 +92,46 @@ describe('raw card data guard', () => {
   it('rejects a PAN smuggled into an innocent field', () => {
     expect(containsRawCardData({ note: '4242424242424242' })).toBe(true);
     expect(containsRawCardData({ note: 'my order reference is SM-7K3Q9F' })).toBe(false);
+  });
+
+  /*
+   * The audit recorded this as "not fixed, argued": past twelve levels the scan
+   * gave up and returned `false`, and the argument was that nothing nested that
+   * deeply survives schema validation anyway.
+   *
+   * The argument was wrong. `JsonValueSchema` is recursive with no depth bound
+   * and the live-ops document routes take exactly that, so a card number under
+   * sixteen levels of nesting was reported clean *and* accepted *and* stored.
+   */
+  it('says when it could not finish looking, rather than saying it found nothing', () => {
+    let deep: unknown = { cardNumber: '4242424242424242' };
+    for (let i = 0; i < 15; i += 1) deep = { nest: deep };
+
+    expect(scanForCardData(deep)).toBe('too-deep');
+    expect(JsonValueSchema.safeParse(deep).success, 'the schema was the backstop').toBe(true);
+
+    // Shallow enough to see is still seen, and clean is still clean.
+    let shallow: unknown = { cardNumber: '4242424242424242' };
+    for (let i = 0; i < 3; i += 1) shallow = { nest: shallow };
+    expect(scanForCardData(shallow)).toBe('card-data');
+    expect(scanForCardData({ a: { b: { c: 'nothing here' } } })).toBe('clean');
+  });
+
+  it('reports card data it can see even when part of the body is too deep', () => {
+    // Otherwise the more hostile body gets the milder error.
+    let deep: unknown = { harmless: true };
+    for (let i = 0; i < 15; i += 1) deep = { nest: deep };
+    expect(scanForCardData({ cvc: '123', buried: deep })).toBe('card-data');
+  });
+
+  it('walks to the documented depth, and no further', () => {
+    const at = (levels: number): unknown => {
+      let value: unknown = { cvc: '123' };
+      for (let i = 0; i < levels; i += 1) value = { nest: value };
+      return value;
+    };
+    expect(scanForCardData(at(MAX_SCANNABLE_DEPTH - 1))).toBe('card-data');
+    expect(scanForCardData(at(MAX_SCANNABLE_DEPTH + 2))).toBe('too-deep');
   });
 
   /*

@@ -4,6 +4,7 @@ import { afterAll } from 'vitest';
 import { SCHEMA_VERSION } from '@somemore/protocol';
 import { createApp, type App } from '../src/app.js';
 import { createManualClock } from '../src/clock.js';
+import { createMemoryRateLimiter } from '../src/ratelimit.js';
 import { createFakePaymentProvider, type FakePaymentProvider } from '../src/payments/fake.js';
 import { createLogger, silentLogger } from '../src/logging.js';
 import type { Mailer, OutboundMail } from '../src/mailer.js';
@@ -182,7 +183,21 @@ export async function startTestApi(
     }
   }
 
+  /*
+   * The limiter is the in-memory one in tests, on both backends, and that is a
+   * deliberate seam rather than a shortcut.
+   *
+   * The Postgres limiter takes its window from the database's `now()` — one
+   * clock that no instance can push around, which is the point of a shared
+   * budget — so the manual clock these tests advance to prove a window rolls
+   * over cannot move it. Injecting the in-memory limiter keeps every *route*
+   * test deterministic on both backends, and the Postgres limiter's own window
+   * behaviour is asserted directly against a real database in
+   * `postgres.test.ts`. Two questions, tested where each can actually be
+   * answered.
+   */
   const app = createApp({
+    rateLimiter: createMemoryRateLimiter(clock),
     env: {
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',

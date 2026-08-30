@@ -5,6 +5,7 @@ import type {
   RewardGrantRepository,
 } from '../interfaces.js';
 import { MemoryTable } from './support.js';
+import { ApiError } from '../../errors.js';
 
 /** Backs `reward_definitions`. Seeded from code at boot (see domain/seed.ts). */
 export function createMemoryRewardDefinitionRepository(
@@ -33,6 +34,31 @@ export function createMemoryRewardGrantRepository(): RewardGrantRepository {
   const table = new MemoryTable<RewardGrant>('reward grant', (g) => g.id);
   return {
     async create(grant) {
+      /*
+       * `reward_grants_one_live_per_account_reward`, by hand.
+       *
+       * `sql/schema.sql` says at the top that where it declares a UNIQUE
+       * constraint the memory implementation enforces the same invariant by
+       * hand, and for this one it did not. The audit found that claim-once
+       * still held here under a real two-request race — but only because no
+       * `await` in that path crosses an I/O boundary, so the two handlers
+       * cannot interleave. That is a property of the runtime, not an
+       * invariant, and it would have evaporated the first time anything in the
+       * claim path started actually waiting for something.
+       *
+       * A conflict rather than a silent no-op, because that is what Postgres
+       * does with a unique violation and the two backends have to be the same
+       * thing to be worth testing against.
+       */
+      const live = table.filter(
+        (g) => g.accountId === grant.accountId && g.rewardId === grant.rewardId && g.status !== 'revoked',
+      );
+      if (grant.status !== 'revoked' && live.length > 0) {
+        throw new ApiError(
+          'conflict',
+          `Account ${grant.accountId} already holds a live grant for reward ${grant.rewardId}.`,
+        );
+      }
       return table.insert(grant);
     },
     async get(grantId) {

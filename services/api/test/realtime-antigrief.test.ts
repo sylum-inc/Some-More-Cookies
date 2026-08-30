@@ -125,6 +125,31 @@ describe('anti-grief', () => {
     expect(hostClient.all('error')).toHaveLength(0);
   });
 
+  /*
+   * Audit S12. `handleBlock` writes a moderation row per message, and the only
+   * thing metering it was the ninety-a-second global message bucket — so a peer
+   * could grow a table at ninety rows a second. Not an attack, since each row
+   * needs a real account id, but unbounded storage growth driven by a peer is
+   * the kind of thing only the person paying for the disk ever notices.
+   */
+  it('meters blocking on its own budget, not on the global message bucket', async () => {
+    const { host, guest, session } = await fireside(rig.api);
+    await joined(await rig.connect(host), session.id);
+    const guestClient = await joined(await rig.connect(guest), session.id);
+
+    // Well inside the 90/s message budget and well outside a human's intent.
+    const results: ('ack' | 'error')[] = [];
+    for (let i = 0; i < 30; i += 1) {
+      const seq = guestClient.send({ t: 'block', accountId: host.accountId });
+      results.push(await outcome(guestClient, seq));
+    }
+
+    const refused = results.filter((r) => r === 'error').length;
+    expect(refused, 'thirty blocks in a row were all accepted').toBeGreaterThan(0);
+    // And the first few still worked: this is a budget, not a wall.
+    expect(results.slice(0, 5).every((r) => r === 'ack')).toBe(true);
+  });
+
   it('stops relaying a blocked player, in both directions', async () => {
     const { host, guest, session } = await fireside(rig.api);
     const hostClient = await joined(await rig.connect(host), session.id);

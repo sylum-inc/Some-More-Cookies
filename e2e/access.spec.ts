@@ -386,8 +386,22 @@ test.describe('the machine says what it is doing', () => {
     await boot(page);
     const said = page.getByTestId('machine-state');
 
-    // Before anything is loaded.
-    await expect(said).toHaveText(/machine is (open and empty|ready)/i);
+    /*
+     * Before anything is loaded.
+     *
+     * This used to accept either wording with an alternation, because the door
+     * is still animating at boot and the narration follows it. That made the
+     * assertion unable to notice if the two ever swapped — the same shape of
+     * hole as defect #48. Reading the door first removes the ambiguity instead
+     * of tolerating it: whichever side of 0.5 it is on, exactly one sentence is
+     * correct, and this insists on that one.
+     */
+    const doorOpen = await page.evaluate(
+      () => window.__someMore!.store.state.ritual.machine.door > 0.5,
+    );
+    await expect(said).toHaveText(
+      doorOpen ? /machine is open and empty/i : /machine is ready/i,
+    );
 
     // Drive it to the two stages whose only other channel is a colour.
     await page.evaluate(() => {

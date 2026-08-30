@@ -22,11 +22,10 @@
  * the other side of the wire.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { generateKeyPairSync } from 'node:crypto';
 import { resolve } from 'node:path';
-import { readdirSync, statSync } from 'node:fs';
 
 /**
  * A shared operator secret for the fixture.
@@ -148,42 +147,25 @@ export async function startApi(options: { configured: boolean; corsOrigin?: stri
 }
 
 /**
- * Refuse to test a build older than the source it was built from.
+ * Build the console before serving it.
  *
  * `vite preview` serves `dist` and never rebuilds it, so a console change with
  * no rebuild is tested as the *previous* version — silently, and with every
- * assertion still green if it happens not to touch what changed. That is
- * exactly what happened once: a banner's wording changed, the old wording was
- * served, and the suite passed because the assertion was loose enough to match
- * a different line entirely. CI builds the console before running this project,
- * so this only ever fires locally — which is precisely where it is needed.
+ * assertion still green if it happens not to touch what changed. That is not
+ * hypothetical: a banner's wording changed, the old wording was served, and the
+ * suite passed because the assertion was loose enough to match a different line
+ * (IMPLEMENTATION_PLAN, defect #48).
+ *
+ * An earlier fix detected the staleness and told the caller to go and build.
+ * Building here is the same guarantee without the manual step, and a second is
+ * cheaper than the class of bug it removes. `playwright.config.ts` does the
+ * same for the player build, for the same reason.
  */
-function assertConsoleBuildIsCurrent(): void {
-  const root = resolve(process.cwd(), 'apps/console');
-  const dist = resolve(root, 'dist/index.html');
-  let builtAt: number;
-  try {
-    builtAt = statSync(dist).mtimeMs;
-  } catch {
-    throw new Error('apps/console/dist is missing. Run: npm run build --workspace @somemore/console');
-  }
-
-  const newest = (dir: string): number => {
-    let latest = 0;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = resolve(dir, entry.name);
-      latest = Math.max(latest, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs);
-    }
-    return latest;
-  };
-  const sourceAt = Math.max(newest(resolve(root, 'src')), statSync(resolve(root, 'index.html')).mtimeMs);
-
-  if (sourceAt > builtAt) {
-    throw new Error(
-      'apps/console/dist is older than apps/console/src, so these tests would run against the ' +
-        'previous build. Run: npm run build --workspace @somemore/console',
-    );
-  }
+function buildConsole(): void {
+  execFileSync('npm', ['run', 'build', '--workspace', '@somemore/console'], {
+    cwd: process.cwd(),
+    stdio: 'ignore',
+  });
 }
 
 /**
@@ -195,7 +177,7 @@ function assertConsoleBuildIsCurrent(): void {
  * specs exercise the CORS path a real deployment needs.
  */
 export async function startConsole(): Promise<RunningService> {
-  assertConsoleBuildIsCurrent();
+  buildConsole();
   const port = await freePort();
   /*
    * Its own process group, killed as a group.

@@ -166,10 +166,33 @@ export default defineConfig({
      */
     { name: 'subpath', testMatch: /subpath\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
   ],
+  /*
+   * Built, then served — and never reused.
+   *
+   * `vite preview` serves whatever is already in `apps/web/dist` and never
+   * rebuilds it, so for a long time eleven of the thirteen projects here ran
+   * against whatever the last build happened to be. A source change with no
+   * rebuild was tested as the *previous* version, silently, with every
+   * assertion still green if it did not happen to touch what changed. That is
+   * not hypothetical: it is exactly how a console banner change was tested
+   * against the old wording and passed (IMPLEMENTATION_PLAN, defect #48).
+   * `subpath` was the only project immune, because it builds its own artifact
+   * on purpose — the comment there already says a prebuilt one would beg the
+   * question, which was true of every other project too.
+   *
+   * `reuseExistingServer: false` matters as much as the build. With it on, a
+   * preview server left over from an earlier run is adopted silently and the
+   * fresh build above is never served. Off, a leftover server is a loud
+   * port-in-use error, which is the correct failure: it costs a few seconds of
+   * confusion instead of hiding a regression.
+   *
+   * The build costs a few seconds per invocation. A false green costs however
+   * long it takes somebody to notice.
+   */
   webServer: {
-    command: 'npm run preview --workspace @somemore/web',
+    command: 'npm run build --workspace @somemore/web && npm run preview --workspace @somemore/web',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
-    timeout: 120_000,
+    reuseExistingServer: false,
+    timeout: 180_000,
   },
 });

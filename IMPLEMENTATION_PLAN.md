@@ -284,6 +284,47 @@ The test for this was wrong twice before it was right, which is worth keeping:
    hit-testing follows painting, and that is exactly the claim: reachable by a
    screen reader and by Tab, not there for a thumb.
 
+### Session 6: what the verification itself was not verifying
+
+Asked to install the coverage provider and sweep the browser suites for the
+stale-build pattern found in the console. Both turned out to be larger than the
+thing they were following up on.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 50 | **Eleven of the thirteen Playwright projects ran against a build nothing rebuilt.** `webServer` was `vite preview`, which serves `apps/web/dist` and never builds it, with `reuseExistingServer: true` on top — so a source change with no rebuild was tested as the previous version, and a preview server left running from an earlier build was adopted silently | The console case (defect #48) was not a one-off, it was the same configuration one level up and across the *player* app rather than the admin tool. `subpath` was immune because it builds its own artifact on purpose, and its comment already gave the general reason — "a prebuilt artifact would beg the question" — which was true of every other project too. Fixed by building inside the `webServer` command and refusing to reuse a server; verified by touching a source file and confirming `dist` is rebuilt mid-run |
+| 51 | **Coverage had never been measured, and the config would have understated it if it had.** `vitest.config.ts` carried a `coverage` block, but `@vitest/coverage-v8` was not installed and not declared, so the block had never executed once | Two layers. The provider was missing, so the number did not exist. And the `include` globs covered `packages/` and `services/` only, so the first number it *would* have produced was a confident 92.6% that said nothing whatsoever about `apps/web` — the largest area in the repository, and the one carrying the renderer, the audio engine and the UI. Widened to include `apps/`, which is what makes the honest number below possible |
+| 52 | **One assertion tolerated an ambiguity instead of resolving it.** `access.spec.ts` accepted `/machine is (open and empty\|ready)/`, so it could not have noticed if the two narrations swapped | The door is genuinely mid-animation at boot, so the alternation was an accommodation rather than laziness — but the door value is readable, and reading it first makes exactly one sentence correct. The sweep found no other assertion of this shape: the only other alternation is a *negative* one (asserting neither identifier leaks), which is correct as written |
+
+**The first coverage numbers this project has ever had**, unit and integration
+only — Playwright is not measured here, which is why the two browser-driven
+apps score as they do:
+
+| Area | Lines |
+| --- | --- |
+| `packages/protocol` | 99.86 % |
+| `packages/content` | 97.01 % |
+| `packages/sim` | 96.99 % |
+| `services/api` | 87.50 % |
+| `apps/web` | 48.65 % |
+| `apps/console` | 0.00 % |
+| **Whole codebase** | **71.70 %** (83.32 % functions, 81.39 % branches) |
+
+`apps/console` at zero is not a gap in disguise: it has no unit tests at all and
+is driven entirely through Playwright, which this instrument cannot see. The
+same is true of much of `apps/web`. The useful reading is not the headline but
+the shape — the deterministic, pure parts of the system are near-total, and
+everything that needs a browser is measured by a different tool or not at all.
+
+The through-line of both sessions is worth stating plainly, because it has now
+happened often enough to be a property rather than a run of bad luck: **the
+defects in this repository are not found by reading it.** Seven separate things
+— a resolver comment, a compiled output, a Dockerfile, a schema comment, two
+build pipelines and a coverage block — were written, described confidently, and
+never executed. Every one was found by running something. The narrative in this
+repository is unusually thorough, and that is exactly what makes a stale
+sentence in it dangerous: it reads like it was checked.
+
 ### Session 5: the operator model, and what only a real database says
 
 Closing Blocker 9 — one shared `LIVE_OPS_TOKEN` replaced by named capabilities

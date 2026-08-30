@@ -66,11 +66,16 @@ jobs:
 
       - name: Upload the web build
         # Shared with every browser job below so the build happens once.
+        # `apps/console/dist` as well as the player build: the `console` suite
+        # previews the operator app on its own origin and talks to the API
+        # cross-origin, the way it is actually deployed, so without it that job
+        # has nothing to serve.
         uses: actions/upload-artifact@v4
         with:
           name: web-build
           path: |
             apps/web/dist
+            apps/console/dist
             packages/*/dist
           retention-days: 3
           if-no-files-found: error
@@ -386,10 +391,82 @@ jobs:
   # ------------------------------------------------------------------- all --
   # One required check to protect the branch with, so adding a job later does
   # not mean editing branch-protection settings.
+  # ------------------------------------------------------------- the rest --
+  # Eight Playwright projects existed, were green, and were run by nobody but
+  # whoever happened to remember them. A suite nothing enforces is a suite that
+  # is already broken and has not been told yet.
+  #
+  # A matrix rather than eight hand-written jobs, and `fail-fast: false` so one
+  # red project does not hide the state of the other seven. Each still names
+  # itself in the job list, which is the whole reason the projects are split by
+  # *what they fail on* in the first place: "the campsite is no longer shared"
+  # is a different sentence from "the ritual stopped working".
+  #
+  # Local equivalent: npm run e2e:suite -- <name>
+  suites:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - activities   # you can no longer do anything here except make a s'more
+          - night        # the fire went out and you cannot see
+          - campfire     # the campsite is no longer shared
+          - offline      # the offline claim in the README was never true
+          - pwa-update   # an app that cannot be fixed on the devices that have it
+          - mobile       # it no longer fits in a hand
+          - redeem       # the physical bridge stopped connecting
+          - console      # whoever schedules a meteor shower is back on curl
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: .
+
+      - name: Resolve the Playwright version
+        id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: browser-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - name: Install Chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install system dependencies
+        if: steps.browser-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run the ${{ matrix.project }} suite
+        run: npm run e2e:suite -- ${{ matrix.project }}
+
+      - name: Upload the Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.project }}-playwright-report
+          path: |
+            playwright-report
+            test-results
+            artifacts/screenshots
+          retention-days: 14
+          if-no-files-found: ignore
+
   ci:
     name: CI
     runs-on: ubuntu-latest
-    needs: [verify, acceptance, access, performance, visual, audio]
+    needs: [verify, acceptance, access, suites, performance, visual, audio]
     if: always()
     steps:
       - name: Fail if any job did not succeed
@@ -397,6 +474,7 @@ jobs:
           echo "verify=${{ needs.verify.result }}"
           echo "acceptance=${{ needs.acceptance.result }}"
           echo "access=${{ needs.access.result }}"
+          echo "suites=${{ needs.suites.result }}"
           echo "performance=${{ needs.performance.result }}"
           echo "visual=${{ needs.visual.result }}"
           echo "audio=${{ needs.audio.result }}"

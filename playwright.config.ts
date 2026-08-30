@@ -74,7 +74,11 @@ export default defineConfig({
   /**
    * One project per kind of evidence, so a red build names the thing that
    * broke: acceptance ("the ritual stopped working"), perf ("a budget was
-   * blown"), visual ("the picture changed"). CI runs them as separate jobs.
+   * blown"), visual ("the picture changed"). CI runs them as separate jobs:
+   * `acceptance`, `access`, `perf`, `visual` and the audio analysis have one
+   * each, and the remaining eight share a matrix job that names the project it
+   * is running. Every project here is in one of those — a suite nothing
+   * enforces is a suite that is already broken and has not been told yet.
    */
   projects: [
     { name: 'acceptance', testMatch: /ritual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },

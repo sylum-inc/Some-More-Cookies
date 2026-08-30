@@ -38,7 +38,9 @@ containing one line). Everything below was built from zero.
 projects for acceptance, activities, accessibility, multiplayer, offline boot,
 service-worker update, mobile layout, night legibility, code redemption, the
 live-ops console, performance budgets and visual regression. 23 further tests
-run only against Postgres.
+run only against Postgres. Every one of those thirteen projects runs in CI —
+five as their own job, the rest as a named matrix entry — because eight of them
+were green and enforced by nobody until this was checked.
 
 ### What "playable" currently means
 

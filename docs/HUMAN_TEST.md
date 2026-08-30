@@ -204,6 +204,40 @@ Reload with the **same** `?camp=` seed you used at the start.
 
 ---
 
+## 9b. Install it, then turn the network off (5 minutes)
+
+This is the one section nothing automated can stand in for. Everything below
+has been proven in a headless browser; none of it has been proven on a phone
+you can hold.
+
+Open it on a phone, and add it to your home screen (iOS: Share → Add to Home
+Screen. Android: the browser will offer it, or the menu will).
+
+- **Look at the icon on your home screen.** Every icon in this product is drawn
+  in code — there is not a single image file in the repository — so this is the
+  first time anyone will have seen them at the size they are actually used.
+  Does it read as a campfire at that size, next to your other apps?
+- Launch it from the home screen. **Watch the first half-second.** Is there a
+  white flash before the campsite appears? There should not be, and a white
+  flash on a dark app is the most jarring thing a phone can do.
+- On iOS, look at the seam between the status bar and the sky. The colours are
+  meant to match exactly. Do they?
+- Now **turn on aeroplane mode** and launch it again, cold.
+- Make a whole s'more. Arrive, tend the fire, roast, assemble, run the SM-01,
+  eat it. All of it should work — the campsite is local-first by design and
+  nothing in the ritual needs a network.
+- Anything that hangs, spins, or says it cannot reach something is a defect.
+  Note exactly where.
+- Turn the network back on. Does the Passport still have your sandwich?
+
+Then, if you have a second phone or a tablet, try it at a couple of sizes and
+in landscape. Specifically look for anything under the notch, under the home
+indicator, or clipped at an edge — the automated checks reason about safe-area
+insets, but a headless browser reports every inset as zero, so no test here has
+ever seen a real one.
+
+---
+
 ## 10. The radio (optional, 5 minutes)
 
 Walk to the log by the fire and pick up the radio. Tune it by ear.
@@ -227,8 +261,10 @@ that says nothing:
 5. **Does the audio sound like a machine, or like a game?** (S7)
 6. **Is the night navigable?** (new in this build, tuned against measurements
    rather than eyes)
-7. **Did you ever feel sold to before the reveal?**
-8. **Did it ever feel like horror rather than solitude?**
+7. **Does it survive a phone?** Installed, offline, rotated, and at a size
+   nothing here has ever rendered at for real.
+8. **Did you ever feel sold to before the reveal?**
+9. **Did it ever feel like horror rather than solitude?**
 
 ---
 

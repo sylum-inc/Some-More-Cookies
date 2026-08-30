@@ -27,10 +27,17 @@ containing one line). Everything below was built from zero.
 | PostgreSQL adapter + hand-rolled wire protocol | ✅ 18 + 18 tests |
 | Realtime transport and multiplayer authority | ✅ RFC 6455 by hand, no new deps |
 | Client ↔ server seam, commerce and rewards | ✅ 10 seam tests against the real service |
-| Live ops / CMS · QR and events | 🔨 in progress |
-| Secondary activities (skipping, stars, torch, fishing) | 🔨 in progress |
+| Live ops / CMS · QR and events · live-ops console | ✅ |
+| Secondary activities (skipping, stars, torch, fishing, sitting) | ✅ 127 tests |
+| Multiplayer client — two browsers share a fire | ✅ convergence proven patch by patch |
+| Content overlay · signed codes · scan and redeem | ✅ |
+| Media storage · photo upload · campsite memory sync | ✅ |
+| Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**Over 1,000 unit, integration and seam tests + end-to-end acceptance tests in Chromium.**
+**1,526 unit, integration and seam tests across 84 files**, plus Playwright
+projects for acceptance, activities, multiplayer, offline boot, service-worker
+update, mobile layout, night legibility, performance budgets and visual
+regression. 23 further tests run only against Postgres.
 
 ### What "playable" currently means
 
@@ -104,6 +111,29 @@ a green suite means the assertions passed, not that the system works. Here the
 assertions passed because every test that could have caught it built its own
 `Rng` and passed it in directly — which is exactly what a careful unit test
 does, and exactly why it could not see this.
+
+### Session 3, part two: what wiring the seams found
+
+Four workstreams wired the client to things that existed only server-side.
+Each found something that had been invisible precisely because nothing
+consumed it.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 18 | **The entire WebSocket stack was unreachable in a real boot.** | `services/api/src/main.ts` never called `attachRealtime`. The module's own comment promised "a one-liner in `main.ts`", and the one-liner had never been written. Every realtime test passed, because every one of them attached it itself |
+| 19 | **The service had no CORS at all**, so no browser client on another origin could ever have talked to it | Never needed until a console existed. Preflight now runs before auth, and headers are on error responses too — without which "LIVE_OPS_TOKEN is not set" arrives at a browser as an opaque network failure |
+| 20 | **A player scanning a recalled wrapper was signed out.** | `ApiClient` treated any 401/403 as a bad token; a retired print run answers 403 |
+| 21 | **The service worker never cached the shell.** A fully-downloaded campsite would have shown "the campsite has not been downloaded yet" | The precache list came from `Object.keys(bundle)` in `generateBundle`, and this Vite emits the HTML *after* that hook. Worse, the worker's version hash had the same blind spot: a build changing only `index.html` would have shipped a byte-identical `sw.js` and reached no device, ever |
+| 22 | **A second device pitched a second campsite**, so two devices had nothing to merge | `SyncEngine.ensureCampsite` only checked `localStorage` |
+| 23 | **Three HUD controls sat under the notch or the home indicator**, and the bite ring cleared the corner group by 0.7px on every notched iPhone | Each read the safe-area insets except the ones that did not. The 0.7px gap is 27px on a laptop, which is why nothing showed it |
+| 24 | **Render resolution stayed at portrait's after a rotation** — roughly twice the pixels it should be | `dpr` was derived from `window.innerHeight` read once at mount. A frame-rate defect only a real rotating device would ever show |
+
+Numbers 18 and 21 are the pair worth keeping together. Both are the same
+shape: a complete, well-tested subsystem that nothing actually reached. The
+realtime stack had seven test files and a full protocol; the service worker
+cached every asset it was told about. In each case the tests attached the
+thing under test themselves, so the one line that would have connected it to
+the running product was the only line nobody wrote a test for.
 
 ### Session 3: measuring the two things that were only ever guessed at
 
@@ -269,6 +299,8 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 | S5 | ~~Wildlife, radio, secrets and traces are data, not behaviour.~~ **Wired.** `stepRitual` steps all three every step; their cue field is derived from state that actually exists — the fire that is burning, the marshmallow that is browning, the compressor that is running. Animals render with eyeshine; the radio is an object you walk to and tune. | — | Remaining: a human has neither seen the animals nor heard the dial. |
 | S6 | ~~The significance model is not wired to storage.~~ **Wired locally.** Wildlife and discovery events become traces, and traces, resident visit counts and found secrets are folded into the Passport per campsite and handed back on the next visit. | — | Remaining: campsite memory is local-only; the world-state domain exists server-side but the client does not yet sync traces to it. |
 | S8 | **The order terminal now reaches a real service, but no human has bought anything.** The whole sequence runs against the API in tests, including the payment intent and confirmation through the fake provider. | Nobody has typed a real address into it on a phone. | A person, and eventually a processor. |
+| S9 | **Nothing has run on a real phone.** Every safe-area inset is zero in headless Chromium, so no test here has seen a real notch; `beforeinstallprompt` is dispatched by hand; no home-screen install, no launch image and no wake lock has ever been exercised; and there is no iOS anything — no macOS, no Safari, no simulator. | The three mobile defects found this session were found by *reasoning about* insets and painting them onto screenshots, not by measuring them. | A phone. `docs/HUMAN_TEST.md` §9b is written for exactly this. |
+| S10 | **The native shells are configured but not generated.** `apps/mobile/` has the Capacitor config, an asset generator that draws all 37 native icons from the same code as the favicon, and the argument in full — but no `ios/` or `android/`. | Generating them writes a Gradle wrapper JAR and placeholder PNGs, which ADR-0002 forbids, and nothing here could compile or run them. Committing two hundred files that have never been built is what §16 exists to prevent. | Developer accounts, and a machine with Xcode and the Android SDK. |
 | S7 | **Audio is unheard.** 102 tests cover its maths and scheduling; no human has listened to it. | The SM-01's mechanical narrative is carried by sound. | Someone with speakers. |
 
 ---

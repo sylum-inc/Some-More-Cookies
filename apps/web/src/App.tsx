@@ -1440,7 +1440,13 @@ function BiteRing({
         bottom: 'calc(9% + env(safe-area-inset-bottom, 0px))',
         transform: 'translateX(-50%)',
         display: 'flex',
-        gap: 6,
+        /*
+         * No gap. The spacing between the dots comes from the touch targets
+         * being larger than the dots they contain, which is the point: eight
+         * 44px targets are 352px, and they have to fit a 375px phone.
+         */
+        gap: 0,
+        maxWidth: '100vw',
         zIndex: 25,
       }}
     >
@@ -1451,16 +1457,44 @@ function BiteRing({
           aria-label={`Bite from side ${i + 1}`}
           onClick={() => onBite(i)}
           style={{
-            width: `${26 * textScale}px`,
-            height: `${26 * textScale}px`,
-            borderRadius: '50%',
-            background: 'rgba(8,10,14,0.55)',
-            border: '1px solid rgba(232,224,205,0.3)',
-            color: 'rgba(232,224,205,0.8)',
-            fontSize: `${11 * textScale}px`,
+            /*
+             * The button is the *target*; the circle inside it is the picture.
+             *
+             * These were 26px square, which is what they look like and well
+             * under both Apple's 44pt and Android's 48dp minimum. Making the
+             * visible dot bigger was not an option — eight 44px circles in a
+             * row do not fit a 375px screen — so the tappable box grew and the
+             * dot did not, which is the ordinary answer and costs nothing
+             * visually. Never below 44 even at a reduced text scale: a
+             * minimum that scales is not a minimum.
+             */
+            width: `${Math.max(44, 30 * textScale)}px`,
+            height: `${Math.max(44, 30 * textScale)}px`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 0,
+            background: 'transparent',
+            border: 'none',
           }}
         >
-          {i + 1}
+          <span
+            aria-hidden
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: `${26 * textScale}px`,
+              height: `${26 * textScale}px`,
+              borderRadius: '50%',
+              background: 'rgba(8,10,14,0.55)',
+              border: '1px solid rgba(232,224,205,0.3)',
+              color: 'rgba(232,224,205,0.8)',
+              fontSize: `${11 * textScale}px`,
+            }}
+          >
+            {i + 1}
+          </span>
         </button>
       ))}
     </div>

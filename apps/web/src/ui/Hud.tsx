@@ -349,19 +349,32 @@ export function Hud(props: HudProps): React.ReactElement {
         </div>
       )}
 
-      {/* Roasting heat readout */}
+      {/*
+        Roasting heat readout, out of the marshmallow's way.
+
+        This sat centred at 13% from the bottom, which was clear of everything
+        while roasting was a composed overhead shot of the ember bed. Kneeling
+        at the fire puts the marshmallow low and centre, and the panel landed
+        squarely on top of the one object it is describing.
+
+        It cannot simply go: §12 requires the heat to be legible without relying
+        on colour, and this is that reading. So it moves to the corner, where it
+        is still glanceable beside the marshmallow rather than over it. The
+        browning on the marshmallow itself is the primary signal and always was;
+        this is the redundant channel, and redundant channels should not occlude
+        the thing they are backing up.
+      */}
       {stage === 'roasting' && (
         <div
           style={{
             position: 'absolute',
-            left: '50%',
-            bottom: '13%',
-            transform: 'translateX(-50%)',
+            left: `calc(env(safe-area-inset-left, 0px) + ${scale(14)})`,
+            bottom: `calc(env(safe-area-inset-bottom, 0px) + ${scale(14)})`,
             background: panelBg,
             padding: `${scale(8)} ${scale(14)}`,
             borderRadius: 2,
-            textAlign: 'center',
-            minWidth: 190,
+            textAlign: 'left',
+            minWidth: 160,
           }}
         >
           <div style={{ fontSize: scale(11), letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.75 }}>

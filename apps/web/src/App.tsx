@@ -1272,6 +1272,16 @@ export function App({ store }: AppProps): React.ReactElement {
     }
   }, [state.environmentId, ritual, store]);
 
+  /*
+   * What the fire is asking for, if anything.
+   *
+   * Read from the simulation rather than from a timer, so the prompt appears
+   * because the fire is genuinely dying back or genuinely smothered — which is
+   * also the moment a person would look up from the marshmallow and notice.
+   */
+  const fireWantsWood = ritual.fire.flame < 0.34;
+  const fireWantsRaking = ritual.fire.oxygen < 0.55 && ritual.fire.emberMass > 0.2;
+
   const handleAddLog = useCallback(() => {
     tendFire(ritual, { type: 'add-log', woodId: 'oak', placement: 0.75 });
     store.touch();
@@ -1452,7 +1462,26 @@ export function App({ store }: AppProps): React.ReactElement {
       {/* Fire tending affordances, shown only where they make sense */}
       {/* Kept as an accessibility fallback for anyone who cannot walk to the
           woodpile or aim a tap; the diegetic route is to reach for them. */}
-      {(state.stage === 'roasting' || state.accessibility.simplifiedGestures) && state.overlay === 'none' && (
+      {/*
+        Offered when they would do something, not for the whole roast.
+
+        These two sat on screen for every second of roasting, which is the
+        opposite of the spec's ethos -- you are supposed to reach for the
+        woodpile, not press a button labelled with what pressing it does. They
+        cannot simply go: while roasting your hands are on the stick and
+        movement is locked, so there is no route to the woodpile without
+        abandoning the marshmallow, and a fire you cannot feed is worse than a
+        button.
+
+        So they appear when the fire actually wants them. A flame dying back
+        wants wood; a bed of coals that has gone quiet under ash wants raking.
+        The rest of the time the frame belongs to the fire. Simplified gestures
+        keeps both permanently, because for somebody relying on that setting a
+        control that comes and goes is worse than one that is always there.
+      */}
+      {((state.stage === 'roasting' && (fireWantsWood || fireWantsRaking)) ||
+        state.accessibility.simplifiedGestures) &&
+        state.overlay === 'none' && (
         <div
           style={{
             position: 'fixed',
@@ -1467,8 +1496,12 @@ export function App({ store }: AppProps): React.ReactElement {
             zIndex: 25,
           }}
         >
-          <SideButton label="Add wood" onClick={handleAddLog} textScale={state.accessibility.textScale} />
-          <SideButton label="Rake coals" onClick={handleRake} textScale={state.accessibility.textScale} />
+          {(fireWantsWood || state.accessibility.simplifiedGestures) && (
+            <SideButton label="Add wood" onClick={handleAddLog} textScale={state.accessibility.textScale} />
+          )}
+          {(fireWantsRaking || state.accessibility.simplifiedGestures) && (
+            <SideButton label="Rake coals" onClick={handleRake} textScale={state.accessibility.textScale} />
+          )}
         </div>
       )}
 

@@ -1432,7 +1432,21 @@ export function App({ store }: AppProps): React.ReactElement {
         grip={throwRef.current}
         seated={player.seated}
         onUse={handleUse}
-        exploring={!isAnchored(state.stage) && state.stage !== 'arriving'}
+        /*
+         * Nothing is offered while your hands are full of sandwich.
+         *
+         * Eating used to be an anchored stage, so the player had no position
+         * worth speaking of and no reach prompt could appear. Freeing the camera
+         * left them standing wherever the ritual finished — which is at the
+         * machine — and the campsite politely offered them "The SM-01" while
+         * they were biting into a s'more, on top of the bite targets. The
+         * collision is how it was found; the nonsense is the actual defect.
+         */
+        exploring={
+          !isAnchored(state.stage) &&
+          state.stage !== 'arriving' &&
+          !(ritual.sandwich !== null && !ritual.bite.finished)
+        }
         stage={state.stage}
         subtitle={state.subtitle}
         controls={state.controls}

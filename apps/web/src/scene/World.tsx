@@ -196,37 +196,136 @@ interface CameraPose {
 }
 
 /**
- * Stages that take the camera away from the player's own eyes.
+ * Stages where the pointer belongs to the task instead of to looking around.
  *
- * Everything else is explored on foot. The tactile stages keep a composed
- * framing because they are close manipulation of small objects — hunting for
- * a marshmallow with a free camera would be miserable, and the framing here
- * took real work to get right. So: walk the campsite freely, and the camera
- * settles into place when you actually start doing something.
+ * Two of them, and both for the same reason: a drag means something other than
+ * looking around. Roasting pulls the marshmallow over the coals; the reveal
+ * lifts the sandwich off the tray with both hands. Everything else — placing
+ * the assembly pieces, the machine's door and lever, eating — is a click on
+ * something in front of you, and none of that needs movement taken away.
+ *
+ * A first pass at this listed roasting alone, on the strength of a grep saying
+ * only `interaction/roastControl.ts` handled a drag. That was true and
+ * misleading: the lift is a pointer handler on the sandwich mesh itself rather
+ * than a named controller, so it did not turn up, and unanchoring the reveal
+ * quietly set the lift fighting free-look over the same gesture — the identical
+ * defect that splitting this predicate in two was supposed to have retired.
+ * The grep answered "where are the drag controllers", which is not the same
+ * question as "where does a drag mean something".
+ *
+ * The set used to hold six stages, and that was the whole reason the game read
+ * as a slideshow: five sixths of the ritual was spent as a cursor in a composed
+ * shot. Two is what is actually load-bearing.
  */
-const ANCHORED_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>([
+const ANCHORED_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>(['roasting', 'reveal']);
+
+/**
+ * How low the body goes for each task, as a posture rather than a camera move.
+ *
+ * These heights are the ones the old composed poses used, because that framing
+ * was good and worth keeping — 0.54 m over the coals, 0.86 m over the assembly
+ * table, and enough of a stoop at the machine to see onto its tray. What has
+ * changed is who is doing it: the camera used to fly to those heights, and now
+ * the player's own body arrives at them, which means you can look up, walk
+ * round, or stand and leave at any point in any of them.
+ */
+const STAGE_STANCE: Readonly<Partial<Record<RitualStage, 'kneel' | 'crouch'>>> = {
+  // Over the coals, at arm's length from the marshmallow.
+  roasting: 'kneel',
+  // The assembly table is a 0.34 m stump; you work at it from a squat.
+  assembling: 'crouch',
+  // The chamber's mouth is at 0.56 m, so seeing onto the tray is a stoop.
+  reveal: 'crouch',
+};
+
+/**
+ * Where the body has to be for each task, and how close.
+ *
+ * Removing a cut is not just leaving the camera alone: the ritual used to
+ * advance the stage and fly the camera to whatever the next task was, so the
+ * player was never required to be anywhere. Now they are, which means the
+ * approach has to be walked. These are the spots to walk to, offset out from
+ * each object toward the clearing so you end up facing it.
+ */
+function approachFor(
+  stage: RitualStage,
+  bearing: number,
+): { x: number; z: number } | null {
+  switch (stage) {
+    case 'roasting':
+      return { x: Math.cos(bearing) * ROASTING_STAND_DISTANCE, z: Math.sin(bearing) * ROASTING_STAND_DISTANCE };
+    case 'assembling': {
+      // Beside the table on the fire side, close enough to reach across it.
+      const [tx, , tz] = LAYOUT.assemblyTable;
+      const length = Math.hypot(tx, tz) || 1;
+      return { x: tx - (tx / length) * 0.62, z: tz - (tz / length) * 0.62 };
+    }
+    case 'machine':
+    case 'reveal': {
+      /*
+       * In front of the unit and off to the door's free side.
+       *
+       * Standing dead centre put the open door across the sight line and the
+       * reveal became a picture of a grey panel with the sandwich nowhere in
+       * frame. The pose this replaces knew that — its comment says "slightly to
+       * the free-edge side... the door swings wide, so it no longer stands
+       * across this sight line" — and the offset was the whole reason it was
+       * written that way. Removing the camera was never a reason to throw away
+       * what the camera had learned.
+       *
+       * The door hinges at local x = -0.29 and opens to that side, so the free
+       * edge is local +x. A body has arms, so it stands closer than the old
+       * camera's 1.55 m.
+       */
+      const [x, , z] = machineToWorld([0.34, 0, 1.1]);
+      return { x, z };
+    }
+    default:
+      // Eating and everything after it are done on your feet, wherever you
+      // happen to be standing. A s'more is not a task with a location.
+      return null;
+  }
+}
+
+/**
+ * What the player turns to look at when they arrive at a task.
+ *
+ * Walking to the right spot is only half of replacing a composed shot. The
+ * pose that used to be flown to carried a *target* as well as a position, and
+ * dropping it left the reveal facing the machine's open door with the sandwich
+ * out of frame entirely — the same class of mistake as unanchoring the roast
+ * and leaving the marshmallow a dozen pixels away, which is to say: keeping the
+ * part of the old framing that was easy and discarding the part that was doing
+ * the work.
+ *
+ * This is eased into over the approach walk rather than snapped, and any look
+ * input from the player abandons it immediately. Turning to face the thing you
+ * have just walked up to is something a body does; being unable to look away
+ * from it is not.
+ */
+function focusFor(stage: RitualStage): [number, number, number] | null {
+  switch (stage) {
+    case 'assembling':
+      return LAYOUT.assemblyTable;
+    case 'machine':
+      // The controls, not the whole cabinet: the lever and the readout are what
+      // you are there to work, and they sit above the chamber.
+      return machineToWorld([0, 0.66, 0.32]);
+    case 'reveal':
+      // Onto the tray, where the sandwich actually is.
+      return machineToWorld([0, 0.4, 0.16]);
+    default:
+      return null;
+  }
+}
+
+/** Tasks framed on something small and close, so the lens narrows for them. */
+const CLOSE_WORK_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>([
   'roasting',
   'assembling',
   'machine',
   'reveal',
-  'eating',
-  'after',
 ]);
-
-/**
- * Stages you do from your knees rather than from a camera that flew there.
- *
- * Roasting used to be an anchored stage: the camera left the player's eyes and
- * eased to a composed pose 0.78 m from the fire at 0.54 m high, and the player
- * became a cursor. The framing was good and the cost was the whole product —
- * with six stages doing this, the game read as a slideshow of screens instead
- * of one campsite, which is the first thing a person said about it.
- *
- * The framing is worth keeping; taking the camera to get it is not. Kneeling
- * buys the same eye height honestly, and you can still look around, walk round
- * the fire, or stand up and leave.
- */
-const KNEELING_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>(['roasting']);
 
 /**
  * Whether the pointer belongs to the task rather than to looking around.
@@ -246,16 +345,17 @@ export function isAnchored(stage: RitualStage): boolean {
 }
 
 /**
- * Whether the camera has left the player's eyes.
+ * Whether the camera has left the player's eyes. It no longer ever does.
  *
- * This is the one that matters for the complaint that the game reads as a
- * series of screens. Kneeling stages keep the camera on the player: their
- * hands are busy, but they are still standing in their own body, in one
- * continuous campsite, and getting there and leaving are movements rather
- * than cuts.
+ * Kept as a named function rather than deleted because the answer being
+ * permanently `false` is the point of this pass, and a reader coming to
+ * `poseFor` and the composed poses it still contains deserves to find the
+ * statement rather than infer it from an absence. Those poses are retained for
+ * the arrival dolly, which is a title sequence and the one place a scripted
+ * camera is honest.
  */
-export function isCameraAnchored(stage: RitualStage): boolean {
-  return ANCHORED_STAGES.has(stage) && !KNEELING_STAGES.has(stage);
+export function isCameraAnchored(_stage: RitualStage): boolean {
+  return false;
 }
 
 function poseFor(
@@ -435,6 +535,8 @@ export function World({
   /** Where a hand closed on the sandwich, while it is being lifted out. */
   const liftFrom = useRef<{ x: number; y: number } | null>(null);
   const lastStage = useRef<RitualStage>(ritual.stage);
+  /** What the player is turning to look at, or null once they have arrived. */
+  const lookGoal = useRef<[number, number, number] | null>(null);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
   const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
@@ -494,10 +596,42 @@ export function World({
        * roasting ignores movement intent and still needs the body to lower, so
        * the resting intent carries posture and nothing else.
        */
-      const kneeling = KNEELING_STAGES.has(ritual.stage);
-      intentRef.current.kneel = kneeling;
-      restingIntent.kneel = kneeling;
+      const stance = STAGE_STANCE[ritual.stage];
+      intentRef.current.kneel = stance === 'kneel';
+      intentRef.current.crouch = stance === 'crouch';
+      restingIntent.kneel = stance === 'kneel';
+      restingIntent.crouch = stance === 'crouch';
       stepPlayer(player, walkable, anchored ? restingIntent : intentRef.current, dt);
+
+      /*
+       * Turn toward the task, unless the player is already looking somewhere.
+       *
+       * Eased rather than snapped: a head that jumps to a new heading is a cut
+       * by another name, and cuts are what this whole pass exists to remove.
+       * Any look input at all abandons the goal, so this can steer you toward
+       * the machine and never away from wherever you decide to look instead.
+       */
+      const goal = lookGoal.current;
+      if (goal) {
+        const look = intentRef.current.look;
+        if (look && (look.yaw !== 0 || look.pitch !== 0)) {
+          lookGoal.current = null;
+        } else {
+          const eye = eyePosition(player, eyeScratch);
+          const wantFacing = Math.atan2(goal[2] - eye.z, goal[0] - eye.x);
+          const flat = Math.hypot(goal[0] - eye.x, goal[2] - eye.z);
+          const wantPitch = Math.atan2(goal[1] - eye.y, Math.max(0.05, flat));
+          const rate = 1 - Math.exp(-5 * dt);
+          let turn = wantFacing - player.facing;
+          while (turn > Math.PI) turn -= Math.PI * 2;
+          while (turn < -Math.PI) turn += Math.PI * 2;
+          player.facing += turn * rate;
+          player.pitch += (wantPitch - player.pitch) * rate;
+          if (Math.abs(turn) < 0.02 && Math.abs(wantPitch - player.pitch) < 0.02) {
+            lookGoal.current = null;
+          }
+        }
+      }
 
       if (ritual.stage === 'roasting') {
         // The marshmallow is held from wherever the player is standing, so
@@ -590,13 +724,12 @@ export function World({
        * still applies, which is what keeps this a movement rather than the
        * teleport it is replacing.
        */
-      if (KNEELING_STAGES.has(ritual.stage) && !KNEELING_STAGES.has(lastStage.current)) {
-        const bearing = bearingFromFire(player);
-        player.moveTarget = vec3(
-          Math.cos(bearing) * ROASTING_STAND_DISTANCE,
-          0,
-          Math.sin(bearing) * ROASTING_STAND_DISTANCE,
-        );
+      if (ritual.stage !== lastStage.current) {
+        const approach = approachFor(ritual.stage, bearingFromFire(player));
+        if (approach) player.moveTarget = vec3(approach.x, 0, approach.z);
+        // And what to turn toward once there. Cleared the moment the player
+        // looks anywhere themselves.
+        lookGoal.current = focusFor(ritual.stage);
       }
       lastStage.current = ritual.stage;
       store.setStageFromRitual();
@@ -637,7 +770,7 @@ export function World({
        * camera stays where it belongs — on the player's eyes — so what is left
        * of that composed shot is the part that never needed to cost agency.
        */
-      const fovTarget = KNEELING_STAGES.has(ritual.stage) ? CLOSE_WORK_FOV : EXPLORE_FOV;
+      const fovTarget = CLOSE_WORK_STAGES.has(ritual.stage) ? CLOSE_WORK_FOV : EXPLORE_FOV;
       if (Math.abs(perspective.fov - fovTarget) > 0.05) {
         perspective.fov += (fovTarget - perspective.fov) * (1 - Math.exp(-4 * delta));
         perspective.updateProjectionMatrix();
@@ -838,13 +971,26 @@ export function World({
            *
            * `onPointerDown` and not `onClick`, because a click is a press and a
            * release in the same place and this is a *lift*: the hand closes on
-           * it and it comes away. The pointer is captured so the drag out of
-           * the chamber belongs to the sandwich rather than to whatever it
-           * passes over.
+           * it and it comes away.
+           *
+           * The capture below is the thing this comment already claimed and the
+           * code did not do. Without it `onPointerMove` only arrives while the
+           * cursor is still over the sandwich, so a lift has to travel 34 px
+           * without leaving an object that is about 30 px tall on screen — it
+           * worked only because the composed shot this replaces framed the
+           * sandwich enormous. The first frame of the reveal from a standing
+           * body made it small enough to expose the bug, which is a fair
+           * description of what a smaller screen would have done anyway.
            */
           onPointerDown={(event) => {
             event.stopPropagation();
             liftFrom.current = { x: event.clientX, y: event.clientY };
+            try {
+              (event.target as Element | null)?.setPointerCapture(event.pointerId);
+            } catch {
+              // Capture is a convenience; the lift still works while the
+              // pointer happens to stay over the sandwich.
+            }
           }}
           onPointerMove={(event) => {
             const from = liftFrom.current;
@@ -855,8 +1001,13 @@ export function World({
             liftFrom.current = null;
             onLiftSandwich?.();
           }}
-          onPointerUp={() => {
+          onPointerUp={(event) => {
             liftFrom.current = null;
+            try {
+              (event.target as Element | null)?.releasePointerCapture(event.pointerId);
+            } catch {
+              /* Nothing was captured. */
+            }
           }}
         >
           <Sandwich sandwich={ritual.sandwich} bite={null} settings={settings} />

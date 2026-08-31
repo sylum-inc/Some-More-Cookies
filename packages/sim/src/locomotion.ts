@@ -217,6 +217,8 @@ export const LOCOMOTION = {
    * around from down there, and standing up is always available.
    */
   seatedStance: 0.62,
+  /** Squatting over a low surface: the assembly table is a 0.34 m stump. */
+  crouchingStance: 0.55,
   kneelingStance: 0.36,
   /** How quickly a stance change eases, per second. */
   stanceRate: 3.4,
@@ -265,6 +267,14 @@ export interface PlayerState {
    */
   kneeling: boolean;
   /**
+   * Squatting over a low surface, rather than knelt right down.
+   *
+   * The assembly table is a 0.34 m stump and the machine's chamber mouth is at
+   * 0.56 m: both are worked at from a stoop, which is a different posture from
+   * kneeling over coals and reads as one.
+   */
+  crouching: boolean;
+  /**
    * Eye height right now, as a fraction of standing, eased toward the stance
    * the flags above ask for. Continuous on purpose — a snap between heights is
    * a cut, and cuts are the thing this is here to remove.
@@ -286,6 +296,7 @@ export function createPlayer(position: Vec3, facing = 0): PlayerState {
     bobPhase: 0,
     seated: false,
     kneeling: false,
+    crouching: false,
     stance: 1,
   };
 }
@@ -294,6 +305,7 @@ export function createPlayer(position: Vec3, facing = 0): PlayerState {
 export function stanceTarget(player: PlayerState): number {
   if (player.seated) return LOCOMOTION.seatedStance;
   if (player.kneeling) return LOCOMOTION.kneelingStance;
+  if (player.crouching) return LOCOMOTION.crouchingStance;
   return 1;
 }
 
@@ -336,6 +348,8 @@ export interface MoveIntent {
   sit?: boolean;
   /** Knelt over something being worked on. Set by the activity, not by a key. */
   kneel?: boolean;
+  /** Squatting over a low surface. Set by the activity, not by a key. */
+  crouch?: boolean;
 }
 
 const scratchDirection = vec3();
@@ -363,6 +377,7 @@ export function stepPlayer(player: PlayerState, world: WalkableWorld, intent: Mo
 
   if (intent.sit !== undefined) player.seated = intent.sit;
   if (intent.kneel !== undefined) player.kneeling = intent.kneel;
+  if (intent.crouch !== undefined) player.crouching = intent.crouch;
 
   // Ease the body toward the posture it has been asked for. Frame-rate
   // independent, so a slow device kneels at the same speed as a fast one.

@@ -317,6 +317,76 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
         <boxGeometry args={[BODY.width + 0.04, 0.05, BODY.depth + 0.04]} />
       </mesh>
 
+      {/* --- Relief ------------------------------------------------------
+          The front used to be one large enamel plane with everything on it
+          lying flush: the decal, the readout, the door. A flat plane facing
+          the camera has no internal form no matter how it is lit or what
+          material it wears — which is why this cabinet rendered as a single
+          beige silhouette despite being built from twenty-three boxes in four
+          materials, and why relighting the campsite did nothing for it.
+
+          Everything below faces a different way from the panel behind it, or
+          is made of something with a different roughness, or both. That is
+          what a surface needs in order to be read as a surface. */}
+
+      {/* A bezel standing proud around the chamber mouth, so the door reads
+          as set into a frame rather than painted onto a wall. */}
+      {(() => {
+        const lip = 0.038;
+        const z = BODY.depth / 2 + 0.014;
+        const halfW = CHAMBER.width / 2 + lip / 2;
+        const halfH = CHAMBER.height / 2 + lip / 2;
+        const outerW = CHAMBER.width + lip * 2;
+        return (
+          <group>
+            {[1, -1].map((sy) => (
+              <mesh key={`h${sy}`} material={aluminium} position={[0, CHAMBER.centreY + sy * halfH, z]} castShadow>
+                <boxGeometry args={[outerW, lip, 0.03]} />
+              </mesh>
+            ))}
+            {[1, -1].map((sx) => (
+              <mesh key={`v${sx}`} material={aluminium} position={[sx * halfW, CHAMBER.centreY, z]} castShadow>
+                <boxGeometry args={[lip, CHAMBER.height, 0.03]} />
+              </mesh>
+            ))}
+          </group>
+        );
+      })()}
+
+      {/* Condenser fins, low on the front where the cold plant would sit.
+          Horizontal edges against a vertical panel: the one arrangement that
+          catches a low moon and a fire at the same time. */}
+      {Array.from({ length: 7 }, (_, i) => (
+        <mesh
+          key={`fin${i}`}
+          material={aluminium}
+          position={[0, 0.15 + i * 0.026, BODY.depth / 2 + 0.009]}
+          castShadow
+        >
+          <boxGeometry args={[0.34, 0.011, 0.022]} />
+        </mesh>
+      ))}
+
+      {/* Corner posts down the front edges. They break the silhouette, which
+          is the only thing that reads at all once you are more than a couple
+          of metres away and the panel detail has gone. */}
+      {[-1, 1].map((sx) => (
+        <mesh
+          key={`post${sx}`}
+          material={aluminium}
+          position={[sx * (BODY.width / 2 - 0.012), BODY.height / 2 + 0.03, BODY.depth / 2 - 0.012]}
+          castShadow
+        >
+          <boxGeometry args={[0.03, BODY.height - 0.14, 0.03]} />
+        </mesh>
+      ))}
+
+      {/* A shadow gap under the top cap. A recess reads as a seam between two
+          pressings; without one the cabinet is a single extrusion. */}
+      <mesh material={rubber} position={[0, BODY.height - 0.055, BODY.depth / 2 - 0.006]}>
+        <boxGeometry args={[BODY.width - 0.05, 0.014, 0.02]} />
+      </mesh>
+
       {/* Rubber feet */}
       {[-1, 1].map((sx) =>
         [-1, 1].map((sz) => (

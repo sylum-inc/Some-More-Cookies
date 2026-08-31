@@ -723,6 +723,25 @@ export function World({
                     .reduce((total, kit) => total + kit.density, 0) * 1.8,
                 ),
               ),
+              /*
+               * And everything below that line, which used to be thrown away.
+               *
+               * The filter above answers "what is a tree", and its complement
+               * was answering "what is nothing at all". Sword fern at seventy
+               * per hundred square metres, Spanish moss at thirty-four,
+               * bracken, heather, devil's club, cryptobiotic crust — all of it
+               * specified, none of it drawn, which is most of why walking away
+               * from the fire found six cones and four rocks.
+               */
+              understorey: environment.scene.vegetation
+                .filter((kit) => kit.heightRange.max < 2.5)
+                .map((kit) => ({
+                  kitId: kit.kitId,
+                  density: kit.density,
+                  minHeight: kit.heightRange.min,
+                  maxHeight: kit.heightRange.max,
+                  lowTierDrop: kit.lowTierDrop,
+                })),
             }
           : {})}
       />

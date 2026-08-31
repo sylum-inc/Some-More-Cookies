@@ -13,6 +13,13 @@ import { clamp01, curatedSky, terrainHeight, type WaterBasin, type WeatherState 
 
 /** Ground below this is under water, so nothing is planted in it. */
 const WATERLINE = -0.14;
+/**
+ * How far out from the fire the camp is trodden clear.
+ *
+ * Wide enough that the fire, the machine, the woodpile and the log are never
+ * behind a fern, and narrow enough that the wood still feels close.
+ */
+const CLEARING_RADIUS = 3.4;
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import {
@@ -20,6 +27,8 @@ import {
   createRockGeometry,
   createTerrainGeometry,
   createTreeGeometry,
+  createUnderstoreyGeometry,
+  understoreyFamily,
 } from '../render/geometry.js';
 
 export interface CampsiteProps {
@@ -40,6 +49,22 @@ export interface CampsiteProps {
   };
   /** How many trees to scatter, derived from the manifest's canopy kits. */
   treeCount?: number;
+  /**
+   * Everything growing under the canopy, straight from the manifest.
+   *
+   * Densities are the catalogue's own, in instances per hundred square metres.
+   * `lowTierDrop` is the content author's call about what a weak device can
+   * lose without losing the environment's identity — the cedar switchback
+   * marks its ferns droppable and its Spanish moss not, because the moss *is*
+   * the place.
+   */
+  understorey?: readonly {
+    kitId: string;
+    density: number;
+    minHeight: number;
+    maxHeight: number;
+    lowTierDrop: boolean;
+  }[];
   /**
    * The ground going down to the water, where this campsite has any.
    *
@@ -64,6 +89,7 @@ export function Campsite({
   drawDistance,
   palette = DEFAULT_PALETTE,
   treeCount = 54,
+  understorey = [],
   onTakeWood,
   fuelIds = ['oak'],
   basin,
@@ -92,6 +118,34 @@ export function Campsite({
 
   const treeMaterial = useMemo(
     () => createPs1Material({ settings, map: getTexture('foliage', { size: 64, seed }), color: palette.foliage, roughness: 1 }),
+    [settings, seed, palette.foliage],
+  );
+
+  /**
+   * The understorey's own material, double-sided and a touch lighter.
+   *
+   * Fronds, grass blades and hanging moss are built from planes, and a plane
+   * is invisible from behind under `FrontSide`. Instanced at random rotations
+   * that means roughly half of every plant is simply not drawn, which is why
+   * the first render of the forest floor read as thin spiky silhouettes rather
+   * than as mass.
+   *
+   * The colour is lifted off the canopy's, too. `palette.foliage` is chosen
+   * for a treeline seen at distance through fog; the same value on something
+   * a metre from your knee reads as a black cut-out, and the catalogue's own
+   * note for the cedar switchback is that firelight through fern fronds is the
+   * best-looking thing in the environment. It cannot be, if the fronds cannot
+   * take a highlight.
+   */
+  const understoreyMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('foliage', { size: 64, seed }),
+        color: new THREE.Color(palette.foliage).lerp(new THREE.Color(0x8fa86a), 0.34).getHex(),
+        roughness: 0.92,
+        side: THREE.DoubleSide,
+      }),
     [settings, seed, palette.foliage],
   );
 
@@ -143,6 +197,84 @@ export function Campsite({
     () => Array.from({ length: 4 }, (_, i) => createTreeGeometry(seed + i * 977, 4.2)),
     [seed],
   );
+
+  /**
+   * The understorey, placed from the manifest's own densities.
+   *
+   * Two geometry variants per kit rather than one per plant: instancing needs
+   * shared geometry, and at these counts the difference between two fern
+   * shapes and two hundred is invisible in firelight and the difference in
+   * draw calls is not.
+   *
+   * `drawDistance` stands in for the device budget here. It already arrives
+   * capped by the quality tier, so a weak device gets a smaller disc to fill
+   * and — through `lowTierDrop` — loses the kits the content author marked as
+   * losable rather than the ones that carry the environment's identity.
+   */
+  const understoreyLayers = useMemo(() => {
+    const radius = Math.max(6, Math.min(drawDistance, 22));
+    const area = Math.PI * radius * radius;
+    const keep = understorey.filter((kit) => !(kit.lowTierDrop && drawDistance < 18));
+
+    return keep.map((kit, kitIndex) => {
+      const rng = mulberry(seed ^ (0x9e37 + kitIndex * 7919));
+      // Per hundred square metres, which is the unit the catalogue is written
+      // in. Capped so a moss at density 70 cannot alone spend the frame.
+      const wanted = Math.round((kit.density / 100) * area);
+      const count = Math.min(460, wanted);
+      const buckets: ScatterItem[][] = [[], []];
+
+      /*
+       * The clearing, and the trail through it.
+       *
+       * Planted from 1.7 m out, sword fern at its catalogue height of 0.6-1.4 m
+       * stands chest-high exactly where the player stands, and the first render
+       * buried the campfire — the opening image of the whole product — behind a
+       * wall of fronds. Density was not the mistake; the catalogue says "wall to
+       * wall on the slope" and it is right. The mistake was planting it in the
+       * camp.
+       *
+       * People clear the ground they camp on, so the fire gets a real clearing
+       * that thins rather than ends, and the trail keeps the same corridor the
+       * trees already respect. Both are the environment being sensible about
+       * itself rather than the renderer hiding its own content.
+       */
+      const trailAngle = Math.atan2(6.2, 7.5);
+
+      for (let i = 0; i < count; i++) {
+        const angle = rng() * Math.PI * 2;
+        // Square-rooted so instances spread evenly over the disc rather than
+        // crowding the middle, which is where the player spends the whole game.
+        const distance = CLEARING_RADIUS + Math.sqrt(rng()) * (radius - CLEARING_RADIUS);
+        // A soft edge to the clearing: right at its lip almost nothing takes,
+        // and a couple of metres out everything does. A hard ring reads as a
+        // mown lawn, which is the opposite of a wood.
+        const establish = clamp01((distance - CLEARING_RADIUS) / 2.4);
+        if (rng() > establish * 0.85 + 0.15) continue;
+        let delta = Math.abs(angle - trailAngle) % (Math.PI * 2);
+        if (delta > Math.PI) delta = Math.PI * 2 - delta;
+        if (delta < 0.3 && distance < 12) continue;
+        const x = Math.cos(angle) * distance;
+        const z = Math.sin(angle) * distance;
+        const y = terrainHeight(x, z, seed, 0.7, basin);
+        // Nothing grows in the fire or underwater.
+        if (basin && y < WATERLINE) continue;
+        const bucket = buckets[rng() < 0.5 ? 0 : 1] as ScatterItem[];
+        bucket.push({ x, y, z, scale: 0.8 + rng() * 0.5, rotationY: rng() * Math.PI * 2 });
+      }
+
+      const height = (kit.minHeight + kit.maxHeight) / 2;
+      const family = understoreyFamily(kit.kitId);
+      return {
+        kitId: kit.kitId,
+        buckets,
+        geometries: [
+          createUnderstoreyGeometry(family, seed + kitIndex * 5171, height),
+          createUnderstoreyGeometry(family, seed + kitIndex * 5171 + 31, height),
+        ],
+      };
+    });
+  }, [understorey, drawDistance, seed, basin]);
 
   /**
    * Four rock shapes rather than fourteen.
@@ -391,6 +523,20 @@ export function Campsite({
           items={items}
         />
       ))}
+
+      {/* The understorey the manifest asked for, two draw calls per kit. */}
+      {understoreyLayers.map((layer) =>
+        layer.buckets.map((items, i) =>
+          items.length === 0 ? null : (
+            <Scatter
+              key={`${layer.kitId}-${i}`}
+              geometry={layer.geometries[i] ?? (layer.geometries[0] as THREE.BufferGeometry)}
+              material={understoreyMaterial}
+              items={items}
+            />
+          ),
+        ),
+      )}
 
       {/* Rocks */}
       {rocks.map((items, i) => (

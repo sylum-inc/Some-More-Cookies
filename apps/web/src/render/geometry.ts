@@ -357,6 +357,196 @@ export function createRockGeometry(seed: number, size = 0.4): THREE.BufferGeomet
   return geometry;
 }
 
+/**
+ * The understorey: the layer the catalogue described and nothing ever drew.
+ *
+ * `packages/content` specifies forty scatter kits with real densities and real
+ * art direction — sword fern at seventy instances per hundred square metres,
+ * Spanish moss at thirty-four, bracken, heather, devil's club, nurse logs,
+ * cypress knees, cryptobiotic crust. The renderer knew four shapes: tree, rock,
+ * log, terrain. Worse, `World.tsx` filtered the manifest to kits over 2.5 m
+ * tall before it ever reached the scene, so every one of those was discarded on
+ * the way in. That is why walking away from the fire showed six cones and four
+ * rocks, and it is the whole of "there is nothing to look at".
+ *
+ * Forty bespoke plants would be forty draw calls for variety nobody can resolve
+ * at night through fog, so the kits map onto six families by silhouette. A
+ * sword fern and a bracken differ botanically and read identically as a dark
+ * arching mass at four metres in firelight; what has to differ is the shape of
+ * the mass, not the species.
+ */
+export type UnderstoreyFamily = 'frond' | 'shrub' | 'blade' | 'mat' | 'cushion' | 'veil';
+
+/** Which silhouette each catalogue kit takes. Unlisted kits fall back to shrub. */
+const KIT_FAMILIES: Readonly<Record<string, UnderstoreyFamily>> = {
+  kit_swordfern: 'frond',
+  kit_bracken: 'frond',
+  kit_bracken_moor: 'frond',
+  kit_devils_club: 'frond',
+  kit_palmetto: 'frond',
+  kit_salal: 'shrub',
+  kit_heather: 'shrub',
+  kit_blackbrush: 'shrub',
+  kit_rabbitbrush: 'shrub',
+  kit_lupine: 'shrub',
+  kit_foxglove: 'shrub',
+  kit_willow_bar: 'shrub',
+  kit_blueberry_lichen: 'shrub',
+  kit_young_fir: 'shrub',
+  kit_cotton_grass: 'blade',
+  kit_dune_grass: 'blade',
+  kit_salt_grass: 'blade',
+  kit_shortgrass: 'blade',
+  kit_track_weed: 'blade',
+  kit_pickleweed: 'blade',
+  kit_thermal_moss: 'mat',
+  kit_cryptobiotic: 'mat',
+  kit_duckweed: 'mat',
+  kit_alpine_cushion: 'cushion',
+  kit_heather_alpine: 'cushion',
+  kit_krummholz: 'cushion',
+  kit_moss_veil: 'veil',
+};
+
+export function understoreyFamily(kitId: string): UnderstoreyFamily {
+  return KIT_FAMILIES[kitId] ?? 'shrub';
+}
+
+/**
+ * One plant of a family, built to be instanced.
+ *
+ * Everything here is a handful of triangles on purpose: at these densities the
+ * scene draws thousands of them, and the budget in ARCHITECTURE §10 is the
+ * constraint that decides how much world there can be.
+ */
+export function createUnderstoreyGeometry(
+  family: UnderstoreyFamily,
+  seed: number,
+  height = 0.8,
+): THREE.BufferGeometry {
+  const rng = mulberry(seed);
+  const parts: THREE.BufferGeometry[] = [];
+
+  switch (family) {
+    case 'frond': {
+      // Arching fronds from a common crown. The arch is the whole silhouette:
+      // straight blades read as grass, and a fern is not grass.
+      const blades = 5 + Math.floor(rng() * 3);
+      for (let i = 0; i < blades; i++) {
+        const angle = (i / blades) * Math.PI * 2 + rng() * 0.4;
+        const length = height * (0.7 + rng() * 0.5);
+        const blade = new THREE.PlaneGeometry(height * 0.16, length, 1, 3);
+        // Bend it over: each segment pitched further than the last.
+        const position = blade.getAttribute('position') as THREE.BufferAttribute;
+        for (let v = 0; v < position.count; v++) {
+          const t = (position.getY(v) + length / 2) / length;
+          position.setZ(v, t * t * length * 0.42);
+          position.setY(v, position.getY(v) - t * t * length * 0.12);
+        }
+        position.needsUpdate = true;
+        blade.translate(0, length / 2, 0);
+        blade.rotateY(angle);
+        parts.push(blade);
+      }
+      break;
+    }
+    case 'shrub': {
+      // A clumpy mass. Two or three overlapping low-poly spheres, squashed.
+      const lobes = 2 + Math.floor(rng() * 2);
+      for (let i = 0; i < lobes; i++) {
+        const radius = height * (0.3 + rng() * 0.22);
+        const lobe = new THREE.IcosahedronGeometry(radius, 0);
+        const position = lobe.getAttribute('position') as THREE.BufferAttribute;
+        for (let v = 0; v < position.count; v++) {
+          position.setXYZ(
+            v,
+            position.getX(v) * (0.8 + rng() * 0.5),
+            position.getY(v) * 0.72,
+            position.getZ(v) * (0.8 + rng() * 0.5),
+          );
+        }
+        position.needsUpdate = true;
+        lobe.translate(
+          (rng() - 0.5) * height * 0.4,
+          radius * 0.8 + rng() * height * 0.16,
+          (rng() - 0.5) * height * 0.4,
+        );
+        parts.push(lobe);
+      }
+      break;
+    }
+    case 'blade': {
+      // Grass: crossed quads, the cheapest thing that still catches firelight
+      // from more than one direction.
+      const clumps = 2 + Math.floor(rng() * 2);
+      for (let i = 0; i < clumps; i++) {
+        const h = height * (0.6 + rng() * 0.7);
+        const quad = new THREE.PlaneGeometry(height * 0.5, h, 1, 1);
+        quad.translate(0, h / 2, 0);
+        quad.rotateY((i / clumps) * Math.PI + rng() * 0.5);
+        parts.push(quad);
+      }
+      break;
+    }
+    case 'mat': {
+      // Moss and crust: a ragged disc lying on the ground, lifted a hair so it
+      // does not fight the terrain for the same pixels.
+      const disc = new THREE.CircleGeometry(height * 1.6, 7);
+      disc.rotateX(-Math.PI / 2);
+      const position = disc.getAttribute('position') as THREE.BufferAttribute;
+      for (let v = 0; v < position.count; v++) {
+        position.setXYZ(
+          v,
+          position.getX(v) * (0.7 + rng() * 0.6),
+          position.getY(v) + rng() * height * 0.1,
+          position.getZ(v) * (0.7 + rng() * 0.6),
+        );
+      }
+      position.needsUpdate = true;
+      disc.translate(0, height * 0.02, 0);
+      parts.push(disc);
+      break;
+    }
+    case 'cushion': {
+      // Alpine cushion and krummholz: wind-flattened domes, wider than tall.
+      const dome = new THREE.IcosahedronGeometry(height * 0.7, 0);
+      const position = dome.getAttribute('position') as THREE.BufferAttribute;
+      for (let v = 0; v < position.count; v++) {
+        position.setXYZ(
+          v,
+          position.getX(v) * (1.1 + rng() * 0.4),
+          Math.max(0, position.getY(v)) * 0.42,
+          position.getZ(v) * (1.1 + rng() * 0.4),
+        );
+      }
+      position.needsUpdate = true;
+      parts.push(dome);
+      break;
+    }
+    case 'veil': {
+      // Spanish moss: hanging strands. The catalogue calls this the single most
+      // identity-defining element of its environment, so it hangs rather than
+      // stands, and it is built to be placed up in a canopy.
+      const strands = 3 + Math.floor(rng() * 3);
+      for (let i = 0; i < strands; i++) {
+        const length = height * (0.6 + rng() * 0.8);
+        const strand = new THREE.PlaneGeometry(height * 0.12, length, 1, 1);
+        strand.translate(0, -length / 2, 0);
+        strand.rotateY(rng() * Math.PI);
+        strand.translate((rng() - 0.5) * height * 0.5, 0, (rng() - 0.5) * height * 0.5);
+        parts.push(strand);
+      }
+      break;
+    }
+  }
+
+  const merged = mergeGeometries(parts);
+  for (const part of parts) part.dispose();
+  merged.computeVertexNormals();
+  merged.computeBoundingSphere();
+  return merged;
+}
+
 /** A split log for the fire and the woodpile. */
 export function createLogGeometry(length = 0.5, radius = 0.07): THREE.BufferGeometry {
   const geometry = new THREE.CylinderGeometry(radius, radius * 0.92, length, 7, 1);

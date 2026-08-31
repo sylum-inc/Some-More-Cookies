@@ -1493,7 +1493,27 @@ export function App({ store }: AppProps): React.ReactElement {
         keeps both permanently, because for somebody relying on that setting a
         control that comes and goes is worse than one that is always there.
       */}
-      {((state.stage === 'roasting' && (fireWantsWood || fireWantsRaking)) ||
+      {/*
+        Raking is a thing you can do with a stick in your hand. Feeding the
+        fire is not.
+        
+        "Add wood" was the shortcut that let a player skip the only genuinely
+        consequential decision at the campsite. The woodpile has always handed
+        back the species of the log you reached for, and the six woods differ
+        by a factor of three in how fast they burn and by more than that in the
+        bed they leave -- so a button that picks for you is a button that plays
+        the fire game on your behalf and then hands you a worse sandwich for
+        reasons you cannot see.
+        
+        Taking it away is what makes the rhythm real: you set the marshmallow
+        down, walk to the pile, choose, and come back. Nothing is lost by
+        leaving the fire for a minute -- the ember bed has a quarter of an hour
+        in it -- and that is exactly the slack the night is supposed to have.
+        
+        Simplified gestures keeps both controls, because for somebody relying
+        on that setting a walk to the woodpile is not a rhythm, it is a wall.
+      */}
+      {((state.stage === 'roasting' && fireWantsRaking) ||
         state.accessibility.simplifiedGestures) &&
         state.overlay === 'none' && (
         <div
@@ -1510,7 +1530,7 @@ export function App({ store }: AppProps): React.ReactElement {
             zIndex: 25,
           }}
         >
-          {(fireWantsWood || state.accessibility.simplifiedGestures) && (
+          {state.accessibility.simplifiedGestures && (
             <SideButton label="Add wood" onClick={handleAddLog} textScale={state.accessibility.textScale} />
           )}
           {(fireWantsRaking || state.accessibility.simplifiedGestures) && (

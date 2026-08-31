@@ -34,6 +34,25 @@ export interface WoodType {
   readonly sparkiness: number;
   /** Default moisture when found at a campsite (0 = kiln dry, 1 = soaked). */
   readonly defaultMoisture: number;
+  /**
+   * Split-face colour, so a woodpile is visibly mixed.
+   *
+   * The pile has always handed you the species of the individual log you
+   * reached for -- that is what `onPick` does -- but every log was drawn in the
+   * same material, so the most consequential choice at the campsite was
+   * indistinguishable from a random one. Pale woods here are the light, fast,
+   * poor-ember ones and dark woods are the dense, slow, good-ember ones, which
+   * is both true of real wood and the whole lesson this system has to teach.
+   */
+  readonly bark: number;
+  /**
+   * What it is like in your hands, said once when you pick it up.
+   *
+   * Deliberately sensory rather than numeric. The player is meant to end up
+   * knowing that the heavy dark one makes the bed worth roasting over, and to
+   * know it from having handled it rather than from having read a burn rate.
+   */
+  readonly note: string;
 }
 
 export const WOOD_TYPES: Record<string, WoodType> = {
@@ -47,6 +66,9 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     smokiness: 0.55,
     sparkiness: 1.5,
     defaultMoisture: 0.2,
+    bark: 0x6b4a32,
+    note:
+      'Light, and sticky with resin. It will take from almost nothing, and be gone about as quickly.',
   },
   oak: {
     id: 'oak',
@@ -58,6 +80,9 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     smokiness: 0.25,
     sparkiness: 0.4,
     defaultMoisture: 0.24,
+    bark: 0x4a3a2a,
+    note:
+      'Heavy for its size. It will not take on a cold fire — but it leaves a bed worth roasting over.',
   },
   birch: {
     id: 'birch',
@@ -69,6 +94,9 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     smokiness: 0.3,
     sparkiness: 0.7,
     defaultMoisture: 0.22,
+    bark: 0xcfc7b2,
+    note:
+      'Paper bark, peeling off in your hand. Lights easily and burns clean.',
   },
   driftwood: {
     id: 'driftwood',
@@ -81,6 +109,9 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     // Salt-laden driftwood spits and throws coloured flame.
     sparkiness: 1.8,
     defaultMoisture: 0.38,
+    bark: 0x9a9a94,
+    note:
+      'Silvered and salt-dry. Burns with odd colours in it.',
   },
   aspen: {
     id: 'aspen',
@@ -92,6 +123,9 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     smokiness: 0.35,
     sparkiness: 0.5,
     defaultMoisture: 0.26,
+    bark: 0xb9ae96,
+    note:
+      'So light it hardly feels like wood. Good for getting a fire started and for little else.',
   },
   mesquite: {
     id: 'mesquite',
@@ -103,6 +137,9 @@ export const WOOD_TYPES: Record<string, WoodType> = {
     smokiness: 0.2,
     sparkiness: 0.3,
     defaultMoisture: 0.18,
+    bark: 0x33251c,
+    note:
+      'Dense as stone, and about as reluctant. Nothing makes better coals.',
   },
 };
 

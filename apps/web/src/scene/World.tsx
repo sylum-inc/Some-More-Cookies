@@ -29,6 +29,7 @@ import {
   setPresence,
   stepPlayer,
   vec3,
+  WOOD_TYPES,
   type Interactable,
   type MoveIntent,
   type PlayerState,
@@ -833,6 +834,20 @@ export function World({
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
         onTakeWood={(woodId) => {
           tendFire(ritual, { type: 'add-log', woodId, placement: 0.78 });
+          /*
+           * The wood introduces itself, once, as you put it on.
+           *
+           * Which log you take has always decided how the next ten minutes of
+           * fire behave -- pine catches from almost nothing and leaves almost
+           * nothing, mesquite will not light on a cold fire and leaves a bed
+           * worth roasting over -- and the player was never told any of it. The
+           * line is sensory rather than numeric on purpose: the point is to end
+           * up knowing that the heavy dark one makes the better coals, and to
+           * know it from having handled it rather than from having read a burn
+           * rate off a panel.
+           */
+          const wood = WOOD_TYPES[woodId];
+          if (wood) store.setNotice(`${wood.label}. ${wood.note}`);
           store.touch();
         }}
         {...(walkable.basin ? { basin: walkable.basin } : {})}

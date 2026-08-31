@@ -9,7 +9,14 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { clamp01, curatedSky, terrainHeight, type WaterBasin, type WeatherState } from '@somemore/sim';
+import {
+  clamp01,
+  curatedSky,
+  terrainHeight,
+  WOOD_TYPES,
+  type WaterBasin,
+  type WeatherState,
+} from '@somemore/sim';
 
 /** Ground below this is under water, so nothing is planted in it. */
 const WATERLINE = -0.14;
@@ -337,6 +344,34 @@ export function Campsite({
     [],
   );
 
+  /**
+   * The pile, split into one instanced group per species it holds.
+   *
+   * Interleaved rather than sorted into blocks: a real pile is mixed, and a
+   * neat row of each kind would read as a shop shelf. The species a log
+   * belongs to is decided by its position in the stack, exactly as `onPick`
+   * always assumed.
+   */
+  const woodpileBySpecies = useMemo(() => {
+    const groups = new Map<string, ScatterItem[]>();
+    woodpileItems.forEach((item, i) => {
+      const woodId = fuelIds[i % fuelIds.length] ?? 'oak';
+      const bucket = groups.get(woodId);
+      if (bucket) bucket.push(item);
+      else groups.set(woodId, [item]);
+    });
+    return [...groups].map(([woodId, items]) => ({
+      woodId,
+      items,
+      material: createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 64, seed }),
+        color: WOOD_TYPES[woodId]?.bark ?? 0x5a4632,
+        roughness: 1,
+      }),
+    }));
+  }, [woodpileItems, fuelIds, settings, seed]);
+
   const logGeometry = useMemo(() => createLogGeometry(1.9, 0.19), []);
   const woodpileGeometry = useMemo(() => createLogGeometry(0.55, 0.07), []);
 
@@ -563,17 +598,32 @@ export function Campsite({
           matter of reaching for one, not of pressing a labelled control, and
           which log you reach for still decides which wood you get: the
           instance the ray hit is the log in your hand. */}
-      <Scatter
-        name="woodpile"
-        geometry={woodpileGeometry}
-        material={woodMaterial}
-        items={woodpileItems}
-        {...(onTakeWood
-          ? {
-              onPick: (index: number) => onTakeWood(fuelIds[index % fuelIds.length] ?? 'oak'),
-            }
-          : {})}
-      />
+      {/*
+        One instanced stack per species, so the pile is visibly mixed.
+        
+        `onPick` has always handed back the species of the individual log the
+        ray hit, which makes the woodpile the most consequential choice at the
+        campsite: pine catches from almost nothing and leaves you nothing,
+        mesquite will not light on a cold fire and leaves a bed worth roasting
+        over. Drawn in one material, that choice was real and completely
+        unknowable -- indistinguishable from picking at random.
+        
+        Splitting the stack by species costs one draw call per wood the
+        environment actually offers, which is two or three, and turns the pile
+        into something you can read: pale logs are the light fast ones, dark
+        logs are the dense slow ones. That is true of real wood, and it is the
+        entire lesson this system exists to teach.
+      */}
+      {woodpileBySpecies.map((group) => (
+        <Scatter
+          key={group.woodId}
+          name="woodpile"
+          geometry={woodpileGeometry}
+          material={group.material}
+          items={group.items}
+          {...(onTakeWood ? { onPick: () => onTakeWood(group.woodId) } : {})}
+        />
+      ))}
 
       {/* Precipitation */}
       <points ref={rainRef} geometry={rainGeometry} material={rainMaterial} frustumCulled={false} />

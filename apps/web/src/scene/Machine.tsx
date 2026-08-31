@@ -238,6 +238,24 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
   const canPull = canPerform(machine, 'pull-lever');
   const canRelease = canPerform(machine, 'release-latch');
   const canOpen = canPerform(machine, 'open-door');
+  /*
+   * Putting the s'more in, which had no pointer target at all.
+   *
+   * Every other control on this cabinet is a mesh you click: the door, the
+   * latch, the three programmes, the confirm, the lever. Loading was the one
+   * step of twelve that existed solely as the `L` key, so on a touchscreen the
+   * ritual simply stopped at "Put it in." with nothing to put it in with. The
+   * first person to play this said, in as many words, that they did not know
+   * how to get the sandwich into the machine. They were right: there was no
+   * way.
+   *
+   * It went unnoticed because every end-to-end test -- acceptance, access, and
+   * `mobile.spec.ts`, whose whole subject is whether the ritual fits in the
+   * hand -- performs this step through `window.__someMore.actions`, the debug
+   * bridge. A suite that reaches around the interaction it is testing will
+   * report that the ritual works right up until somebody tries it.
+   */
+  const canLoad = canPerform(machine, 'load');
 
   const pointerProps = (id: string) => ({
     onPointerOver: (event: { stopPropagation: () => void }) => {
@@ -412,14 +430,41 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
         <meshStandardMaterial color={0x14181c} side={THREE.BackSide} roughness={1} />
       </mesh>
 
-      {/* Tray */}
+      {/* Tray. Also the target for setting the s'more down inside. */}
       <mesh
         material={aluminium}
         position={[0, CHAMBER.centreY - CHAMBER.height / 2 + 0.015, BODY.depth / 2 - 0.18]}
         receiveShadow
+        onClick={canLoad ? act({ type: 'load' }) : undefined}
+        {...(canLoad ? pointerProps('tray') : {})}
       >
         <boxGeometry args={[CHAMBER.width - 0.06, 0.012, 0.3]} />
       </mesh>
+
+      {/*
+        A lit pad on the tray while it is waiting to be loaded.
+        
+        The tray is a thin aluminium shelf inside a dark box, and "click the
+        shelf" is not a thing anybody guesses. This is the same hint treatment
+        the lever and the latch get, on the one control that needed it most and
+        did not have it.
+      */}
+      {canLoad && (
+        <mesh
+          position={[0, CHAMBER.centreY - CHAMBER.height / 2 + 0.023, BODY.depth / 2 - 0.18]}
+          rotation={[-Math.PI / 2, 0, 0]}
+          onClick={act({ type: 'load' })}
+          {...pointerProps('tray')}
+        >
+          <planeGeometry args={[CHAMBER.width - 0.09, 0.26]} />
+          <meshBasicMaterial
+            color={0xffd9a0}
+            transparent
+            opacity={hintEnabled ? (hovered === 'tray' ? 0.3 : 0.14) : 0.06}
+            toneMapped={false}
+          />
+        </mesh>
+      )}
 
       <group ref={doorRef} position={[-0.29, 0.56, BODY.depth / 2 + 0.005]}>
         <mesh

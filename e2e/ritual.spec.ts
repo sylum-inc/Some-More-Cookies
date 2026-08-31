@@ -535,3 +535,96 @@ test.describe('exploration', () => {
     await capture(page, '24-reach-woodpile');
   });
 });
+
+/*
+ * The step a person could not perform.
+ *
+ * Loading the SM-01 had no pointer target at all: the door, the latch, the
+ * three programmes, the confirm and the lever were all clickable meshes, and
+ * putting the s'more in existed only as the `L` key. On a phone the ritual
+ * stopped dead at "Put it in." with nothing to put it in with, and the first
+ * person to play it said exactly that.
+ *
+ * It survived because every end-to-end test in this repository -- acceptance,
+ * access, and `mobile.spec.ts`, whose entire subject is whether the ritual
+ * fits in the hand -- loads the machine through `window.__someMore.actions`.
+ * A suite that reaches around an interaction cannot tell you the interaction
+ * is missing; it can only tell you the state machine behind it is sound.
+ *
+ * So this one refuses the bridge. It hits the canvas with a real click, at a
+ * real coordinate, the way a thumb does.
+ */
+test.describe('the machine can be loaded by hand', () => {
+  test('the s’more goes in because you put it on the tray, not because you pressed L', async ({ page }) => {
+    await page.goto('/?camp=camp-load&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await act(page, 'arrive');
+    await act(page, 'beginRoasting');
+    await act(page, 'finishRoasting');
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'assembling', null, {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      for (let i = 0; i < 4; i += 1) {
+        a['holdComponent']!();
+        a['placeComponent']!();
+      }
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage === 'machine', null, {
+      timeout: 30_000,
+    });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.machine.door > 0.9, null, {
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(1200);
+
+    expect(
+      await page.evaluate(() => window.__someMore!.store.state.ritual.machine.stage),
+      'the machine should be waiting to be loaded',
+    ).toBe('idle');
+
+    // The tray sits inside the chamber mouth. Sweep the region the chamber
+    // occupies rather than guessing one pixel: a coordinate-exact expectation
+    // would fail the next time the framing is improved, which is the trap the
+    // lift-out test already documented.
+    const stageNow = () =>
+      page.evaluate(() => window.__someMore!.store.state.ritual.machine.stage as string);
+
+    const box = page.viewportSize()!;
+    let loaded = false;
+    for (const dy of [0.52, 0.56, 0.6, 0.64, 0.48]) {
+      for (const dx of [0.5, 0.46, 0.54, 0.42, 0.58]) {
+        await page.mouse.click(box.width * dx, box.height * dy);
+        await page.waitForTimeout(160);
+        const stage = await stageNow();
+        if (stage === 'loaded') {
+          loaded = true;
+          break;
+        }
+        /*
+         * The door is a large target sitting right beside the chamber and it
+         * can be shut before anything is in it, so a sweep will find it. That
+         * is not a failure of the thing under test -- the question is only
+         * whether *some* pointer target loads the machine -- so put the door
+         * back and carry on looking. Reopening goes through the bridge on
+         * purpose: it is setup, not the interaction being examined.
+         */
+        if (stage.startsWith('door-clos')) {
+          await act(page, 'machine', { type: 'open-door' });
+          await page.waitForFunction(
+            () => window.__someMore!.store.state.ritual.machine.door > 0.9,
+            null,
+            { timeout: 15_000 },
+          );
+        }
+      }
+      if (loaded) break;
+    }
+
+    expect(loaded, 'nothing in the chamber accepted the s’more by pointer').toBe(true);
+    // And it is genuinely in, not merely a stage that ticked over: `loaded` is
+    // the stage the machine reaches once the s'more is on the tray.
+    expect(await page.evaluate(() => window.__someMore!.store.state.ritual.machine.stage)).toBe('loaded');
+  });
+});

@@ -237,7 +237,10 @@ export function Campsite({
       // model of: a person who has been sitting by a fire for ten minutes can
       // genuinely see the treeline. Without it a moonless night is a black
       // rectangle rather than a dark wood.
-      intensity: (0.7 + strength * 2.4) * clear,
+      // Raised to take over the work the flat ambient used to do badly. The
+      // total light in the scene is about what it was; far more of it now
+      // arrives from a direction, which is the whole point.
+      intensity: (1.4 + strength * 3.2) * clear,
       ambient: clamp01(sky.ambientLight * clear),
     };
   }, [sky, weather.cloudCover]);
@@ -447,7 +450,25 @@ export function Campsite({
         fire is genuinely the only thing you have, and the difference between
         two campsites on two nights is a real difference rather than a dial.
       */}
-      <ambientLight intensity={0.85 + moonlight.ambient * 1.9} color={0x33445f} />
+      {/*
+        Most of the light now comes from a direction.
+
+        It used to come from `ambientLight`, at up to 2.75 against a moon of at
+        most 3.1 — and ambient light adds the same value to every surface no
+        matter which way it faces, so it cannot describe a shape. That is why
+        the first person to play this found the campsite flat and cheap: the
+        pines read as flat cones, the rocks as flat blobs, and the SM-01 — 23
+        separate boxes wearing enamel, aluminium, rubber and smoked plastic —
+        rendered as one beige silhouette. The materials were never the problem.
+        Nothing was lighting them.
+
+        So the same rough quantity of light is redistributed toward the moon,
+        which has a position and therefore gives every surface a lit side and a
+        shadowed one. The floor stays: it stands for dark adaptation, and a
+        moonless overcast night still has to be a dark wood rather than a black
+        rectangle. `e2e/night.spec.ts` is what holds that line.
+      */}
+      <ambientLight intensity={0.55 + moonlight.ambient * 0.5} color={0x33445f} />
       <directionalLight
         position={moonlight.position}
         intensity={moonlight.intensity}
@@ -455,7 +476,7 @@ export function Campsite({
       />
       {/* The sky's own light, from above, so canopies read as canopies. */}
       <hemisphereLight
-        intensity={0.6 + moonlight.ambient * 1.5}
+        intensity={0.55 + moonlight.ambient * 1.2}
         color={0x4a5f80}
         groundColor={0x161a14}
       />

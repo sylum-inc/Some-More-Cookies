@@ -149,7 +149,21 @@ function machineLine(machine: RitualState['machine'], keys: boolean): string {
     case 'processing':
     case 'transforming':
     case 'freezing':
-      return 'Nothing to do now but listen to it.';
+      /*
+       * The run is 36, 50 or 66 seconds depending on the programme, and this
+       * used to read "Nothing to do now but listen to it." That was true when
+       * the machine was an anchored stage: the camera was parked in front of
+       * the unit and there genuinely was nothing else to do. It is no longer
+       * true, and it was the worst thing the line could say — a minute of
+       * standing still, on instruction, in a campsite you are now free to walk
+       * around.
+       *
+       * Naming the length matters as much as the permission. An unknown wait
+       * is a much longer wait than a known one, and "about a minute" is a fact
+       * rather than a countdown, which would be the objective this product
+       * spends its whole voice avoiding.
+       */
+      return 'About a minute. Nothing here needs you until it opens.';
     case 'complete':
       return keys ? 'X releases the latch.' : 'Release the latch.';
     case 'unlatched':

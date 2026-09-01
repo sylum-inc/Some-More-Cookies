@@ -17,12 +17,15 @@ import {
   castLine,
   clamp01,
   createPlayer,
+  describeArmful,
   describeTorch,
   eyePosition,
+  gatherFuel,
+  patchAt,
   lieBack,
   lookDirection,
   createWorld,
-  focused,
+  offered,
   raiseBinoculars,
   releaseCatch,
   setTorchFocus,
@@ -67,6 +70,7 @@ import {
   placeComponent,
   takeSandwich as takeSandwichAction,
   tendFire,
+  layFuel,
 } from './net/shared.js';
 import { World, LAYOUT, hashSeed, isAnchored } from './scene/World.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
@@ -192,9 +196,25 @@ export function App({ store }: AppProps): React.ReactElement {
                 : []),
             ] as Interactable[])
           : []),
+        /*
+         * The places at this campsite where there is wood.
+         *
+         * Positions come from the simulation rather than being invented here,
+         * because the same list decides where the sticks are drawn and how wet
+         * what you pick up is — the catalogue's own account of the firewood at
+         * this site, which until now nothing had ever shown anybody.
+         */
+        ...ritual.gathering.patches.map((patch) => ({
+          id: patch.id,
+          x: patch.x,
+          z: patch.z,
+          reach: 1.3,
+        })),
       ],
     });
-  }, [state.environmentId, state.campsiteSeed]);
+    // Patch positions are fixed for the life of a campsite, so this stays a
+    // function of the seed even though it reads the simulation.
+  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches]);
 
   const player = useMemo(() => {
     // Starts out on the trail, walking in.
@@ -423,6 +443,8 @@ export function App({ store }: AppProps): React.ReactElement {
                   secrets: environment.secrets,
                   ...(environment.scene.water ? { water: environment.scene.water } : {}),
                   skyOpenness: environment.scene.skyOpenness,
+                  // Where the firewood is, in the catalogue's own words.
+                  fuel: environment.fuel.sources,
                 },
                 walkableRadiusM: environment.scene.walkableRadiusM,
               }
@@ -592,8 +614,30 @@ export function App({ store }: AppProps): React.ReactElement {
 
   /** Acts on whatever is within reach. The world offers; it never menus. */
   const handleUse = useCallback(() => {
-    const target = focused(player, walkable);
+    const target = offered(ritual, player, walkable);
     if (!target) return;
+    /*
+     * Somewhere there is wood.
+     *
+     * Checked before the switch because the places are named by the campsite
+     * rather than by this file: which patches exist, where they are and what
+     * is at them all come out of the catalogue's own fuel profile.
+     */
+    if (patchAt(ritual.gathering, target.id)) {
+      const result = gatherFuel(ritual, target.id);
+      if (result.full) {
+        store.setNotice('Your arms are full. Take it back to the fire first.');
+      } else if (result.empty) {
+        store.setNotice('Nothing left here worth carrying.');
+      } else if (result.taken) {
+        audioRef.current?.playFoley('stick');
+        // The catalogue's own line about this place, once, the first time you
+        // take anything from it. After that, just what is in your arms.
+        store.setNotice(result.introduction ?? describeArmful(ritual.gathering));
+      }
+      store.touch();
+      return;
+    }
     switch (target.id) {
       case 'woodpile': {
         const environment = getEnvironment(state.environmentId);
@@ -603,7 +647,19 @@ export function App({ store }: AppProps): React.ReactElement {
         break;
       }
       case 'fire':
-        tendFire(ritual, { type: 'rake' });
+        /*
+         * Hands full of wood means putting wood on. Hands empty means poking
+         * the coals. Same reach, same gesture, and no mode anywhere: what you
+         * are holding decides what touching a fire means, which is true of
+         * fires and true of hands.
+         */
+        if (ritual.gathering.armful.length > 0) {
+          layFuel(ritual);
+          audioRef.current?.playFoley('stick');
+          store.setNotice(describeArmful(ritual.gathering));
+        } else {
+          tendFire(ritual, { type: 'rake' });
+        }
         break;
       case 'marshmallows':
         if (ritual.stage === 'at-fire' || ritual.stage === 'after') beginRoastingAction(ritual);

@@ -149,6 +149,10 @@ The fire looks crunchy and PS1 but behaves systemically underneath.
 
 **Interactions:** lay fuel of any grade anywhere in the pit · **drag any piece of it somewhere else** · poke/rake the coals · bank the fire under ash · blow/fan air.
 
+**Where the wood comes from.** Every campsite's manifest describes its own firewood — hemlock deadfall off a wet slope, a split-maple stack inside a hollow cedar, driftwood dried against a warm vent — and says how damp each is. Those descriptions are *places*, out around the clearing at distances the campsite's own weights decide. You walk to one, pick up what is there, and are told the catalogue's own sentence about it the first time. An armful is five pieces, so what you bring back is a decision and the walk is the cost of it. The pile at camp is the convenient option and offers split logs only; tinder and kindling — the two things a cold fire actually needs — are out there. The torch on the log is what you take with you, and that is the job it has.
+
+**Coming back.** A campsite you have used before is found the way you left it: banked. No flame, grey ash, nothing moving, and two hundred degrees underneath. Rake it back, blow on what is under it, give it something fine enough to catch. Five minutes of real tending gets you a bed worth cooking on, and none of it can fail permanently.
+
 ### 4.2 Roasting
 
 Roasting is the tactile heart of the game and must be systemic, not a timer.

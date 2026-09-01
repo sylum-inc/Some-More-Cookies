@@ -14,6 +14,7 @@ import {
   curatedSky,
   terrainHeight,
   WOOD_TYPES,
+  type FuelPatch,
   type WaterBasin,
   type WeatherState,
 } from '@somemore/sim';
@@ -42,6 +43,16 @@ export interface CampsiteProps {
   seed: number;
   /** Taking a log from the pile — the diegetic route to feeding the fire. */
   onTakeWood?: (woodId: string) => void;
+  /**
+   * The places at this campsite where there is wood.
+   *
+   * Drawn rather than merely reachable: a patch you cannot see is a waypoint,
+   * and the point of walking out for firewood is that you went somewhere and
+   * found something. What is drawn thins as you work a place over.
+   */
+  fuelPatches?: readonly FuelPatch[];
+  /** Reaching for a piece at one of them. */
+  onGather?: (patchId: string) => void;
   /** Which fuels this campsite offers, in order of what the pile shows. */
   fuelIds?: readonly string[];
   weather: WeatherState;
@@ -98,6 +109,8 @@ export function Campsite({
   treeCount = 54,
   understorey = [],
   onTakeWood,
+  fuelPatches,
+  onGather,
   fuelIds = ['oak'],
   basin,
 }: CampsiteProps): React.ReactElement {
@@ -372,8 +385,73 @@ export function Campsite({
     }));
   }, [woodpileItems, fuelIds, settings, seed]);
 
+  /** One bark material per wood, shared by every place that wood is found. */
+  const deadfallMaterials = useMemo(() => {
+    const byWood: Record<string, THREE.Material> = {
+      __fallback: createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 64, seed }),
+        color: 0x5a4632,
+        roughness: 1,
+      }),
+    };
+    for (const patch of fuelPatches ?? []) {
+      if (byWood[patch.woodId]) continue;
+      byWood[patch.woodId] = createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 64, seed }),
+        color: WOOD_TYPES[patch.woodId]?.bark ?? 0x5a4632,
+        roughness: 1,
+      });
+    }
+    return byWood;
+  }, [fuelPatches, settings, seed]);
+
   const logGeometry = useMemo(() => createLogGeometry(1.9, 0.19), []);
   const woodpileGeometry = useMemo(() => createLogGeometry(0.55, 0.07), []);
+
+  /*
+   * Deadfall, kindling and twigs, where the campsite says they are.
+   *
+   * Three sizes because they are three different things to find: a fallen limb
+   * you have to break up, a scatter of finger-thick sticks, and the litter
+   * underneath that a fire actually gets started with. What is drawn thins as
+   * a place is worked over, so somewhere you have been three times looks it.
+   */
+  const deadfallGeometries = useMemo(
+    () => ({
+      log: createLogGeometry(0.72, 0.085),
+      kindling: createLogGeometry(0.46, 0.022),
+      tinder: createLogGeometry(0.2, 0.012),
+    }),
+    [],
+  );
+
+  const deadfallGroups = useMemo(() => {
+    if (!fuelPatches || fuelPatches.length === 0) return [];
+    return fuelPatches.map((patch) => {
+      const rng = mulberry(seed ^ hashPatchId(patch.id));
+      const drawn = patch.grade === 'log' ? 4 : patch.grade === 'kindling' ? 9 : 13;
+      const left = patch.stock > 0 ? patch.remaining / patch.stock : 0;
+      const count = Math.max(patch.remaining > 0 ? 1 : 0, Math.round(drawn * left));
+      const spread = patch.grade === 'log' ? 0.75 : patch.grade === 'kindling' ? 0.55 : 0.4;
+      const items: ScatterItem[] = [];
+      for (let i = 0; i < count; i++) {
+        const angle = rng() * Math.PI * 2;
+        const distance = Math.sqrt(rng()) * spread;
+        const x = patch.x + Math.cos(angle) * distance;
+        const z = patch.z + Math.sin(angle) * distance;
+        items.push({
+          x,
+          y: terrainHeight(x, z, seed, 0.7, basin) + (patch.grade === 'log' ? 0.085 : 0.016),
+          rotationY: rng() * Math.PI * 2,
+          scale: 0.75 + rng() * 0.5,
+          z,
+        });
+      }
+      return { patch, items };
+    });
+  }, [fuelPatches, seed, basin]);
 
   // --- Sky ---------------------------------------------------------------
   const sky = useMemo(() => curatedSky(), []);
@@ -623,6 +701,27 @@ export function Campsite({
         logs are the dense slow ones. That is true of real wood, and it is the
         entire lesson this system exists to teach.
       */}
+      {/*
+        The firewood that is not at camp.
+
+        One instanced call per place. `onPick` carries which place was touched,
+        so reaching for a stick out on the slope means that slope's wood, at
+        that slope's moisture, exactly as reaching into the pile means the pile.
+      */}
+      {deadfallGroups.map(({ patch, items }) => (
+        <Scatter
+          key={patch.id}
+          name={patch.id}
+          geometry={deadfallGeometries[patch.grade]}
+          material={
+            deadfallMaterials[patch.woodId] ?? (deadfallMaterials['__fallback'] as THREE.Material)
+          }
+          items={items}
+          receiveShadow
+          {...(onGather ? { onPick: () => onGather(patch.id) } : {})}
+        />
+      ))}
+
       {woodpileBySpecies.map((group) => (
         <Scatter
           key={group.woodId}
@@ -672,8 +771,19 @@ export function Campsite({
         shadowed one. The floor stays: it stands for dark adaptation, and a
         moonless overcast night still has to be a dark wood rather than a black
         rectangle. `e2e/night.spec.ts` is what holds that line.
+
+        And the floor was too low. Redistributing toward the moon works only
+        where there is a moon: on a clouded night with the moon down, both
+        moon-driven terms collapse and what is left is the floor alone — which
+        measured four to seven out of 255 out at the treeline, under the eight
+        that five-bit quantisation can even represent. So a player who walked
+        out for firewood was walking in a black rectangle, which is precisely
+        the failure the floor exists to prevent (spec deviation D7). The floor
+        is now roughly what it needs to be to read as a dark wood on the worst
+        night the weather model can produce, and the night suite measures the
+        far treeline rather than only the ground at your feet.
       */}
-      <ambientLight intensity={0.55 + moonlight.ambient * 0.5} color={0x33445f} />
+      <ambientLight intensity={1 + moonlight.ambient * 0.5} color={0x33445f} />
       <directionalLight
         position={moonlight.position}
         intensity={moonlight.intensity}
@@ -681,12 +791,22 @@ export function Campsite({
       />
       {/* The sky's own light, from above, so canopies read as canopies. */}
       <hemisphereLight
-        intensity={0.55 + moonlight.ambient * 1.2}
+        intensity={1.05 + moonlight.ambient * 1.2}
         color={0x4a5f80}
         groundColor={0x161a14}
       />
     </group>
   );
+}
+
+/** A stable small hash of a patch id, so each place scatters differently. */
+function hashPatchId(id: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    hash ^= id.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash;
 }
 
 /** One placed instance: where it stands, which way it faces, how big it is. */

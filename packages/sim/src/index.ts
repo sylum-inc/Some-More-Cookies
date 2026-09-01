@@ -11,6 +11,7 @@ export * from './math.js';
 export * from './rng.js';
 export * from './time.js';
 export * from './fire.js';
+export * from './gathering.js';
 export * from './heatfield.js';
 export * from './roasting.js';
 export * from './assembly.js';

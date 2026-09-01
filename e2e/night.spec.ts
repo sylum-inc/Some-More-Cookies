@@ -106,4 +106,50 @@ test.describe('the night is dark and legible', () => {
     // different product.
     expect(dark.mean).toBeLessThan(30);
   });
+
+  /**
+   * The same question, asked where the fire is not.
+   *
+   * The test above measures the frame from beside the pit, where a burning
+   * fire — or, once it is out, a bed of coals — is still doing most of the
+   * lighting. It passed while a player who walked out to the treeline for
+   * firewood was looking at four to seven out of 255: under the eight that
+   * five-bit quantisation can represent at all, which is to say a black
+   * rectangle. Going out for wood is now something the game asks people to
+   * do, so the far side of the clearing has to be somewhere you can be.
+   *
+   * The player is placed rather than walked, deliberately: what is being
+   * measured is the renderer, the walk is tested elsewhere, and putting the
+   * camera exactly where the defect was is the point.
+   */
+  test('the far side of the clearing is a dark wood, not a black rectangle', async ({ page }) => {
+    await page.goto('/?camp=camp-night&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1500);
+    await page.mouse.click(512, 420);
+    await waitForWorld(page, "r.stage === 'at-fire'", 'arrival', 40_000);
+    await page.waitForTimeout(1200);
+
+    // Out to the treeline, looking away from camp, with the fire burned out.
+    await advanceSeconds(page, 1500);
+    await page.evaluate(() => {
+      const p = window.__someMore!.player!;
+      p.position.x = 9.5;
+      p.position.z = 4.2;
+      p.facing = Math.atan2(p.position.z, p.position.x);
+      p.pitch = -0.18;
+    });
+    await page.waitForTimeout(1200);
+
+    const away = await measure(page);
+    await page.screenshot({ path: 'artifacts/screenshots/night-treeline.png' });
+
+    // Above the floor the pipeline can actually represent, and enough of the
+    // frame with it that the wood has shapes in it.
+    expect(away.groundMean).toBeGreaterThan(6);
+    expect(away.mean).toBeGreaterThan(6);
+    expect(away.litFraction).toBeGreaterThan(0.08);
+    // Still night, and still darker than standing at a fire.
+    expect(away.mean).toBeLessThan(30);
+  });
 });

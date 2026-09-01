@@ -8,7 +8,16 @@
  */
 
 import type { RitualStage, RitualState } from '@somemore/sim';
-import { describeSeat, heatBand, isEmberBed, sampleHeat } from '@somemore/sim';
+import {
+  describeArmful,
+  describeSeat,
+  heatBand,
+  isEmberBed,
+  patchAt,
+  sampleHeat,
+  woodType,
+  MAX_ARMFUL,
+} from '@somemore/sim';
 import { TOKENS, FONT_STACK } from './styles.js';
 
 export interface HudProps {
@@ -67,6 +76,25 @@ const REACH_LABELS: Record<string, string> = {
  */
 export function reachLabel(id: string, ritual?: RitualState, seated = false): string {
   if (ritual) {
+    /*
+     * Somewhere there is wood.
+     *
+     * Named by the campsite, not by the table above: which places exist and
+     * what is at them come out of the environment's own fuel profile, so the
+     * prompt has to be built from the patch rather than looked up.
+     */
+    const patch = patchAt(ritual.gathering, id);
+    if (patch) {
+      if (patch.remaining <= 0) return 'Picked over';
+      if (ritual.gathering.armful.length >= MAX_ARMFUL) return 'Arms full';
+      return patch.grade === 'tinder'
+        ? 'Gather tinder'
+        : patch.grade === 'kindling'
+          ? 'Gather kindling'
+          : `Take ${woodType(patch.woodId).label.toLowerCase()}`;
+    }
+    // Hands full of wood means putting wood on, not poking the coals.
+    if (id === 'fire' && ritual.gathering.armful.length > 0) return 'Lay it on';
     if (id === 'log-seat') return seated ? 'Stand up' : 'Sit down';
     if (id === 'torch') return ritual.torch.held ? (ritual.torch.on ? 'Switch it off' : 'Switch it on') : 'Take the torch';
     if (id === 'water-edge') return ritual.skipping.held ? 'Throw it' : 'Pick up a stone';
@@ -244,6 +272,15 @@ function activityLine(ritual: RitualState, grip: ThrowGrip | undefined): string 
   if (ritual.fishing.phase === 'soaking') return 'The line is out.';
   if (ritual.stargazing.binoculars) return 'Hold something in view and it will resolve.';
   if (ritual.stargazing.posture === 'reclined') return 'The sky, for tonight.';
+  /*
+   * What is in your arms.
+   *
+   * A player who walked to the far side of the clearing for kindling has to be
+   * able to tell, when they get back, what they came back with — and there is
+   * nowhere in a first-person view to look down at your own hands. Counted by
+   * grade rather than listed, which is how an armful of wood presents itself.
+   */
+  if (ritual.gathering.armful.length > 0) return describeArmful(ritual.gathering);
   // Sitting is the quietest thing here and it still gets a line, because §12
   // says nothing may be delivered through one channel — and what sitting does
   // is otherwise entirely invisible.
@@ -347,6 +384,7 @@ export function Hud(props: HudProps): React.ReactElement {
         >
           <button
             className="sm-focus"
+            data-testid="reach"
             onClick={props.onUse}
             style={{
               background: 'rgba(8,10,14,0.66)',

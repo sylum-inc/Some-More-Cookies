@@ -33,9 +33,12 @@ import {
   stepRitual as simStepRitual,
   takeSandwich as simTakeSandwich,
   tendFire as simTendFire,
+  layFuel as simLayFuel,
+  takeFromArmful as simTakeFromArmful,
   SIM_DT,
   type ComponentKind,
   type MachineAction,
+  type LogPlacement,
   type RitualState,
   type SandwichRecord,
   type Vec3,
@@ -77,6 +80,40 @@ export function arrive(ritual: RitualState): void {
 export function tendFire(ritual: RitualState, action: FireAction): void {
   if (current === null) simTendFire(ritual, action);
   else current.tendFire(action);
+}
+
+/**
+ * Laying a piece of fuel from your arms onto the fire.
+ *
+ * Split in two on purpose, because the two halves belong to different people.
+ * The armful is *yours*: nobody else can see it, nothing you are carrying
+ * affects anybody's fire, and taking a piece out of your own arms is a local
+ * fact. What the piece does once it is in the pit is *everyone's*, so it goes
+ * on the wire as the same `add_log` the woodpile sends, carrying the grade and
+ * the moisture of the place you actually got it from — which is how a wet
+ * slope's deadfall behaves like a wet slope's deadfall on every client at the
+ * fire, not just on the client of whoever carried it back.
+ *
+ * The one thing this leaves unshared is how much wood two people think is left
+ * under a particular tree. Nothing reads that but the sentence you get when a
+ * place is picked over, and there is deliberately no state in which a campsite
+ * runs out of firewood, so the disagreement cannot cost anybody anything.
+ */
+export function layFuel(
+  ritual: RitualState,
+  options: { id?: string; spot?: LogPlacement } = {},
+): boolean {
+  if (current === null) return simLayFuel(ritual, options) !== null;
+  const piece = simTakeFromArmful(ritual.gathering, options.id);
+  if (!piece) return false;
+  current.tendFire({
+    type: 'add-log',
+    woodId: piece.woodId,
+    grade: piece.grade,
+    moisture: piece.moisture,
+    ...(options.spot ? { spot: options.spot } : {}),
+  });
+  return true;
 }
 
 export function beginRoasting(ritual: RitualState): void {

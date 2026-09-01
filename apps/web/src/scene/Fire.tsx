@@ -40,8 +40,14 @@ export interface FireProps {
   fire: FireState;
   settings: RenderSettings;
   maxParticles: number;
-  /** Raking the coals — reached by touching the bed itself. */
-  onRake?: () => void;
+  /**
+   * Touching the bed itself, at the point you touched it.
+   *
+   * What that means is the caller's business and depends on what is in the
+   * player's hands: empty, it pokes the coals; full of wood, it lays a piece
+   * down exactly there. The pit reports where it was touched and takes no view.
+   */
+  onTouchBed?: (x: number, z: number) => void;
   /**
    * Arranging: dragging one piece of fuel across the pit.
    *
@@ -68,7 +74,7 @@ export function Fire({
   fire,
   settings,
   maxParticles,
-  onRake,
+  onTouchBed,
   onMoveLog,
   grabbedRef,
   canTouch,
@@ -444,19 +450,19 @@ export function Fire({
         position={[0, 0.005, 0]}
         receiveShadow
         onClick={
-          onRake
+          onTouchBed
             ? (event) => {
                 // Out of reach this is a tap on a fire across the clearing,
                 // which means "walk me over there" — so it has to be left
                 // alone to bubble out to the movement layer.
                 if (canTouch && !canTouch()) return;
                 event.stopPropagation();
-                onRake();
+                onTouchBed(event.point.x, event.point.z);
               }
             : undefined
         }
         onPointerOver={(event) => {
-          if (!onRake || (canTouch && !canTouch())) return;
+          if (!onTouchBed || (canTouch && !canTouch())) return;
           event.stopPropagation();
           if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
         }}

@@ -18,9 +18,11 @@ import {
   createClock,
   createPlayer,
   createWorld,
+  describeArmful,
   distanceFromFire,
   eyePosition,
-  focused,
+  gatherFuel,
+  offered,
   terrainHeight,
   isEmberBed,
   lookDirection,
@@ -47,7 +49,7 @@ import {
  * server stamped it with — and the rest become intents on the wire rather than
  * direct mutations (ADR-0006). See `net/shared.ts`.
  */
-import { beginRoasting, operateMachine, stepRitual, tendFire } from '../net/shared.js';
+import { beginRoasting, layFuel, operateMachine, stepRitual, tendFire } from '../net/shared.js';
 import { getEnvironment } from '@somemore/content';
 import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
@@ -725,7 +727,7 @@ export function World({
     // Offer whatever is in reach. Only pushed to React when it changes, so
     // walking around does not re-render the tree every frame.
     if (!anchored) {
-      const target = focused(player, walkable);
+      const target = offered(ritual, player, walkable);
       const id = target?.id ?? null;
       if (id !== lastReach.current) {
         lastReach.current = id;
@@ -889,6 +891,15 @@ export function World({
         // The environment's own draw distance, capped by the quality tier so
         // a generous site cannot blow the budget on a weak device.
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
+        fuelPatches={ritual.gathering.patches}
+        onGather={(patchId) => {
+          // Same act as reaching for it on foot; the ray just aimed for you.
+          const result = gatherFuel(ritual, patchId);
+          if (result.full) store.setNotice('Your arms are full. Take it back to the fire first.');
+          else if (result.empty) store.setNotice('Nothing left here worth carrying.');
+          else if (result.taken) store.setNotice(result.introduction ?? describeArmful(ritual.gathering));
+          store.touch();
+        }}
         onTakeWood={(woodId) => {
           tendFire(ritual, { type: 'add-log', woodId });
           /*
@@ -986,9 +997,21 @@ export function World({
         fire={ritual.fire}
         settings={settings}
         maxParticles={qualitySettings.maxParticles}
-        onRake={() => {
+        onTouchBed={(x, z) => {
           if (!atThePit(player)) return;
-          tendFire(ritual, { type: 'rake' });
+          /*
+           * Hands full of wood means putting a piece down exactly there.
+           *
+           * The pit is somewhere you place things now, so the same touch that
+           * pokes the coals when your hands are empty lays wood where you
+           * pointed when they are not. No mode, no control: what you are
+           * carrying decides what touching a fire does.
+           */
+          if (ritual.gathering.armful.length > 0) {
+            if (layFuel(ritual, { spot: { x, z } })) store.setNotice(describeArmful(ritual.gathering));
+          } else {
+            tendFire(ritual, { type: 'rake' });
+          }
           store.touch();
         }}
         onMoveLog={(logId, x, z) => {

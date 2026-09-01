@@ -36,6 +36,9 @@ import {
   takeTorchFromLog,
   tendFire,
   describeArrangement,
+  describeArmful,
+  gatherFuel,
+  layFuel,
   type FuelGrade,
   toggleTorch,
   vec3,
@@ -115,6 +118,8 @@ const store = new Store({
           // omitted for those — which every activity that needs water checks.
           ...(environment.scene.water ? { water: environment.scene.water } : {}),
           skyOpenness: environment.scene.skyOpenness,
+          // Where the firewood at this campsite is, in the catalogue's own words.
+          fuel: environment.fuel.sources,
         },
         walkableRadiusM: environment.scene.walkableRadiusM,
       }
@@ -192,6 +197,38 @@ if (typeof window !== 'undefined') {
         }),
       ),
       arrangement: () => describeArrangement(store.state.ritual.fire),
+      // --- Firewood, and going to get it ------------------------------------
+      // The same entry points the interface calls when a player walks out to a
+      // fallen limb and reaches for a stick.
+      gather: wrap((patchId: unknown) => {
+        const result = gatherFuel(store.state.ritual, patchId as string);
+        return { taken: result.taken, introduction: result.introduction, full: result.full, empty: result.empty };
+      }),
+      layCarried: wrap((id?: unknown, x?: unknown, z?: unknown) =>
+        layFuel(
+          store.state.ritual,
+          x === undefined || z === undefined
+            ? id === undefined
+              ? {}
+              : { id: id as string }
+            : { ...(id === undefined ? {} : { id: id as string }), spot: { x: x as number, z: z as number } },
+        ) !== null,
+      ),
+      armful: () => ({
+        pieces: store.state.ritual.gathering.armful.map((p) => ({ id: p.id, woodId: p.woodId, grade: p.grade, moisture: p.moisture })),
+        described: describeArmful(store.state.ritual.gathering),
+      }),
+      fuelPatches: () =>
+        store.state.ritual.gathering.patches.map((p) => ({
+          id: p.id,
+          woodId: p.woodId,
+          grade: p.grade,
+          x: p.x,
+          z: p.z,
+          moisture: p.moisture,
+          remaining: p.remaining,
+          foundAs: p.foundAs,
+        })),
       // --- Secondary activities (spec §5.2) --------------------------------
       // The same entry points the interface calls when a player walks up to
       // the log, the shore or the water and touches something.

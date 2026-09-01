@@ -19,10 +19,12 @@ import {
   fireSignals,
   rakeEmbers,
   bankFire,
+  createBankedFire,
   repositionLog,
   type FuelGrade,
   type LogSpot,
   type LogPlacement,
+  type Log,
   stepFire,
   addLog,
   type FireSignals,
@@ -59,6 +61,21 @@ import {
   type MachineState,
 } from './machine.js';
 import { deriveSandwich, createBiteState, takeBite, type BiteState, type SandwichRecord } from './sandwich.js';
+import {
+  focused,
+  reachable,
+  type Interactable,
+  type PlayerState,
+  type WalkableWorld,
+} from './locomotion.js';
+import {
+  createGathering,
+  gatherFrom,
+  takeFromArmful,
+  type GatheringState,
+  type FuelSourceSpec,
+  type GatherResult,
+} from './gathering.js';
 import { createWeather, stepWeather, weatherFireEffect, type WeatherProfile, type WeatherState, DEFAULT_WEATHER_PROFILE } from './weather.js';
 import {
   createWildlife,
@@ -269,6 +286,14 @@ export interface RitualWorldContent {
   readonly water?: WaterFeatureSpec;
   /** `EnvironmentManifest.scene.skyOpenness` — how much sky this place has. */
   readonly skyOpenness?: number;
+  /**
+   * `EnvironmentManifest.fuel.sources` — where the wood at this campsite is.
+   *
+   * Twelve environments have described their own firewood since the catalogue
+   * was written and none of it reached anybody: one pile at camp, infinite,
+   * uniformly dry. These become the places you walk to.
+   */
+  readonly fuel?: readonly FuelSourceSpec[];
 }
 
 /** A campsite with nothing on the dial. Silence is a valid radio profile. */
@@ -345,6 +370,8 @@ const WINDOW_SECONDS = 14 * 60;
 export interface RitualState {
   stage: RitualStage;
   fire: FireState;
+  /** Where the wood is, and what is in your arms. */
+  gathering: GatheringState;
   weather: WeatherState;
   marshmallow: MarshmallowState;
   assembly: AssemblyState;
@@ -440,16 +467,31 @@ export function createRitual(options: RitualOptions): RitualState {
   const rng = new Rng(seed);
   const weatherProfile = options.weatherProfile ?? DEFAULT_WEATHER_PROFILE;
   const weather = createWeather(weatherProfile, rng.split('weather'));
-  const fire = createEstablishedFire({
-    ambientC: weather.temperatureC,
-    exposure: weatherProfile.exposure,
-  });
   const world = options.world ?? {};
   const walkableRadiusM = options.walkableRadiusM ?? 13;
+  const fireConfig = { ambientC: weather.temperatureC, exposure: weatherProfile.exposure };
+  /*
+   * A campsite you have used before is found the way you left it.
+   *
+   * First visit: somebody's fire is going when you walk in, which is the
+   * product's opening image and stays exactly as it was. Every visit after
+   * that, the pit is yours and it is banked — grey, cold-looking, nothing
+   * moving, and two hundred degrees under the ash. Finding that out is the
+   * first thing you do, and it is the only opening that could not be had on a
+   * first visit, which is the point: it is a reason to come back.
+   */
+  const returning = (options.visitIndex ?? 1) > 1;
+  const fire = returning ? createBankedFire(fireConfig) : createEstablishedFire(fireConfig);
 
   return {
     stage: 'arriving',
     fire,
+    gathering: createGathering({
+      sources: world.fuel ?? [],
+      radius: walkableRadiusM,
+      humidity: weather.humidity,
+      rng: rng.split('gathering'),
+    }),
     weather,
     marshmallow: createMarshmallow(),
     assembly: createAssembly({ assist: options.assemblyAssist ?? 0.5 }),
@@ -1014,6 +1056,71 @@ export function tendFire(ritual: RitualState, action: FireAction): void {
     fanFire(ritual.fire, action.strength ?? 1);
   }
   if (ritual.stage === 'arriving') setStage(ritual, 'at-fire');
+}
+
+/**
+ * Picking up one piece of wood from a place that has wood.
+ *
+ * Returns what happened rather than throwing or silently doing nothing: the
+ * interface needs to be able to say "your arms are full" and "there is nothing
+ * left here", and it needs the catalogue's sentence about this place the first
+ * time you take something from it.
+ */
+/**
+ * What the world is offering, given what is in the player's hands.
+ *
+ * `focused` answers "what is nearest and most looked at", which is right for
+ * almost everything and wrong for exactly one case: a player who has carried
+ * an armful of wood across the clearing and is standing over the pit did not
+ * do that in order to be offered a marshmallow. Hands full of firewood, the
+ * fire wins.
+ *
+ * Lives here rather than in `locomotion` because it is the only reach rule
+ * that depends on the ritual, and both the interface and the world loop have
+ * to agree about it or the prompt and the act would say different things.
+ */
+export function offered(
+  ritual: RitualState,
+  player: PlayerState,
+  world: WalkableWorld,
+): Interactable | null {
+  if (ritual.gathering.armful.length > 0) {
+    for (const candidate of reachable(player, world)) {
+      if (candidate.interactable.id === 'fire') return candidate.interactable;
+    }
+  }
+  return focused(player, world);
+}
+
+export function gatherFuel(ritual: RitualState, patchId: string): GatherResult {
+  const result = gatherFrom(ritual.gathering, patchId);
+  if (result.taken && ritual.stage === 'arriving') setStage(ritual, 'at-fire');
+  return result;
+}
+
+/**
+ * Laying a piece from your arms onto the fire.
+ *
+ * The wood you are holding is wood you went and got, and it is as wet as the
+ * place you got it from — so this is the path by which a wet slope's deadfall
+ * actually behaves like a wet slope's deadfall. Everything else about it goes
+ * through the same `add-log` the woodpile uses.
+ */
+export function layFuel(
+  ritual: RitualState,
+  options: { id?: string; spot?: LogPlacement } = {},
+): Log | null {
+  const piece = takeFromArmful(ritual.gathering, options.id);
+  if (!piece) return null;
+  tendFire(ritual, {
+    type: 'add-log',
+    woodId: piece.woodId,
+    grade: piece.grade,
+    moisture: piece.moisture,
+    ...(options.spot ? { spot: options.spot } : {}),
+  });
+  const logs = ritual.fire.logs;
+  return logs[logs.length - 1] ?? null;
 }
 
 export function beginRoasting(ritual: RitualState): void {

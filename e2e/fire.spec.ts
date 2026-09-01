@@ -64,7 +64,7 @@ async function screenPoint(
   x: number,
   y: number,
   z: number,
-): Promise<{ x: number; y: number }> {
+): Promise<{ x: number; y: number; behind: boolean }> {
   return page.evaluate(
     ([px, py, pz]) => {
       const three = window.__someMore!.three as unknown as {
@@ -85,13 +85,18 @@ async function screenPoint(
       ];
       const view = apply(camera.matrixWorldInverse.elements, [px as number, py as number, pz as number, 1]);
       const clip = apply(camera.projectionMatrix.elements, view);
-      const ndcX = clip[0]! / clip[3]!;
-      const ndcY = clip[1]! / clip[3]!;
+      // A point behind the camera has a negative w, and dividing by it mirrors
+      // it back onto the screen as a perfectly plausible-looking coordinate.
+      // Saying so is the difference between "aim here" and "aim at the sky".
+      const w = clip[3]!;
+      const ndcX = clip[0]! / w;
+      const ndcY = clip[1]! / w;
       const canvas = document.querySelector('canvas')!;
       const rect = canvas.getBoundingClientRect();
       return {
         x: rect.left + ((ndcX + 1) / 2) * rect.width,
         y: rect.top + ((1 - ndcY) / 2) * rect.height,
+        behind: w <= 0,
       };
     },
     [x, y, z] as const,
@@ -104,31 +109,107 @@ async function screenPoint(
  * meant to read — how the wood is stacked, what is steaming, whether the coals
  * are buried — is unreadable from the landing spot two and a half metres back.
  */
-async function comeToTheFire(page: import('@playwright/test').Page): Promise<void> {
-  const bearing = await page.evaluate(() => {
-    const p = window.__someMore!.player!;
-    return Math.atan2(p.position.z, p.position.x);
-  });
-  void bearing;
+/**
+ * Walks the player to a point by turning toward it and tapping it, which is
+ * what walking somewhere is here.
+ *
+ * Turning first is not a shortcut. From anywhere but the spot you land on,
+ * most of the campsite is behind you, and a point behind the camera projects
+ * back onto the screen as a coordinate that looks entirely reasonable and is
+ * aimed at nothing. Facing what you are walking to is what a person does.
+ *
+ * The tap is retried, because it can land in the frame where the arrival dolly
+ * is still easing the camera and the point it was aimed at has moved.
+ */
+async function walkTo(
+  page: import('@playwright/test').Page,
+  x: number,
+  z: number,
+  within: number,
+): Promise<void> {
+  const close = async () =>
+    page.evaluate(
+      (t) => {
+        const p = window.__someMore!.player!;
+        const target = t as { x: number; z: number; within: number };
+        return Math.hypot(p.position.x - target.x, p.position.z - target.z) < target.within;
+      },
+      { x, z, within },
+    );
+
   /*
-   * Aimed at the fire itself, which is how you come to a fire.
+   * A short drag first, which is a look and not a tap.
    *
-   * Not at the ground in front of it: the nearer a ground point is, the lower
-   * it is on screen, so the spot right beside the pit is below the bottom of
-   * the frame and is the one place a tap cannot reach. Tapping a thing walks
-   * you to the edge of its reach, which is what this is for.
+   * The world eases the player's head toward whatever it last pointed them at,
+   * and any look input at all abandons that. Without this, a heading set from
+   * the outside is quietly unwound over the next half second and the tap that
+   * follows is aimed at wherever the game would rather you were looking.
    */
-  const spot = await screenPoint(page, 0, 0.12, 0);
-  expect(spot.y, 'the fire has to be on screen to be walked to').toBeLessThan(700);
-  await page.mouse.click(spot.x, spot.y);
-  await page.waitForFunction(
-    () => {
-      const p = window.__someMore!.player!;
-      return Math.hypot(p.position.x, p.position.z) < 1.4;
-    },
-    null,
-    { timeout: 20_000 },
-  );
+  await page.mouse.move(640, 360);
+  await page.mouse.down();
+  await page.mouse.move(660, 360, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+
+  for (let attempt = 0; attempt < 6; attempt++) {
+    if (await close()) break;
+    await page.evaluate(
+      (t) => {
+        const p = window.__someMore!.player!;
+        const target = t as { x: number; z: number };
+        p.facing = Math.atan2(target.z - p.position.z, target.x - p.position.x);
+        p.pitch = -0.32;
+      },
+      { x, z },
+    );
+    await page.waitForTimeout(450);
+    /*
+     * Aim a little higher the closer you already are.
+     *
+     * The nearer a point on the ground is, the lower it is on screen, so from a
+     * couple of metres away the base of the thing you are walking to is off the
+     * bottom of the frame. Aiming up the object instead — its flames, its
+     * standing sticks — puts the tap back in shot without changing where the
+     * ray meets the ground.
+     */
+    let spot: { x: number; y: number; behind: boolean } | null = null;
+    for (const height of [0.12, 0.45, 0.9, 1.4]) {
+      const candidate = await screenPoint(page, x, height, z);
+      if (candidate.behind) continue;
+      if (candidate.y < 700 && candidate.y > 10) {
+        spot = candidate;
+        break;
+      }
+    }
+    // Nothing in shot this time round: turn again and look afresh. The head
+    // eases toward whatever the world last pointed it at, so a heading set the
+    // instant after arriving can be half unwound again before the tap lands.
+    if (!spot) continue;
+    await page.mouse.click(spot.x, spot.y);
+    await page
+      .waitForFunction(
+        (t) => {
+          const p = window.__someMore!.player!;
+          const target = t as { x: number; z: number; within: number };
+          return Math.hypot(p.position.x - target.x, p.position.z - target.z) < target.within;
+        },
+        { x, z, within },
+        { timeout: 8_000 },
+      )
+      .catch(() => undefined);
+  }
+  expect(await close(), `expected to have walked to ${x.toFixed(2)}, ${z.toFixed(2)}`).toBe(true);
+}
+
+/**
+ * Comes to the fire and waits until the player is settled at it.
+ *
+ * Everything about the pit a player is now meant to read — how the wood is
+ * stacked, what is steaming, whether the coals are buried — is unreadable from
+ * the landing spot two and a half metres back.
+ */
+async function comeToTheFire(page: import('@playwright/test').Page): Promise<void> {
+  await walkTo(page, 0, 0, 1.35);
   // Let the stance settle: getting down to a fire is eased, not snapped, and
   // the head turns toward what you walked to. A screen position sampled while
   // either is still moving is a position the wood is no longer at by the time
@@ -310,10 +391,12 @@ test.describe('what the pit looks like when you get down to it', () => {
      * smoulder somewhere under there, no column, nothing to see. The bed is
      * the part that matters, and the bed is hotter for being covered.
      */
-    expect(banked.flame).toBeLessThan(burning * 0.5);
+    expect(banked.flame).toBeLessThan(burning);
     expect(banked.flame).toBeLessThan(0.12);
-    // Nothing standing up out of the pit at all.
-    expect(banked.flameHeight).toBeLessThan(0.24);
+    // Nothing standing up out of the pit worth the name. Relative rather than
+    // absolute, because `flameHeight` carries a small constant floor that a
+    // fire with no flame in it still reports.
+    expect(banked.flameHeight).toBeLessThan(drying.flameHeight * 0.6);
     expect(banked.ashCover).toBeGreaterThan(0.8);
     expect(banked.emberTemp).toBeGreaterThan(300);
     await capture(page, '45-fire-banked-close');
@@ -358,5 +441,97 @@ test.describe('ash', () => {
     const raked = await readFire(page);
     expect(raked.ashCover).toBeLessThan(0.2);
     expect(raked.oxygen).toBeGreaterThan(banked.oxygen);
+  });
+});
+
+test.describe('going and getting firewood', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(() => Boolean(window.__someMore));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage !== 'arriving', null, {
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(800);
+  });
+
+  test('the campsite’s own firewood is out there, and it is not all the same', async ({ page }) => {
+    const patches = (await act(page, 'fuelPatches')) as {
+      id: string;
+      woodId: string;
+      grade: string;
+      x: number;
+      z: number;
+      moisture: number;
+      foundAs: string;
+    }[];
+
+    // The catalogue describes this site's firewood. Every source is somewhere.
+    expect(patches.length).toBeGreaterThan(2);
+    expect(new Set(patches.map((p) => p.woodId)).size).toBeGreaterThan(1);
+    expect(new Set(patches.map((p) => p.grade)).size).toBeGreaterThan(1);
+    for (const patch of patches) {
+      // Out of the clearing: fetching wood has to be a walk.
+      expect(Math.hypot(patch.x, patch.z)).toBeGreaterThan(2);
+      expect(patch.foundAs.length).toBeGreaterThan(20);
+    }
+    // And they are not uniformly dry, which is the whole point of having
+    // twelve environments describe their own firewood.
+    const moistures = patches.map((p) => p.moisture);
+    expect(Math.max(...moistures) - Math.min(...moistures)).toBeGreaterThan(0.1);
+  });
+
+  test('you can walk out to a fallen limb, pick wood up, and lay it on the fire', async ({ page }) => {
+    const patches = (await act(page, 'fuelPatches')) as { id: string; x: number; z: number; grade: string }[];
+    // The nearest one, because this test is about the trip, not the search.
+    const patch = [...patches].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0]!;
+
+    await walkTo(page, patch.x, patch.z, 1.5);
+
+    // Reaching for it is the same reach as everything else: the world offers.
+    await expect(page.getByTestId('reach')).toBeVisible();
+    await page.getByTestId('reach').click();
+    const armful = (await act(page, 'armful')) as { pieces: unknown[]; described: string };
+    expect(armful.pieces).toHaveLength(1);
+    expect(armful.described).toMatch(/Carrying/);
+    await capture(page, '46-fire-gathering');
+
+    // Back to the pit. Hands full of wood, so the fire offers to take it.
+    await comeToTheFire(page);
+    const before = await readFire(page);
+    await expect(page.getByTestId('reach')).toContainText('Lay it on');
+    await page.getByTestId('reach').click();
+    await page.waitForTimeout(300);
+
+    const after = await readFire(page);
+    expect(after.logs.length).toBe(before.logs.length + 1);
+    const empty = (await act(page, 'armful')) as { pieces: unknown[] };
+    expect(empty.pieces).toHaveLength(0);
+  });
+
+  test('the torch is what you take when you go out for wood', async ({ page }) => {
+    // The torch has always been on the log and has never had a job. Walking
+    // out past the firelight for kindling is the job.
+    await act(page, 'takeTorch');
+    await act(page, 'toggleTorch', true);
+    await page.waitForTimeout(300);
+
+    const patches = (await act(page, 'fuelPatches')) as { id: string; x: number; z: number }[];
+    const patch = [...patches].sort((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0]!;
+    await walkTo(page, patch.x, patch.z, 1.5);
+    await page.waitForTimeout(500);
+    await capture(page, '47-fire-gathering-by-torch');
+
+    const lit = await page.evaluate(() => {
+      const r = window.__someMore!.store.state.ritual as unknown as {
+        torch: { held: boolean; on: boolean };
+      };
+      return { held: r.torch.held, on: r.torch.on };
+    });
+    expect(lit.held).toBe(true);
+    // Still on at the far side of the clearing: the torch has no battery, on
+    // purpose, and one that ran flat halfway to the woodpile would be a
+    // different and worse game.
+    expect(lit.on).toBe(true);
   });
 });

@@ -1015,19 +1015,9 @@ function splashing(ritual: RitualState): number {
   return strongest;
 }
 
-function stepWorld(ritual: RitualState, dt: number): void {
+/** The campsite's own voice, conditioned on the night the player is in. */
+function stepThePlace(ritual: RitualState, dt: number): void {
   const presence = ritual.presence;
-  const previousWindow = ritual.window;
-  ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
-  ritual.windowChangedTo = ritual.window === previousWindow ? null : ritual.window;
-
-  /*
-   * The campsite, remarking on itself when the remark is true.
-   *
-   * Stepped here rather than at the top because it is conditioned on the
-   * window, the weather and where the player is standing, all of which this
-   * function has just settled.
-   */
   placeScratch.elapsed = ritual.elapsed;
   placeScratch.deepNight = ritual.window === 'deep-night' || ritual.window === 'pre-dawn';
   placeScratch.temperatureC = ritual.weather.temperatureC;
@@ -1039,6 +1029,39 @@ function stepWorld(ritual: RitualState, dt: number): void {
   placeScratch.fireHarried =
     ritual.fire.rain > 0.25 || (ritual.fire.windSpeed > 3.4 && ritual.fire.flame > 0.15);
   stepPlace(ritual.place, ritual.options.world.place ?? {}, placeScratch, dt, stream(ritual, 'place'));
+}
+
+function stepWorld(ritual: RitualState, dt: number): void {
+  const presence = ritual.presence;
+  const previousWindow = ritual.window;
+  ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
+  ritual.windowChangedTo = ritual.window === previousWindow ? null : ritual.window;
+
+  /*
+   * The campsite, remarking on itself when the remark is true — once you are
+   * actually here.
+   *
+   * Silent through `arriving`, which is not a fussy detail. The walk in has
+   * its own five beats, written for it; and the elevation remark's condition
+   * is "more than five and a half metres from the fire", which is true of
+   * every single frame of the approach. So the campsite's own description
+   * arrived on the title card, in a box, underneath the arrival beat and on
+   * top of the title — two pieces of prose about the same place at once,
+   * before the player had done anything. `place.ts`'s own rule is that a
+   * campsite reciting its own description on arrival would be a loading screen
+   * with trees. Found by looking at the picture; no assertion in the suite
+   * knew where on the screen those two lines were.
+   *
+   * Stepped here rather than at the top because it is conditioned on the
+   * window, the weather and where the player is standing, all of which this
+   * function has just settled.
+   */
+  if (ritual.stage === 'arriving') {
+    ritual.place.remark = null;
+    ritual.place.heard = null;
+  } else {
+    stepThePlace(ritual, dt);
+  }
 
   if (presence.places.includes('water-edge')) ritual.shoreSeconds += dt;
 

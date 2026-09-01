@@ -479,3 +479,94 @@ test.describe('the machine says what it is doing', () => {
     expect(label).toMatch(/campsite/i);
   });
 });
+
+/**
+ * Two things on the screen at once are two things you can read.
+ *
+ * The HUD's channels are all absolutely positioned by percentage from the
+ * bottom, which is a fine way to lay out a heads-up display and a bad way to
+ * find out that two of them overlap: every element is present, every element
+ * has the right text, every assertion about them passes, and one is sitting on
+ * top of the other.
+ *
+ * That is exactly what happened. The reach prompt sat at 18% and the notice at
+ * 19%, one percent apart on a button five percent tall, so walking up to a
+ * fuel patch — which fires the notice that introduces the wood at the same
+ * moment the "Gather tinder" prompt appears — put the sentence about the place
+ * squarely over the control for taking any of it. It was found by opening the
+ * screenshot.
+ *
+ * So: read the boxes, not the text.
+ */
+test.describe('the heads-up display does not cover itself', () => {
+  const CHANNELS = ['guidance', 'notice', 'reach', 'subtitle', 'survey', 'machine-state'] as const;
+
+  /** Every HUD channel currently on screen, with its box. */
+  async function boxes(page: import('@playwright/test').Page) {
+    const found: { id: string; box: { x: number; y: number; width: number; height: number } }[] = [];
+    for (const id of CHANNELS) {
+      const locator = page.getByTestId(id);
+      if ((await locator.count()) === 0) continue;
+      const box = await locator.first().boundingBox();
+      if (box && box.width > 0 && box.height > 0) found.push({ id, box });
+    }
+    return found;
+  }
+
+  function overlaps(
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number },
+  ): boolean {
+    return (
+      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+    );
+  }
+
+  test('no two channels share the same pixels while you are out for firewood', async ({ page }) => {
+    await page.goto('/?camp=camp-hud&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+
+    /*
+     * Stand at a fuel patch and reach for a piece: the exact moment the
+     * catalogue's sentence about this wood and the prompt for picking it up
+     * are both on screen.
+     */
+    const patch = await page.evaluate(() => {
+      const patches = (window.__someMore!.actions['fuelPatches'] as () => { id: string; x: number; z: number }[])();
+      return patches[0] ?? null;
+    });
+    expect(patch, 'this campsite has no firewood to walk to').not.toBeNull();
+    await page.evaluate((p) => {
+      const player = window.__someMore!.player!;
+      player.position.x = (p as { x: number }).x;
+      player.position.z = (p as { z: number }).z;
+    }, patch);
+    await page.evaluate((p) => {
+      (window.__someMore!.actions['gather'] as (id: string) => unknown)((p as { id: string }).id);
+    }, patch);
+    await page.waitForTimeout(500);
+
+    const onScreen = await boxes(page);
+    // eslint-disable-next-line no-console
+    console.log(`  on screen: ${onScreen.map((c) => `${c.id}@${Math.round(c.box.y)}`).join(', ')}`);
+    // The two that used to collide had both better be here, or this proves
+    // nothing at all.
+    expect(onScreen.map((c) => c.id)).toEqual(expect.arrayContaining(['notice', 'reach']));
+
+    const collisions: string[] = [];
+    for (let i = 0; i < onScreen.length; i++) {
+      for (let j = i + 1; j < onScreen.length; j++) {
+        const a = onScreen[i]!;
+        const b = onScreen[j]!;
+        if (overlaps(a.box, b.box)) collisions.push(`${a.id} over ${b.id}`);
+      }
+    }
+    expect(collisions).toEqual([]);
+  });
+});

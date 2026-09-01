@@ -725,7 +725,21 @@ export function Hud(props: HudProps): React.ReactElement {
           style={{
             position: 'absolute',
             left: '50%',
-            bottom: '19%',
+            /*
+             * Clear of the reach prompt, which sits at 18%.
+             *
+             * This was at 19%, one percent above a button about five percent
+             * tall, so the two occupied the same band and the notice — later in
+             * the DOM — covered it. The moment it mattered most was the one it
+             * broke: walking up to a fuel patch fires the notice that
+             * introduces the wood, exactly when the "Gather tinder" prompt
+             * appears, so the line telling you what this place is sat on top of
+             * the control for taking any of it.
+             *
+             * Found by looking at the screenshot. Both elements were present,
+             * both had the right text, and every assertion about them passed.
+             */
+            bottom: '26%',
             transform: 'translateX(-50%)',
             background: 'rgba(28,18,10,0.88)',
             border: `1px solid ${TOKENS.amber}`,

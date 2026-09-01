@@ -518,6 +518,23 @@ and the two defects that turned up while wiring them.
 
 | 41 | **The fire suite ran at a different campsite on every run.** Nine end-to-end tests about the pit opened `/` with no `camp=`, and with an empty `localStorage` — which is every Playwright context — the client invents a seed with `Math.random()` *and selects the environment from it*. So the fire tests ran at a random one of the twelve campsites, with different wood, different weather and a different established fire each time | Found by reading a failure that made no sense: the page snapshot on a failing draught assertion described cedar litter and a moss carpet, at a suite developed against a pine hollow. The property it was testing holds with a margin of about 0.19 across all twelve campsites, twenty-five seeds and three arrival times — 900 combinations, none failing — so the failure was the campsite, not the claim. They are pinned now. A test that cannot be run again is not a test |
 
+### Session 6: and two found by opening the screenshots
+
+The end-to-end suite was green. Both of these were on screen the whole time.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 43 | **The notice covered the reach prompt** — the sentence introducing a campsite's firewood sat squarely on top of the "Gather tinder" button, at the exact moment both appear | The HUD's channels are absolutely positioned by percentage from the bottom, and the reach prompt was at 18% with the notice at 19% — one percent apart on a button five percent tall. Both elements were present, both had the right text, and every assertion about them passed. The notice moves to 26%, and `access.spec.ts` now reads the *boxes* of every HUD channel and fails on any two that share pixels |
+| 44 | **The campsite recited its own description over its title card.** The elevation remark's condition is "more than five and a half metres from the fire", which is true of every frame of the walk in — so a boxed note about the shape of the land sat under the arrival beat and on top of the title, before the player had done anything | `place.ts`'s own docstring says a campsite reciting its description on arrival would be a loading screen with trees, and the module was right; nothing stopped it. The place is silent through `arriving` now — the walk in has its own five beats, written for it |
+
+Number 43 is the sharper of the two. A visual baseline compares whole frames at
+a six to twelve per cent tolerance, and one UI panel moving under another is a
+fraction of one per cent of the pixels — so the visual suite could not have
+caught it, and the functional suite was asking the wrong question. "Is the text
+right" and "can you read it" are different tests, and only one of them was
+being run.
+
+
 Two of these were caught by a test I nearly did not write. The eeriness gap
 factor was applied twice — once when scheduling the next distant sound and
 again on the countdown toward it — so the strangest campsite in the catalogue

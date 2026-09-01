@@ -16,6 +16,7 @@ import {
   type PlaceNotes,
 } from '../src/place.js';
 import { Rng } from '../src/rng.js';
+import { arrive, createRitual, setPresence, stepRitual } from '../src/ritual.js';
 import { SIM_DT } from '../src/types.js';
 
 const NOTES: PlaceNotes = {
@@ -280,5 +281,52 @@ describe('eeriness', () => {
     expect(doubled).toBe(0);
     // And it did speak, so the zero above is a property rather than silence.
     expect(spoke).toBeGreaterThan(4);
+  });
+});
+
+/**
+ * A campsite does not introduce itself over its own title card.
+ *
+ * The elevation remark's condition is "more than five and a half metres from
+ * the fire", which is true of every frame of the walk in — so the campsite's
+ * own description arrived during `arriving`, in a box, underneath the arrival
+ * beat and on top of the title. Two pieces of prose about the same place at
+ * once, before the player had done anything, which is the "loading screen with
+ * trees" this module's own docstring exists to rule out.
+ *
+ * Found by opening the screenshot. Every assertion in the suite passed: they
+ * knew the remark had been made and not where on the screen it was.
+ */
+describe('arriving', () => {
+  const worldOf = () => ({
+    place: {
+      ground: NOTES.ground,
+      elevation: NOTES.elevation,
+      distant: NOTES.distant,
+    } as PlaceNotes,
+  });
+
+  /** Walks in from out on the trail, which is where the elevation note fires. */
+  function walkIn(seconds: number, stage: 'arriving' | 'settled'): string[] {
+    const ritual = createRitual({ campsiteSeed: 'arrival', environmentId: 'pine_hollow', world: worldOf() });
+    if (stage !== 'arriving') arrive(ritual);
+    const said: string[] = [];
+    for (let i = 0; i < Math.round(seconds / SIM_DT); i++) {
+      setPresence(ritual, { position: { x: 9, y: 0, z: 6 }, speed: 1.2 });
+      stepRitual(ritual, SIM_DT);
+      if (ritual.place.remark) said.push(ritual.place.remark.id);
+      if (ritual.place.heard) said.push(`heard:${ritual.place.heard.id}`);
+    }
+    return said;
+  }
+
+  it('says nothing at all while the player is still walking in', () => {
+    expect(walkIn(240, 'arriving')).toEqual([]);
+  });
+
+  it('and says it the moment they are actually here', () => {
+    const said = walkIn(240, 'settled');
+    expect(said).toContain('ground');
+    expect(said).toContain('elevation');
   });
 });

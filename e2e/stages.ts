@@ -99,6 +99,49 @@ export async function openWorld(page: Page, camp: string, env = 'pine_hollow'): 
  * screenshot or a `renderer.info` read sees a fully composed frame rather than
  * the first frame after a state change.
  */
+/**
+ * Waits until the camera has stopped moving.
+ *
+ * `settleMs` is a fixed wait, and a fixed wait is a bet on how fast the
+ * machine is. The camera is the player's own eyes and it *eases* — toward the
+ * thing they walked up to, down into a crouch, out of a stance — so a frame
+ * taken while an ease is still running is a frame of a camera in a place it
+ * was never going to stop.
+ *
+ * That is not hypothetical. The `assembled` baseline caught the SM-01 mid
+ * head-turn: the diff against a later run showed the whole machine doubled at
+ * an offset, twelve per cent of the frame, with no content changed at all.
+ * Under software rendering the frame rate swings by an order of magnitude, so
+ * whether 900 ms is enough depends on what else the machine was doing.
+ *
+ * Polls the live camera until two consecutive reads agree to within a
+ * millimetre, then gives up rather than failing: a caller that cannot get a
+ * still camera still deserves its screenshot, and the tolerance below is far
+ * tighter than anything a baseline can see.
+ */
+export async function waitForCameraStill(page: Page, timeoutMs = 4000): Promise<void> {
+  const read = (): Promise<[number, number, number] | null> =>
+    page.evaluate(() => {
+      const three = window.__someMore?.three as unknown as
+        | { camera?: { position: { x: number; y: number; z: number } } }
+        | undefined;
+      const p = three?.camera?.position;
+      return p ? ([p.x, p.y, p.z] as [number, number, number]) : null;
+    });
+
+  let previous = await read();
+  if (previous === null) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await page.waitForTimeout(120);
+    const next = await read();
+    if (next === null) return;
+    const moved = Math.hypot(next[0] - previous[0], next[1] - previous[1], next[2] - previous[2]);
+    if (moved < 0.001) return;
+    previous = next;
+  }
+}
+
 export async function driveRitual(
   page: Page,
   visit: StageVisitor,
@@ -107,6 +150,7 @@ export async function driveRitual(
 ): Promise<void> {
   const at = async (stage: StageId): Promise<void> => {
     await page.waitForTimeout(settleMs);
+    await waitForCameraStill(page);
     await visit(stage, page);
   };
 

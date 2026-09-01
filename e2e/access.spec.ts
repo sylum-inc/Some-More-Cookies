@@ -501,14 +501,26 @@ test.describe('the machine says what it is doing', () => {
 test.describe('the heads-up display does not cover itself', () => {
   const CHANNELS = ['guidance', 'notice', 'reach', 'subtitle', 'survey', 'machine-state'] as const;
 
-  /** Every HUD channel currently on screen, with its box. */
+  /**
+   * Every HUD channel currently on screen, with its box.
+   *
+   * Off-screen elements are skipped, and that is not a technicality: the
+   * machine's state caption is `SR_ONLY`, positioned outside the viewport on
+   * purpose so a screen reader has a second channel without a caption
+   * appearing over the panel it describes. It reports a box at y = -1, and
+   * comparing it against anything is meaningless.
+   */
   async function boxes(page: import('@playwright/test').Page) {
+    const size = page.viewportSize() ?? { width: 1280, height: 720 };
     const found: { id: string; box: { x: number; y: number; width: number; height: number } }[] = [];
     for (const id of CHANNELS) {
       const locator = page.getByTestId(id);
       if ((await locator.count()) === 0) continue;
       const box = await locator.first().boundingBox();
-      if (box && box.width > 0 && box.height > 0) found.push({ id, box });
+      if (!box || box.width <= 0 || box.height <= 0) continue;
+      const onScreen =
+        box.x + box.width > 0 && box.y + box.height > 0 && box.x < size.width && box.y < size.height;
+      if (onScreen) found.push({ id, box });
     }
     return found;
   }

@@ -44,6 +44,7 @@ import {
   vec3,
 } from '@somemore/sim';
 import { App } from './App.js';
+import { LAYOUT, campFurniture } from './scene/layout.js';
 import { overlayForBoot } from './net/overlay.js';
 import { Store } from './state/store.js';
 
@@ -120,6 +121,10 @@ const store = new Store({
           skyOpenness: environment.scene.skyOpenness,
           // Where the firewood at this campsite is, in the catalogue's own words.
           fuel: environment.fuel.sources,
+          // And the named things that make this campsite this one.
+          landmarks: environment.scene.landmarks,
+          trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
+          occupied: campFurniture(),
         },
         walkableRadiusM: environment.scene.walkableRadiusM,
       }
@@ -201,6 +206,16 @@ if (typeof window !== 'undefined') {
         }),
       ),
       arrangement: () => describeArrangement(store.state.ritual.fire),
+      /** Every named thing at this campsite, and where it turned out to be. */
+      landmarks: () =>
+        store.state.ritual.landmarks.map((l) => ({
+          id: l.id,
+          label: l.label,
+          kind: l.kind,
+          x: l.x,
+          z: l.z,
+          introduced: l.introduced,
+        })),
       // --- Firewood, and going to get it ------------------------------------
       // The same entry points the interface calls when a player walks out to a
       // fallen limb and reaches for a stick.

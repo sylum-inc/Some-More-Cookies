@@ -69,6 +69,13 @@ import {
   type WalkableWorld,
 } from './locomotion.js';
 import {
+  placeLandmarks,
+  landmarkAt,
+  type LandmarkSpec,
+  type PlacedLandmark,
+  type Occupied,
+} from './landmarks.js';
+import {
   createGathering,
   gatherFrom,
   takeFromArmful,
@@ -294,6 +301,16 @@ export interface RitualWorldContent {
    * uniformly dry. These become the places you walk to.
    */
   readonly fuel?: readonly FuelSourceSpec[];
+  /**
+   * `EnvironmentManifest.scene.landmarks` — the named things that make this
+   * campsite this campsite, described in the catalogue and, until they were
+   * placed, standing nowhere.
+   */
+  readonly landmarks?: readonly LandmarkSpec[];
+  /** Bearing of the trail in, so signage stands where you come past it. */
+  readonly trailBearing?: number;
+  /** Where the client's own props already stand, so nothing is placed inside one. */
+  readonly occupied?: readonly Occupied[];
 }
 
 /** A campsite with nothing on the dial. Silence is a valid radio profile. */
@@ -424,6 +441,8 @@ export interface RitualState {
   fire: FireState;
   /** Where the wood is, and what is in your arms. */
   gathering: GatheringState;
+  /** The named things at this campsite, and where they turned out to be. */
+  landmarks: PlacedLandmark[];
   weather: WeatherState;
   marshmallow: MarshmallowState;
   assembly: AssemblyState;
@@ -552,10 +571,22 @@ export function createRitual(options: RitualOptions): RitualState {
    */
   const returning = (options.visitIndex ?? 1) > 1;
   const fire = returning ? createBankedFire(fireConfig) : createEstablishedFire(fireConfig);
+  // Built before the state object so the landmarks can be put at the water.
+  const water = world.water ? createWater(world.water, { campsiteSeed: seed, walkableRadiusM }) : null;
 
   return {
     stage: 'arriving',
     fire,
+    landmarks: placeLandmarks({
+      landmarks: world.landmarks ?? [],
+      radius: walkableRadiusM,
+      trailBearing: world.trailBearing ?? 0.69,
+      // Stepping stones go at the water, which means the water has to exist
+      // before the things that stand beside it are placed.
+      ...(water ? { shore: { bearing: water.shore.bearing, distanceM: water.shore.distanceM } } : {}),
+      ...(world.occupied ? { occupied: world.occupied } : {}),
+      rng: rng.split('landmarks'),
+    }),
     gathering: createGathering({
       sources: world.fuel ?? [],
       radius: walkableRadiusM,
@@ -585,7 +616,7 @@ export function createRitual(options: RitualOptions): RitualState {
     }),
     // A dry campsite simply has no water. Every activity that needs it checks
     // first, and none of them treats its absence as a failure.
-    water: world.water ? createWater(world.water, { campsiteSeed: seed, walkableRadiusM }) : null,
+    water,
     skipping: createSkipping(seed),
     torch: createTorch(),
     fishing: createFishing(),
@@ -1199,6 +1230,23 @@ export function offered(
     }
   }
   return focused(player, world);
+}
+
+/**
+ * Walking up to one of the named things at this campsite.
+ *
+ * Returns the catalogue's own sentence about it, once. The second time you
+ * come to the bear box you get its name and nothing else, because you have
+ * already been told what it is and being told again is how a world stops
+ * feeling like a place and starts feeling like a database.
+ */
+export function visitLandmark(ritual: RitualState, id: string): { label: string; telling: string | null } | null {
+  const landmark = landmarkAt(ritual.landmarks, id);
+  if (!landmark) return null;
+  const telling = landmark.introduced ? null : landmark.note;
+  landmark.introduced = true;
+  if (ritual.stage === 'arriving') setStage(ritual, 'at-fire');
+  return { label: landmark.label, telling };
 }
 
 export function gatherFuel(ritual: RitualState, patchId: string): GatherResult {

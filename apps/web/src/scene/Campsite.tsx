@@ -15,6 +15,7 @@ import {
   terrainHeight,
   WOOD_TYPES,
   type FuelPatch,
+  type PlacedLandmark,
   type WaterBasin,
   type WeatherState,
 } from '@somemore/sim';
@@ -30,6 +31,7 @@ const WATERLINE = -0.14;
 const CLEARING_RADIUS = 3.4;
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
+import { createLandmarkGeometry, isPlaceable } from '../render/landmarks.js';
 import {
   createLogGeometry,
   createRockGeometry,
@@ -53,6 +55,16 @@ export interface CampsiteProps {
   fuelPatches?: readonly FuelPatch[];
   /** Reaching for a piece at one of them. */
   onGather?: (patchId: string) => void;
+  /**
+   * The named things that make this campsite this campsite.
+   *
+   * Placed by the simulation rather than here, because the same list decides
+   * where they are drawn and where you can walk up to them, and a landmark you
+   * can see across the clearing but cannot reach is worse than no landmark.
+   */
+  landmarks?: readonly PlacedLandmark[];
+  /** Walking up to one. */
+  onVisitLandmark?: (id: string) => void;
   /** Which fuels this campsite offers, in order of what the pile shows. */
   fuelIds?: readonly string[];
   weather: WeatherState;
@@ -111,6 +123,8 @@ export function Campsite({
   onTakeWood,
   fuelPatches,
   onGather,
+  landmarks,
+  onVisitLandmark,
   fuelIds = ['oak'],
   basin,
 }: CampsiteProps): React.ReactElement {
@@ -384,6 +398,50 @@ export function Campsite({
       }),
     }));
   }, [woodpileItems, fuelIds, settings, seed]);
+
+  /*
+   * The landmarks, one draw call each.
+   *
+   * A shape per kind rather than a mesh per landmark: this world is built out
+   * of procedural kits by rule (ADR-0003), and forty-eight bespoke props is
+   * not that. What makes it the bear box rather than a box is that you can
+   * walk up to it and it tells you, in the words the catalogue wrote.
+   */
+  const landmarkProps = useMemo(() => {
+    if (!landmarks || landmarks.length === 0) return [];
+    return landmarks
+      .filter((landmark) => isPlaceable(landmark.kind))
+      .map((landmark) => ({
+        landmark,
+        geometry: createLandmarkGeometry(landmark.kind, landmark.seed),
+        y: terrainHeight(landmark.x, landmark.z, seed, 0.7, basin),
+      }));
+  }, [landmarks, seed, basin]);
+
+  /** Weathered wood and dulled metal. Nothing here is new. */
+  const landmarkMaterials = useMemo(
+    () => ({
+      wood: createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 64, seed: 'landmark' }),
+        color: 0x6f6152,
+        roughness: 1,
+      }),
+      metal: createPs1Material({
+        settings,
+        map: getTexture('aluminium', { size: 64, seed: 'landmark' }),
+        color: 0x59635a,
+        roughness: 0.85,
+      }),
+      stone: createPs1Material({
+        settings,
+        map: getTexture('stone', { size: 64, seed: 'landmark' }),
+        color: 0x6b6862,
+        roughness: 1,
+      }),
+    }),
+    [settings],
+  );
 
   /** One bark material per wood, shared by every place that wood is found. */
   const deadfallMaterials = useMemo(() => {
@@ -701,6 +759,47 @@ export function Campsite({
         logs are the dense slow ones. That is true of real wood, and it is the
         entire lesson this system exists to teach.
       */}
+      {/*
+        The named things.
+
+        Drawn where the simulation put them, standing on the ground the player
+        walks on, and each one reachable — which is the whole difference
+        between a campsite that was described and a campsite that is there.
+      */}
+      {landmarkProps.map(({ landmark, geometry, y }) => (
+        <mesh
+          key={landmark.id}
+          name={landmark.id}
+          geometry={geometry}
+          material={
+            landmark.kind === 'built' || landmark.kind === 'signage'
+              ? landmarkMaterials.metal
+              : landmark.kind === 'water'
+                ? landmarkMaterials.stone
+                : landmarkMaterials.wood
+          }
+          position={[landmark.x, y, landmark.z]}
+          rotation={[0, landmark.rotation, 0]}
+          castShadow
+          receiveShadow
+          {...(onVisitLandmark
+            ? {
+                onClick: (event: { stopPropagation: () => void }) => {
+                  event.stopPropagation();
+                  onVisitLandmark(landmark.id);
+                },
+                onPointerOver: (event: { stopPropagation: () => void }) => {
+                  event.stopPropagation();
+                  if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
+                },
+                onPointerOut: () => {
+                  if (typeof document !== 'undefined') document.body.style.cursor = 'auto';
+                },
+              }
+            : {})}
+        />
+      ))}
+
       {/*
         The firewood that is not at camp.
 

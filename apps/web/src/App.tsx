@@ -23,6 +23,7 @@ import {
   eyePosition,
   gatherFuel,
   patchAt,
+  visitLandmark,
   lieBack,
   lookDirection,
   createWorld,
@@ -74,7 +75,8 @@ import {
   tendFire,
   layFuel,
 } from './net/shared.js';
-import { World, LAYOUT, hashSeed, isAnchored } from './scene/World.js';
+import { World, isAnchored } from './scene/World.js';
+import { LAYOUT, campFurniture, hashSeed } from './scene/layout.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
 import { getEnvironment } from '@somemore/content';
 import { Hud } from './ui/Hud.js';
@@ -212,11 +214,24 @@ export function App({ store }: AppProps): React.ReactElement {
           z: patch.z,
           reach: 1.3,
         })),
+        /*
+         * And the named things that make this campsite this campsite.
+         *
+         * Reachable for the same reason the firewood is: the catalogue wrote a
+         * sentence about each of them, and a sentence nobody can get to is not
+         * content, it is a comment.
+         */
+        ...ritual.landmarks.map((landmark) => ({
+          id: landmark.id,
+          x: landmark.x,
+          z: landmark.z,
+          reach: landmark.kind === 'natural' ? 2 : 1.5,
+        })),
       ],
     });
     // Patch positions are fixed for the life of a campsite, so this stays a
     // function of the seed even though it reads the simulation.
-  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches]);
+  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches, ritual.landmarks]);
 
   const player = useMemo(() => {
     // Starts out on the trail, walking in.
@@ -447,6 +462,10 @@ export function App({ store }: AppProps): React.ReactElement {
                   skyOpenness: environment.scene.skyOpenness,
                   // Where the firewood is, in the catalogue's own words.
                   fuel: environment.fuel.sources,
+                  // And the named things that make this campsite this one.
+                  landmarks: environment.scene.landmarks,
+                  trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
+                  occupied: campFurniture(),
                 },
                 walkableRadiusM: environment.scene.walkableRadiusM,
               }
@@ -667,6 +686,22 @@ export function App({ store }: AppProps): React.ReactElement {
      * rather than by this file: which patches exist, where they are and what
      * is at them all come out of the catalogue's own fuel profile.
      */
+    /*
+     * One of the named things at this campsite.
+     *
+     * Same shape as the firewood: what it is comes from the catalogue, and it
+     * says so the first time you come to it. Checked before the switch below
+     * because which ones exist is decided by the environment and not by this
+     * file.
+     */
+    const met = visitLandmark(ritual, target.id);
+    if (met) {
+      if (met.telling) store.setNotice(met.telling);
+      else store.setSubtitle(`[${met.label}]`);
+      audioRef.current?.playFoley('stick');
+      store.touch();
+      return;
+    }
     if (patchAt(ritual.gathering, target.id)) {
       const result = gatherFuel(ritual, target.id);
       if (result.full) {
@@ -1884,6 +1919,7 @@ export function App({ store }: AppProps): React.ReactElement {
             */}
             <div
               aria-live="polite"
+              data-testid="arrival-beat"
               style={{
                 fontFamily: FONT_STACK.serif,
                 fontSize: `${15 * state.accessibility.textScale}px`,

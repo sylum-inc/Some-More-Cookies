@@ -23,6 +23,7 @@ import {
   eyePosition,
   gatherFuel,
   offered,
+  visitLandmark,
   terrainHeight,
   isEmberBed,
   lookDirection,
@@ -51,6 +52,10 @@ import {
  */
 import { beginRoasting, layFuel, operateMachine, stepRitual, tendFire } from '../net/shared.js';
 import { getEnvironment } from '@somemore/content';
+import { LAYOUT, machineToWorld, hashSeed, campFurniture } from './layout.js';
+// Re-exported because half the app imports them from here and the split is a
+// tidying, not a change of address.
+export { LAYOUT, machineToWorld, hashSeed, campFurniture };
 import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
@@ -66,36 +71,6 @@ import { createPs1Material } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import type { Store } from '../state/store.js';
 import { applyRoastPose, type RoastController } from '../interaction/roastControl.js';
-
-/** Where everything stands. The fire pit is the origin of the world. */
-export const LAYOUT = {
-  /** The player's bearing around the fire, radians. */
-  playerBearing: 0.42,
-  /** How far the player stands from the fire while roasting. */
-  playerDistance: 1.5,
-  assemblyTable: [1.42, 0.34, 1.32] as [number, number, number],
-  /** The log people sit on, and where the radio has been left. */
-  logSeat: [-1.5, 0, 0.9] as [number, number, number],
-  radio: [-1.72, 0.36, 0.54] as [number, number, number],
-  /** The torch, lying on the same log. */
-  torch: [-1.24, 0.4, 1.33] as [number, number, number],
-  machine: [-2.75, 0, 1.75] as [number, number, number],
-  /** Yaw so the machine's face (+Z in its local frame) looks into the clearing. */
-  machineRotation: 1.03,
-  trailStart: [7.5, 0, 6.2] as [number, number, number],
-};
-
-/** Transforms a point in the machine's local frame into world space. */
-export function machineToWorld(local: [number, number, number]): [number, number, number] {
-  const yaw = LAYOUT.machineRotation;
-  const cos = Math.cos(yaw);
-  const sin = Math.sin(yaw);
-  return [
-    LAYOUT.machine[0] + local[0] * cos + local[2] * sin,
-    LAYOUT.machine[1] + local[1],
-    LAYOUT.machine[2] - local[0] * sin + local[2] * cos,
-  ];
-}
 
 /**
  * How close you have to come to the pit before you get down to it.
@@ -143,6 +118,9 @@ function atThePit(player: PlayerState): boolean {
 function handsFreeForTheFire(stage: RitualStage): boolean {
   return stage === 'at-fire' || stage === 'after';
 }
+
+
+
 
 /**
  * How far the player turns away from the fire to look at the sandwich.
@@ -987,6 +965,13 @@ export function World({
         // a generous site cannot blow the budget on a weak device.
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
         fuelPatches={ritual.gathering.patches}
+        landmarks={ritual.landmarks}
+        onVisitLandmark={(id) => {
+          const met = visitLandmark(ritual, id);
+          if (!met) return;
+          if (met.telling) store.setNotice(met.telling);
+          store.touch();
+        }}
         onGather={(patchId) => {
           // Same act as reaching for it on foot; the ray just aimed for you.
           const result = gatherFuel(ritual, patchId);
@@ -1247,12 +1232,4 @@ export function World({
   );
 }
 
-/** Stable numeric seed from a campsite id. Shared with the app. */
-export function hashSeed(seed: string): number {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < seed.length; i++) {
-    hash ^= seed.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash >>> 0;
-}
+

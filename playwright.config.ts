@@ -106,6 +106,15 @@ export default defineConfig({
      * unperformable — is invisible to a test that calls the model directly.
      */
     { name: 'fire', testMatch: /[/\\]fire\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * Whether a campsite is the campsite the catalogue describes.
+     *
+     * Its own project because it fails on its own thing: not "the ritual
+     * stopped working" but "every place in this world became the same place
+     * again" — which is what happens the moment written content stops being
+     * wired to anything, and is invisible to every other suite.
+     */
+    { name: 'place', testMatch: /place\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'visual', testMatch: /visual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*

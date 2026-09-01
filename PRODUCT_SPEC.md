@@ -239,6 +239,10 @@ Each launch environment has its own systemic personality: soundscape · weather 
 
 **Construction:** modular biome kits + data-driven scene manifests + procedural variation + handcrafted landmarks. An environment is *data*; adding one requires no engine change.
 
+**The arrival is the campsite's own.** Each environment describes its walk in as five beats — the path, the first thing audible before anything is visible, the first thing that resolves out of the dark, what the ground does underfoot, and the moment the site is finally *there*. They land in order across the walk, and a second tap goes straight in: nobody is held in a title sequence.
+
+**Landmarks are things you can walk to.** Each campsite names three or four and describes them exactly — a numbered site post with a violet laminated card, an olive-drab bear box dented on the top left, a dead pine caught in the crotch of a living one, three flat stones with the middle one wobbling. They are placed by what kind of thing they are: signage where you come in past it, built things at the edge of the firelight, natural ones out at the treeline, water ones at the water. Reaching one tells you what it is, in the words written for it, once. A shape per *kind* rather than a mesh per landmark — this world is built from procedural kits by rule — and what makes it the bear box rather than a box is that you can go to it and it says so.
+
 **Geography:** environments are fictional but inspired by recognisable landscapes. Approximate region may lightly weight which environments appear early. **Every player must eventually be able to discover every core environment** — region never locks content.
 
 ### 5.5 Weather, time, astronomy

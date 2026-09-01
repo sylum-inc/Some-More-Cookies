@@ -103,3 +103,67 @@ describe('surveying the campsite', () => {
     for (const line of lines) expect(line.trim().length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The one thing this campsite is for.
+ *
+ * `ActivityEntry.prominence` marks exactly one activity per environment as
+ * `signature` — the tide pools, the slot that answers you back, the box you
+ * can sit in — and until the survey read it, the field decided nothing at all.
+ * A player who can see the screen finds those by walking into them. The survey
+ * is for the player who cannot, and a list of furniture is not an answer to
+ * "what is here".
+ */
+describe('what this campsite is for', () => {
+  const withActivities = () =>
+    createRitual({
+      campsiteSeed: 'survey',
+      environmentId: 'loonwater_narrows',
+      world: {
+        activities: [
+          { id: 'fire-tending', label: 'Tend the fire', prominence: 'notable', note: 'Birch bark.' },
+          {
+            id: 'loon-answering',
+            label: 'Answer the loon',
+            prominence: 'signature',
+            note: 'Cup your hands and try the wail.',
+          },
+          { id: 'fishing', label: 'Fish the seam', prominence: 'available', note: '' },
+        ],
+      },
+    });
+
+  it('names the signature activity and nothing else from the list', () => {
+    const lines = surveySurroundings(withActivities(), createPlayer(vec3(0.9, 0, 0)), world());
+    const text = lines.join(' ');
+    expect(text).toContain('Answer the loon. That is the thing this campsite is for.');
+    expect(text).toContain('Cup your hands and try the wail.');
+    expect(text).not.toContain('Tend the fire');
+    expect(text).not.toContain('Fish the seam');
+  });
+
+  it('says nothing at all where the caller passes no activities', () => {
+    const lines = surveySurroundings(ritualAt(), createPlayer(vec3(0.9, 0, 0)), world());
+    expect(lines.join(' ')).not.toContain('is for');
+  });
+
+  it('names the activity even when its note is empty', () => {
+    const ritual = createRitual({
+      campsiteSeed: 'survey',
+      environmentId: 'mirror_flats',
+      world: {
+        activities: [{ id: 'stargazing', label: 'Stargaze', prominence: 'signature', note: '' }],
+      },
+    });
+    const text = surveySurroundings(ritual, createPlayer(vec3(0.9, 0, 0)), world()).join(' ');
+    expect(text).toContain('Stargaze. That is the thing this campsite is for.');
+  });
+
+  it('comes after what is in reach, because that is what you can act on now', () => {
+    const lines = surveySurroundings(withActivities(), createPlayer(vec3(0.9, 0, 0)), world());
+    const reach = lines.findIndex((line) => /the fire/i.test(line));
+    const forWhat = lines.findIndex((line) => /is for/.test(line));
+    expect(reach).toBeGreaterThanOrEqual(0);
+    expect(forWhat).toBeGreaterThan(reach);
+  });
+});

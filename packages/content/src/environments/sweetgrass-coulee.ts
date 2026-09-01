@@ -197,7 +197,7 @@ export const SWEETGRASS_COULEE: EnvironmentManifest = {
     { id: 'stone-skipping', label: 'Skip stones', prominence: 'notable', note: 'The gravel bar is full of perfect ones and the river is slow. Double-digit skips are achievable.' },
     { id: 'stargazing', label: 'Stargaze', prominence: 'notable', note: 'Ninety percent sky. Lie on the warm gravel bar and the horizon disappears entirely.' },
     { id: 'binoculars', label: 'Binoculars', prominence: 'available', note: 'For the storm on the horizon, and for whatever the windmill is silhouetted against tonight.' },
-    { id: 'photography', label: 'Photograph', prominence: 'notable', note: 'Heat lightning behind the windmill is the shot this environment exists to produce.' },
+    { id: 'photography', label: 'Photograph', prominence: 'notable', note: 'Heat lightning behind the windmill. The shot this environment exists to produce.' },
     { id: 'radio', label: 'Radio', prominence: 'signature', note: 'The best radio site in the catalogue after dark. Flat ground, no terrain, and a hundred AM stations skipping in off the ionosphere.' },
     { id: 'flashlight', label: 'Flashlight', prominence: 'available', note: 'Sweep the grass and a dozen small green eyes look back. Wolf spiders. Entirely harmless and completely delightful.' },
     { id: 'wildlife-watching', label: 'Watch for wildlife', prominence: 'available', note: 'The beaver is on a schedule; the coyote is not.' },

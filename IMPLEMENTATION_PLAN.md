@@ -495,6 +495,38 @@ what hid this: input applied on the frame and time advanced off the frame are
 two clocks, and every roast baseline in the repository had been generated
 between them.
 
+### Session 6: the catalogue was writing to nobody
+
+An audit of the twelve environment manifests against the code that reads them
+found **46 of 131 fields unread** by either the client or the simulation. Not
+stubs — finished, evocative, authored content: a five-beat arrival sequence per
+campsite, three or four described landmarks each, every soundscape, every
+firewood source and how damp it is, each campsite's own firelight colour, and
+what its SM-01 tends to be like. The catalogue described twelve distinct places
+and the game rendered one clearing with a machine in it.
+
+Twenty-nine of those were wired earlier this session. These are the last five,
+and the two defects that turned up while wiring them.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 37 | **Every visit to a campsite was the identical visit.** Sixty `SeededVariation`s across the catalogue — five per campsite, each with a range, a unit and a note written as an instruction to the implementer ("Drives fog density, star visibility and how the point light reads", "Changes footstep sound and the moisture of gathered kindling", "Never zero. Fuel is not a pressure") — and nothing had ever rolled one | `procedural` was the field that promised a place would be worth coming back to, and it was a comment. `variation.ts` now rolls each on a stream named after itself, so adding a sixth to a manifest cannot shift the five already there; `tonight.ts` applies the roll by handing each system an adjusted copy of the content it was going to be built from anyway, so no system knows §5.4 exists. Forty-seven of the sixty turn a dial; the other thirteen are recorded in the same table as driving nothing, because a cairn's restacked shape is not modelled |
+| 38 | **The renderer contradicted the axis the catalogue grades campsites on.** `character.treeCover` had never been read. The treeline was summed from vegetation-kit densities instead, which drew the cedar switchback — authored `canopy`, sky openness 0.08 — with *half* the trees of a `moderate` lake shore, and put two trees on a mesa graded `none` | Two reasonable-sounding rules for one thing. The kits are the authority on what grows here; the cover axis always was the authority on how much sky is left. `treesForCover` reads the axis and lets the kits place a campsite within a band, so two dense woods are still two different woods. Verified against the budget rather than assumed: at 53 triangles a tree the largest increase in the catalogue is about 3,200 triangles against 60,000, and the treeline is instanced, so draw calls do not move |
+| 39 | **A player at the fire could be told that fishing is "the most patient activity in the game and people love it".** The client had started reading activity notes out as notices, and 22 of the catalogue's 113 notes carry a sentence addressed to the team rather than the player — "the reference implementation", "the shot this environment exists to produce", "this is the reason the audio engine has a canyon impulse response" | One field, two voices. The design commentary is worth keeping — it is the clearest record anywhere of what each campsite is *for* — so `inWorld` splits the voices at presentation time rather than editing them out of the manifests, and a test pins the player-facing half of all 113. Four were a single sentence carrying both voices at once and were split in the manifest, so nothing was lost and every activity still has something a player may hear |
+| 40 | **The eeriness of a place decided nothing**, and the survey never said what a campsite was *for* | `character.eeriness` grades all twelve 1..5 and `activities[].prominence` marks exactly one activity per campsite `signature`. Eeriness now decides how often, and how unpredictably, a place is heard from a long way off — and nothing more, because the schema's own calibration rule says the axis "never reaches *threatening*". Prominence now decides what the survey names, which matters most for the player who cannot see the screen and would otherwise find the tide pools by walking into them or not at all |
+
+| 41 | **The fire suite ran at a different campsite on every run.** Nine end-to-end tests about the pit opened `/` with no `camp=`, and with an empty `localStorage` — which is every Playwright context — the client invents a seed with `Math.random()` *and selects the environment from it*. So the fire tests ran at a random one of the twelve campsites, with different wood, different weather and a different established fire each time | Found by reading a failure that made no sense: the page snapshot on a failing draught assertion described cedar litter and a moss carpet, at a suite developed against a pine hollow. The property it was testing holds with a margin of about 0.19 across all twelve campsites, twenty-five seeds and three arrival times — 900 combinations, none failing — so the failure was the campsite, not the claim. They are pinned now. A test that cannot be run again is not a test |
+
+Two of these were caught by a test I nearly did not write. The eeriness gap
+factor was applied twice — once when scheduling the next distant sound and
+again on the countdown toward it — so the strangest campsite in the catalogue
+spoke up roughly twice as often as intended. And the first attempt to test
+*which* sound a strange place picks measured nothing of the kind: the fixture's
+two sounds carry different `minGapSeconds`, so at a campsite that speaks up
+often the sound with the long gap is usually still inside it, and frequency
+decided the mix rather than the weights. The fixture now equalises the gaps and
+the test measures what it says it measures.
+
 ---
 
 ## What the tools measured

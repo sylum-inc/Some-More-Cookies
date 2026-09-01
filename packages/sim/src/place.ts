@@ -43,6 +43,29 @@ export interface PlaceNotes {
   /** Typical overnight low and high, °C. */
   readonly nightRangeC?: { readonly min: number; readonly max: number };
   readonly distant?: readonly DistantSoundSpec[];
+  /**
+   * `EnvironmentCharacter.eeriness`, 1 (homely) to 5 (deeply strange).
+   *
+   * The catalogue has graded all twelve campsites on this axis since it was
+   * written and nothing read the number. It lands here, on the distant
+   * sounds, because that is the only place it can land without breaking the
+   * schema's own calibration rule: eeriness "never reaches *threatening*", and
+   * "nothing stalks, chases or endangers the player at any value". So a
+   * strange place is not a dangerous place — it is a place that carries sound
+   * from further off, more often, and less predictably. A 5 is a salt pan at
+   * two in the morning where you keep hearing things a long way away and each
+   * one turns out to be the wind or a train. A 1 is a pine hollow where the
+   * creek is the only thing you hear all night.
+   *
+   * Defaults to 3, the middle, so a caller that says nothing gets exactly the
+   * cadence this module had before the field was read.
+   */
+  readonly eeriness?: number;
+}
+
+/** 0 at the homely end of the eeriness axis, 1 at the strange end. */
+function strangeness(notes: PlaceNotes): number {
+  return clamp01(((notes.eeriness ?? 3) - 1) / 4);
 }
 
 export interface PlaceState {
@@ -63,7 +86,9 @@ export function createPlace(): PlaceState {
   return {
     said: new Set<string>(),
     // Not immediately: a distant sound in the first ten seconds reads as a
-    // cue rather than as a place carrying on with its evening.
+    // cue rather than as a place carrying on with its evening. The same
+    // opening gap everywhere: eeriness is a thing you notice over an evening,
+    // not something a campsite announces in its first two minutes.
     untilDistant: 95,
     lastHeard: new Map<string, number>(),
     remark: null,
@@ -175,13 +200,38 @@ export function stepPlace(
     place.untilDistant = 20;
     return;
   }
-  const picked = rng.weightedPick(eligible, (sound) => Math.max(0.0001, sound.weight));
+  /*
+   * Strange places are less predictable about what you hear, not louder.
+   *
+   * At the homely end the weights are sharpened, so the campsite's commonest
+   * distant sound is nearly always the one that arrives — the creek, the road,
+   * the same owl. At the strange end they are flattened toward even, so the
+   * thing the manifest gave a weight of one to is genuinely on the cards. Same
+   * list of sounds either way: eeriness never adds anything to a campsite that
+   * its author did not put there.
+   */
+  const sharpness = 1.5 - strangeness(notes) * 0.95;
+  const picked = rng.weightedPick(eligible, (sound) =>
+    Math.max(0.0001, sound.weight) ** sharpness,
+  );
   if (!picked) return;
   place.lastHeard.set(picked.id, place.elapsed);
   place.heard = picked;
   // Rare on purpose. A campsite that produces a distant sound every minute is
   // a campsite with a sound effect, not a campsite in a landscape.
-  place.untilDistant = rng.range(115, 290);
+  place.untilDistant = rng.range(115, 290) * gapFactor(notes);
+}
+
+/**
+ * How much of the usual gap between distant sounds this place keeps.
+ *
+ * A little under three quarters at the strange end, a third again as long at
+ * the homely end. Deliberately a modest spread: the difference between a
+ * strange place and a homely one should be something you notice over an hour,
+ * not a sound effect that fires twice as often.
+ */
+function gapFactor(notes: PlaceNotes): number {
+  return 1.35 - strangeness(notes) * 0.63;
 }
 
 /**

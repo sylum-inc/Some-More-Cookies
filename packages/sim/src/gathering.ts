@@ -25,6 +25,7 @@
 import { clamp, clamp01, lerp } from './math.js';
 import { FUEL_GRADES, woodType, type FuelGrade } from './fire.js';
 import type { Rng } from './rng.js';
+import { NO_VARIATIONS, nudge, scale, type VariationSet } from './variation.js';
 
 /** How many pieces of fuel fit in two arms. */
 export const MAX_ARMFUL = 5;
@@ -104,10 +105,23 @@ function gradesFor(source: FuelSourceSpec, index: number): FuelGrade[] {
   return ['log'];
 }
 
-/** How much of a grade is lying at one place. Generous: this is not survival. */
-function stockFor(grade: FuelGrade, weight: number): number {
+/**
+ * How much of a grade is lying at one place. Generous: this is not survival.
+ *
+ * `plenty` and `size` are tonight's roll. The catalogue has always said how
+ * much wood a campsite has — "3..14 rounds", "6..20 pieces", every one of them
+ * noted "Never zero" — and it always produced the same amount. `plenty` is
+ * that number finally meaning something; `size` is `driftwood_size`'s note,
+ * "some nights the beach gives you a log; some nights, kindling and patience",
+ * which is a shift *between* grades rather than a change in the total.
+ *
+ * Both are bounded so that the thin night is still a night: the floor is a
+ * little over half the old figure, which is more wood than a fire needs.
+ */
+function stockFor(grade: FuelGrade, weight: number, plenty: number, size: number): number {
   const base = grade === 'tinder' ? 14 : grade === 'kindling' ? 12 : 7;
-  return Math.round(base * clamp(0.7 + weight * 0.2, 0.8, 2));
+  const graded = grade === 'log' ? lerp(0.62, 1.45, size) : lerp(1.4, 0.72, size);
+  return Math.max(2, Math.round(base * clamp(0.7 + weight * 0.2, 0.8, 2) * plenty * graded));
 }
 
 export interface GatheringOptions {
@@ -123,11 +137,29 @@ export interface GatheringOptions {
    * not this module's.
    */
   humidity: number;
+  /**
+   * Tonight's roll (§5.4).
+   *
+   * Reads three roles: `fuel-stock` for how much is lying about, `fuel-size`
+   * for whether it is logs or sticks, and `fuel-wetness` for how wet it all is
+   * before any weather. A campsite that declares none of them gets exactly
+   * what it got before, because {@link NO_VARIATIONS} reads every role as
+   * absent and every scale as 1.
+   */
+  variations?: VariationSet;
   rng: Rng;
 }
 
 export function createGathering(options: GatheringOptions): GatheringState {
   const { sources, radius, humidity, rng } = options;
+  const variations = options.variations ?? NO_VARIATIONS;
+  // Between 0.6x and 1.4x as much wood as the old fixed figure.
+  const plenty = scale(variations, 'fuel-stock', 0.4);
+  // 0.5 is "no opinion", which leaves the grades exactly where they were.
+  const size = variations.roleOr('fuel-size', 0.5);
+  // A wet night's duff is a fifth wetter than a dry one's, which is the
+  // difference between kindling that catches and kindling that steams.
+  const wetness = nudge(variations, 'fuel-wetness', 0.11);
   const patches: FuelPatch[] = [];
   let index = 0;
   for (const source of sources) {
@@ -153,13 +185,14 @@ export function createGathering(options: GatheringOptions): GatheringState {
         moisture: clamp01(
           wood.defaultMoisture +
             source.moistureBias +
+            wetness +
             humidity * (grade === 'log' ? 0.16 : 0.28) -
             (grade === 'tinder' ? 0.04 : 0),
         ),
         foundAs: source.foundAs,
         label: FUEL_GRADES[grade].label,
-        stock: stockFor(grade, source.weight),
-        remaining: stockFor(grade, source.weight),
+        stock: stockFor(grade, source.weight, plenty, size),
+        remaining: stockFor(grade, source.weight, plenty, size),
         introduced: false,
       });
     }

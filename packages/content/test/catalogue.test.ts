@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { QUIRK_POOL, WOOD_TYPES } from '@somemore/sim';
+import { QUIRK_POOL, VARIATION_ROLES, WOOD_TYPES } from '@somemore/sim';
 import {
   DEFAULT_ENVIRONMENT_ID,
   DYNAMIC_LIGHT_BUDGET,
@@ -17,7 +17,9 @@ import {
   environmentIds,
   getEnvironment,
   hasEnvironment,
+  hasAuthorAside,
   hexToLinearRgb,
+  inWorld,
   listEnvironments,
   requireEnvironment,
   validateCatalogue,
@@ -507,5 +509,183 @@ describe('what makes each campsite itself', () => {
       expect(environment.machine.stickerHint.length).toBeGreaterThan(4);
       expect(environment.machine.frostNote.length).toBeGreaterThan(20);
     }
+  });
+});
+
+/**
+ * The half of ARCHITECTURE §9.1 that a schema cannot enforce.
+ *
+ * A field can be validated into existence — `validate.ts` does that — without
+ * anything ever reading it. These tests are the other half: they hold the
+ * catalogue and the code that consumes it against each other, so that a new
+ * variation, a new activity note or a campsite whose cover contradicts its sky
+ * is a failing test rather than a paragraph nobody sees.
+ */
+describe('every authored field reaches somebody', () => {
+  /*
+   * The guard on §5.4.
+   *
+   * `VARIATION_ROLES` in `packages/sim` is exhaustive over the catalogue by
+   * construction: a variation is either mapped to a dial the simulation turns
+   * or explicitly recorded as driving nothing. Adding one to a manifest
+   * without deciding which it is fails here rather than shipping as another
+   * range that never gets rolled.
+   */
+  it('has decided what each of its sixty variations does', () => {
+    const undecided: string[] = [];
+    for (const environment of ENVIRONMENTS) {
+      for (const variation of environment.procedural.variations) {
+        if (!(variation.id in VARIATION_ROLES)) undecided.push(`${environment.id}/${variation.id}`);
+      }
+    }
+    expect(undecided, 'unmapped variations — add them to VARIATION_ROLES').toEqual([]);
+  });
+
+  it('carries no role mapping for a variation no campsite declares', () => {
+    const declared = new Set(
+      ENVIRONMENTS.flatMap((environment) => environment.procedural.variations.map((v) => v.id)),
+    );
+    const orphaned = Object.keys(VARIATION_ROLES).filter((id) => !declared.has(id));
+    expect(orphaned, 'role mappings for variations nothing declares').toEqual([]);
+  });
+
+  it('actually turns most of what it declares', () => {
+    const all = ENVIRONMENTS.flatMap((environment) => environment.procedural.variations);
+    const wired = all.filter((v) => VARIATION_ROLES[v.id] != null);
+    expect(wired.length / all.length).toBeGreaterThan(0.7);
+  });
+
+  it('gives every campsite at least one variation that does something', () => {
+    for (const environment of ENVIRONMENTS) {
+      const wired = environment.procedural.variations.filter((v) => VARIATION_ROLES[v.id] != null);
+      expect(wired.length, `${environment.id} varies nothing`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  /*
+   * The two axes that describe the same thing from opposite sides.
+   *
+   * `treeCover` says how much canopy there is; `skyOpenness` says how much sky
+   * is left. They are authored independently and they had better agree, or the
+   * renderer is reading one of them and drawing a place the other describes.
+   */
+  it('keeps a campsite’s canopy and its sky openness in agreement', () => {
+    const CEILING: Record<string, number> = {
+      none: 1.01,
+      sparse: 1.01,
+      open: 0.95,
+      moderate: 0.85,
+      dense: 0.55,
+      canopy: 0.3,
+    };
+    const FLOOR: Record<string, number> = {
+      none: 0.7,
+      sparse: 0.55,
+      open: 0.4,
+      moderate: 0.2,
+      dense: 0.05,
+      canopy: 0,
+    };
+    for (const environment of ENVIRONMENTS) {
+      const cover = environment.character.treeCover;
+      const sky = environment.scene.skyOpenness;
+      expect(sky, `${environment.id} is ${cover} but claims ${sky} sky`).toBeLessThanOrEqual(
+        CEILING[cover] as number,
+      );
+      expect(sky, `${environment.id} is ${cover} but claims only ${sky} sky`).toBeGreaterThanOrEqual(
+        FLOOR[cover] as number,
+      );
+    }
+  });
+
+  it('spans the cover axis rather than clustering on one value', () => {
+    const covers = new Set(ENVIRONMENTS.map((environment) => environment.character.treeCover));
+    expect(covers.size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+/**
+ * What a player is actually told, out of notes written in two voices.
+ *
+ * About a fifth of the catalogue's activity notes carry a sentence addressed
+ * to the team rather than to the person at the fire — "the most patient
+ * activity in the game and people love it", "the reference implementation",
+ * "the shot this environment exists to produce". Those are worth keeping: they
+ * are the clearest record anywhere of what each campsite is *for*. They must
+ * not be read out at a campfire, and once the client started showing activity
+ * notes as notices, they were.
+ *
+ * These pin the split, so that what a player hears is something a person read.
+ */
+describe('the voice a note is written in', () => {
+  it('never tells a player about the game, the catalogue or the product', () => {
+    const leaked: string[] = [];
+    for (const environment of ENVIRONMENTS) {
+      for (const activity of environment.activities) {
+        const shown = inWorld(activity.note);
+        if (/\b(the game|the catalogue|the product|this environment)\b/i.test(shown)) {
+          leaked.push(`${environment.id}/${activity.id}: ${shown}`);
+        }
+      }
+    }
+    expect(leaked).toEqual([]);
+  });
+
+  it('leaves the great majority of every note intact', () => {
+    let kept = 0;
+    let total = 0;
+    for (const environment of ENVIRONMENTS) {
+      for (const activity of environment.activities) {
+        total += activity.note.length;
+        kept += inWorld(activity.note).length;
+      }
+    }
+    expect(kept / total).toBeGreaterThan(0.82);
+  });
+
+  /*
+   * Silence is a valid answer, and the catalogue does not currently need it.
+   *
+   * Four notes used to be a single sentence that was half description and half
+   * appraisal — "firelight on straight trunks is the most forgiving light in
+   * the catalogue" — and the filter, which works a sentence at a time, took
+   * the whole thing. Splitting each into two sentences kept both halves and
+   * gave the player the first. So every activity in the catalogue now has
+   * something a person at a fire may hear, and a new one that does not is a
+   * sentence away from having one.
+   */
+  it('leaves every activity with something a player may hear', () => {
+    const silent = ENVIRONMENTS.flatMap((environment) =>
+      environment.activities
+        .filter((activity) => inWorld(activity.note).length === 0)
+        .map((activity) => `${environment.id}/${activity.id}`),
+    );
+    expect(
+      silent,
+      'these notes are entirely design commentary — split the description out into its own sentence',
+    ).toEqual([]);
+  });
+
+  it('leaves every signature activity with something to say', () => {
+    for (const environment of ENVIRONMENTS) {
+      const signature = environment.activities.find((a) => a.prominence === 'signature');
+      expect(signature, `${environment.id} has no signature activity`).toBeDefined();
+      expect(
+        inWorld(signature!.note).length,
+        `${environment.id}'s signature activity says nothing a player may hear`,
+      ).toBeGreaterThan(20);
+      expect(signature!.label.length).toBeGreaterThan(3);
+    }
+  });
+
+  it('is a no-op on a note written entirely in the world', () => {
+    const clean = 'Dry twigs under the young firs, always.';
+    expect(inWorld(clean)).toBe(clean);
+    expect(hasAuthorAside(clean)).toBe(false);
+  });
+
+  it('finds the aside where there is one', () => {
+    expect(hasAuthorAside('Two returns. This is the reason the audio engine exists.')).toBe(true);
+    expect(inWorld('Two returns. This is the reason the audio engine exists.')).toBe('Two returns.');
   });
 });

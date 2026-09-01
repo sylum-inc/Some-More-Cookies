@@ -78,7 +78,7 @@ import {
 import { World, isAnchored } from './scene/World.js';
 import { LAYOUT, campFurniture, hashSeed } from './scene/layout.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
-import { getEnvironment } from '@somemore/content';
+import { getEnvironment, inWorld } from '@somemore/content';
 import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
@@ -509,7 +509,26 @@ export function App({ store }: AppProps): React.ReactElement {
                     insects: environment.ambience.insectNote,
                     reverb: environment.ambience.reverbNote,
                     distant: environment.ambience.distantEvents,
+                    // How liminal this place is, 1..5. Decides how often and how
+                    // unpredictably it is heard from a long way off — never
+                    // anything more than that (schema §2.2: nothing stalks).
+                    eeriness: environment.character.eeriness,
                   },
+                  // What is different about tonight (§5.4). Five per campsite,
+                  // each with a range and a note saying what it should drive,
+                  // and until they were rolled every visit was the same visit.
+                  variations: environment.procedural.variations,
+                  // What there is to do here, and which of it this campsite is
+                  // *for*. `prominence` marks that one, and until the survey read
+                  // it a player who could not see the screen had no way to learn
+                  // it. Notes filtered on the way through: about a fifth of them
+                  // carry a sentence addressed to the team, not to the player.
+                  activities: environment.activities.map((activity) => ({
+                    id: activity.id,
+                    label: activity.label,
+                    prominence: activity.prominence,
+                    note: inWorld(activity.note),
+                  })),
                 },
                 walkableRadiusM: environment.scene.walkableRadiusM,
               }
@@ -1407,6 +1426,16 @@ export function App({ store }: AppProps): React.ReactElement {
        * you rather than about the manifest, and only for activities that
        * actually exist — a note about something a player cannot do would be
        * worse than no note at all.
+       *
+       * Passed through `inWorld` first. Twenty-two of the catalogue's notes
+       * carry a sentence addressed to the team rather than to the player —
+       * "the most patient activity in the game and people love it", "the
+       * reference implementation", "the reason the audio engine has a canyon
+       * impulse response" — and when this started reading notes out verbatim,
+       * a person sitting at a fire in the cicada bottoms was told the first of
+       * those. The design commentary stays in the manifest, where it is the
+       * best record anywhere of what each campsite is for; it just does not
+       * get read out at the fire.
        */
       const doingNow =
         r.fishing.phase === 'soaking' || r.fishing.phase === 'nibble'
@@ -1424,7 +1453,8 @@ export function App({ store }: AppProps): React.ReactElement {
                     : null;
       if (doingNow && !activitiesMet.current.has(doingNow)) {
         activitiesMet.current.add(doingNow);
-        const note = getEnvironment(state.environmentId)?.activities.find((a) => a.id === doingNow)?.note;
+        const entry = getEnvironment(state.environmentId)?.activities.find((a) => a.id === doingNow);
+        const note = entry ? inWorld(entry.note) : '';
         if (note) store.setNotice(note);
       }
 

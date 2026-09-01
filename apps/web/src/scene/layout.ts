@@ -64,3 +64,57 @@ export function hashSeed(seed: string): number {
   }
   return hash >>> 0;
 }
+
+/* -------------------------------------------------------------------------- */
+/* How closed the horizon is                                                  */
+/* -------------------------------------------------------------------------- */
+
+/** The catalogue's six-step canopy axis. */
+export type TreeCover = 'none' | 'sparse' | 'open' | 'moderate' | 'dense' | 'canopy';
+
+/**
+ * How many trees each step of `character.treeCover` means.
+ *
+ * The renderer used to derive its treeline by summing the density of every
+ * vegetation kit over 2.5 m tall, which is a reasonable-sounding rule that
+ * quietly contradicted the axis the catalogue actually grades campsites on:
+ *
+ *     cedar_switchback   canopy     36 trees
+ *     loonwater_narrows  moderate   77 trees
+ *     pine_hollow        dense      65 trees
+ *     lantern_mesa       none        2 trees
+ *
+ * A temperate rainforest drawn half as closed-in as a lake shore, and a mesa
+ * with two trees on it. The kits are the authority on *what grows here* — how
+ * tall, how dense underfoot, which of them a weak device may drop — and they
+ * are still what the understorey is built from. They were never the authority
+ * on how much sky is left, and `treeCover` always was.
+ *
+ * Bands rather than fixed counts, so the kits still have a say: a campsite
+ * sits low in its band or high in it according to how much canopy vegetation
+ * its manifest declares. Two `dense` campsites are not the same wood.
+ */
+const COVER_BAND: Record<TreeCover, { min: number; max: number }> = {
+  none: { min: 0, max: 0 },
+  sparse: { min: 4, max: 13 },
+  open: { min: 19, max: 34 },
+  moderate: { min: 40, max: 58 },
+  dense: { min: 62, max: 82 },
+  canopy: { min: 86, max: 106 },
+};
+
+/**
+ * The treeline for a campsite.
+ *
+ * `canopyDensity` is the summed density of the manifest's tall vegetation
+ * kits, in instances per hundred square metres — the old rule's own input,
+ * kept as the position within the band rather than thrown away.
+ */
+export function treesForCover(cover: TreeCover, canopyDensity: number): number {
+  const band = COVER_BAND[cover];
+  if (band.max === 0) return 0;
+  // Forty per hundred square metres is a thick stand; past that the axis has
+  // already said everything there is to say.
+  const within = Math.min(1, Math.max(0, canopyDensity / 40));
+  return Math.round(band.min + (band.max - band.min) * within);
+}

@@ -200,7 +200,7 @@ export const LONGLIGHT_SHORE: EnvironmentManifest = {
     { id: 'stone-skipping', label: 'Skip stones', prominence: 'notable', note: 'Terrible conditions and excellent stones. Two skips is a triumph.' },
     { id: 'driftwood-gathering', label: 'Gather driftwood', prominence: 'notable', note: 'A real walk down the wrack line with a flashlight, choosing pieces.' },
     { id: 'tide-pooling', label: 'Tide pools', prominence: 'signature', note: 'North end, low water only. Anemones close as your light passes; a hermit crab wearing a bottle cap lives in the third pool and is there every visit.' },
-    { id: 'stargazing', label: 'Stargaze', prominence: 'available', note: 'The most open sky in the catalogue when the marine layer lifts — which it does about one visit in three.' },
+    { id: 'stargazing', label: 'Stargaze', prominence: 'available', note: 'The sky opens all the way up when the marine layer lifts, which it does about one visit in three. The most open sky in the catalogue.' },
     { id: 'photography', label: 'Photograph', prominence: 'signature', note: 'The point light plus fire plus fog is the best product-photography lighting in the set. The sandwich against wet sand is the shot.' },
     { id: 'radio', label: 'Radio', prominence: 'notable', note: 'Sea path propagation. Stations from impossibly far away arrive clean and then vanish.' },
     { id: 'flashlight', label: 'Flashlight', prominence: 'available', note: 'The beam dies in the salt haze about eight metres out. Everything past that is rumour.' },

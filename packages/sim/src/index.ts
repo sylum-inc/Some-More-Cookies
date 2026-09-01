@@ -30,6 +30,8 @@ export * from './torch.js';
 export * from './sitting.js';
 export * from './stargazing.js';
 export * from './fishing.js';
+export * from './tonight.js';
+export * from './variation.js';
 export * from './wildlife.js';
 export * from './radio.js';
 export * from './discovery.js';

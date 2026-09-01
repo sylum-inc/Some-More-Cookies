@@ -169,6 +169,29 @@ export function surveySurroundings(
     lines.push(line);
   }
 
+  /*
+   * 3c. What this campsite is *for*.
+   *
+   * Every environment marks exactly one activity `signature`, and until this
+   * line existed the field decided nothing: a player found the tide pools, or
+   * the slot that answers you back, or the box you can sit in, by walking into
+   * it or not at all. That is a fine way to find a thing when you can see the
+   * screen. The survey exists for the player who cannot, and "what is here"
+   * without "and here is the thing this place was built around" is a list of
+   * furniture.
+   *
+   * Last of the place lines rather than first: what is in reach is what you
+   * can act on this second, and this is what you might plan the evening
+   * around.
+   */
+  const signature = (ritual.options.world.activities ?? []).find(
+    (activity) => activity.prominence === 'signature',
+  );
+  if (signature) {
+    lines.push(`${capitalise(signature.label)}. That is the thing this campsite is for.`);
+    if (signature.note.length > 0) lines.push(signature.note);
+  }
+
   // 4. Where you are standing, if the world has a name for it.
   const spoken = (options.places ?? []).map((id) => PLACES[id]).filter((name): name is string => name !== undefined);
   if (spoken.length > 0) lines.push(`You are ${spoken.join(' and ')}.`);

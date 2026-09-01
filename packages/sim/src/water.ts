@@ -152,6 +152,16 @@ export interface WaterState {
   glass: number;
   /** Surface current, m/s. */
   currentMs: number;
+  /**
+   * How still tonight's surface lies, 0..1, from §5.4's roll.
+   *
+   * `tarn_stillness` and `lake_stillness` are authored variations whose notes
+   * say they govern "the reflection, the stone-skipping tone, and whether the
+   * pack frame is visible". This is where they land: a factor on how readily
+   * the surface takes chop, not a floor or a ceiling on it, so a mirror night
+   * still breaks up when the wind gets into it.
+   */
+  readonly stillness: number;
   /** Bounded — the surface forgets, like a surface does. */
   ripples: Ripple[];
   elapsed: number;
@@ -199,7 +209,7 @@ export function basinFor(spec: WaterFeatureSpec, shore: Shore): WaterBasin {
 
 export function createWater(
   spec: WaterFeatureSpec,
-  options: { campsiteSeed: number | string; walkableRadiusM?: number },
+  options: { campsiteSeed: number | string; walkableRadiusM?: number; stillness?: number },
 ): WaterState {
   const seed =
     typeof options.campsiteSeed === 'string'
@@ -213,6 +223,7 @@ export function createWater(
     chop: character.baseChop,
     glass: 1 - character.baseChop,
     currentMs: character.currentMs,
+    stillness: clamp01(options.stillness ?? 0.5),
     ripples: [],
     elapsed: 0,
   };
@@ -241,7 +252,9 @@ export function stepWater(state: WaterState, dt: number, weather?: WaterWeather)
   // Wind builds chop over fetch; rain stipples the surface without really
   // moving it, which is why a rainy night is still a mirror underneath.
   const windChop = smoothstep(0.8, 9, wind) * fetch * character.windCoupling;
-  const target = clamp01(character.baseChop + windChop * 0.85 + rain * 0.18);
+  const target = clamp01(
+    (character.baseChop + windChop * 0.85 + rain * 0.18) * lerp(1.22, 0.66, state.stillness),
+  );
 
   // Gusts have texture, and water has inertia: it takes a while to get up and
   // longer to lie down again.

@@ -216,6 +216,14 @@ import {
   type FishingState,
 } from './fishing.js';
 import { createTrace, type Trace } from './significance.js';
+import { rollVariations, type SeededVariationSpec, type VariationSet } from './variation.js';
+import {
+  tonightsStillness,
+  varyRadioProfile,
+  varyRoster,
+  varyWater,
+  varyWeatherProfile,
+} from './tonight.js';
 import { Rng, hashString, mixSeeds } from './rng.js';
 import { clamp, clamp01, smoothstep } from './math.js';
 import { vec3, type Vec3, SIM_DT } from './types.js';
@@ -330,11 +338,43 @@ export interface RitualWorldContent {
    *
    * `WeatherCharacter`, `AmbienceProfile` and the scene's ground and elevation
    * notes, which between them are a paragraph of sensory writing per
-   * environment that had never been read out to anybody.
+   * environment that had never been read out to anybody — plus
+   * `character.eeriness`, which decides how often and how unpredictably this
+   * campsite is heard from a long way off.
    */
   readonly place?: PlaceNotes;
+  /**
+   * `EnvironmentManifest.procedural.variations` — what is different tonight.
+   *
+   * Five per campsite, sixty across the catalogue, each with a range and a
+   * note saying what it should drive, and until they were rolled every visit
+   * to a campsite was the identical visit. See `variation.ts` for the roll and
+   * `tonight.ts` for how it reaches the systems.
+   */
+  readonly variations?: readonly SeededVariationSpec[];
+  /**
+   * `EnvironmentManifest.activities` — what there is to do here, and which of
+   * it this campsite is *for*.
+   *
+   * `prominence` is the field that matters: it marks the one activity a
+   * campsite exists to offer, and the survey is the only place a player who
+   * cannot see the screen could ever learn it. `note` must already have been
+   * put through the catalogue's own `inWorld` filter before it arrives here —
+   * this package cannot depend on `@somemore/content`, and the raw notes are
+   * half design commentary.
+   */
+  readonly activities?: readonly ActivityHint[];
   /** Where the client's own props already stand, so nothing is placed inside one. */
   readonly occupied?: readonly Occupied[];
+}
+
+/** One entry from a campsite's activity list, in the words a player may hear. */
+export interface ActivityHint {
+  readonly id: string;
+  readonly label: string;
+  readonly prominence: 'available' | 'notable' | 'signature';
+  /** Already filtered for author asides. Empty is a valid and common answer. */
+  readonly note: string;
 }
 
 /** A campsite with nothing on the dial. Silence is a valid radio profile. */
@@ -564,6 +604,15 @@ export interface RitualState {
   readonly seed: number;
   /** Per-subsystem random streams, reseeded each step rather than rebuilt. */
   readonly streams: Map<string, Rng>;
+  /**
+   * What was different about tonight (§5.4).
+   *
+   * Kept on the state rather than consumed and thrown away, because the client
+   * reads two of these roles itself — the understorey it draws and the
+   * treeline it draws are not simulated — and because the Passport's account
+   * of an evening should be able to say what the evening was like.
+   */
+  readonly variations: VariationSet;
   options: Required<
     Omit<
       RitualOptions,
@@ -580,9 +629,34 @@ export interface RitualState {
 export function createRitual(options: RitualOptions): RitualState {
   const seed = typeof options.campsiteSeed === 'string' ? hashString(options.campsiteSeed) : options.campsiteSeed;
   const rng = new Rng(seed);
-  const weatherProfile = options.weatherProfile ?? DEFAULT_WEATHER_PROFILE;
-  const weather = createWeather(weatherProfile, rng.split('weather'));
   const world = options.world ?? {};
+  /*
+   * What is different about tonight, decided before anything is built.
+   *
+   * Rolled from the campsite's seed *and which visit this is*, and the second
+   * half of that is the whole point. `campsiteSeed` is stable — it is stored
+   * on the device and reused, because a campsite you have been to before has
+   * to be the same campsite — so rolling from it alone would have produced the
+   * same night every night, which is exactly the thing `procedural` exists to
+   * stop. The manifests are explicit about it: "fully reshuffled between
+   * visits", "same fox, different hour", "people have been here since you were
+   * last here". What stays fixed between visits is `invariants`, and those are
+   * not rolled at all.
+   *
+   * Still deterministic, and still the same night for everybody at one fire: a
+   * shared world is rebuilt from the wire's seed with no visit index (see
+   * `timeline.ts`), so every client rolls visit one and rolls it identically.
+   *
+   * Each variation then draws from a stream named after itself, so a manifest
+   * gaining a sixth cannot disturb the five it already had (ADR-0001).
+   */
+  const variations = rollVariations(
+    world.variations ?? [],
+    mixSeeds(seed, options.visitIndex ?? 1),
+  );
+  const authoredWeather = options.weatherProfile ?? DEFAULT_WEATHER_PROFILE;
+  const weatherProfile = varyWeatherProfile(authoredWeather, variations);
+  const weather = createWeather(weatherProfile, rng.split('weather'));
   const walkableRadiusM = options.walkableRadiusM ?? 13;
   const fireConfig = { ambientC: weather.temperatureC, exposure: weatherProfile.exposure };
   /*
@@ -598,7 +672,13 @@ export function createRitual(options: RitualOptions): RitualState {
   const returning = (options.visitIndex ?? 1) > 1;
   const fire = returning ? createBankedFire(fireConfig) : createEstablishedFire(fireConfig);
   // Built before the state object so the landmarks can be put at the water.
-  const water = world.water ? createWater(world.water, { campsiteSeed: seed, walkableRadiusM }) : null;
+  const water = world.water
+    ? createWater(varyWater(world.water, variations), {
+        campsiteSeed: seed,
+        walkableRadiusM,
+        stillness: tonightsStillness(variations),
+      })
+    : null;
 
   return {
     stage: 'arriving',
@@ -618,6 +698,7 @@ export function createRitual(options: RitualOptions): RitualState {
       sources: world.fuel ?? [],
       radius: walkableRadiusM,
       humidity: weather.humidity,
+      variations,
       rng: rng.split('gathering'),
     }),
     weather,
@@ -627,10 +708,10 @@ export function createRitual(options: RitualOptions): RitualState {
     bite: createBiteState(),
     wildlife: createWildlife({
       campsiteSeed: seed,
-      roster: world.wildlife ?? [],
+      roster: varyRoster(world.wildlife ?? [], variations),
       priorVisits: options.priorVisits,
     }),
-    radio: createRadio(world.radio ?? SILENT_DIAL, {
+    radio: createRadio(varyRadioProfile(world.radio ?? SILENT_DIAL, variations), {
       campsiteSeed: seed,
       // The stations were on the air before anyone arrived.
       startOffsetSeconds: rng.split('radio-clock').range(0, 3600),
@@ -691,6 +772,7 @@ export function createRitual(options: RitualOptions): RitualState {
     rng,
     seed,
     streams: new Map(),
+    variations,
     options: {
       campsiteSeed: seed,
       environmentId: options.environmentId,

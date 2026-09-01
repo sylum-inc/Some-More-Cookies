@@ -9,6 +9,19 @@
 import { expect, test } from '@playwright/test';
 import { act, capture } from './helpers.js';
 
+/**
+ * One campsite, pinned.
+ *
+ * These tests used to open `/`, which is not a campsite: with no `camp=` in
+ * the URL and an empty `localStorage` — which is every Playwright context —
+ * the client invents a seed with `Math.random()` and then *selects the
+ * environment from it*. So the fire suite ran at a different one of the twelve
+ * campsites on every run, with different wood, different weather and a
+ * different established fire, and a failure could not be reproduced by running
+ * it again. The pit is the same everywhere; the fire in it is not.
+ */
+const PIT = '/?camp=camp-fire&env=pine_hollow';
+
 interface FireReadout {
   logs: { id: string; grade: string; x: number; z: number; lean: number; moisture: number; steam: number; airflow: number }[];
   ashCover: number;
@@ -225,7 +238,7 @@ async function comeToTheFire(page: import('@playwright/test').Page): Promise<voi
 
 test.describe('arranging the fire', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto(PIT);
     await page.waitForFunction(() => Boolean(window.__someMore));
     // Walk in the way a person does — tap the title card and wait out the
     // dolly. The bridge's `arrive` skips the walk and leaves the camera and
@@ -327,7 +340,7 @@ test.describe('arranging the fire', () => {
 
 test.describe('what the pit looks like when you get down to it', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto(PIT);
     await page.waitForFunction(() => Boolean(window.__someMore));
     await page.locator('canvas').click({ position: { x: 640, y: 400 } });
     await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage !== 'arriving', null, {
@@ -405,7 +418,7 @@ test.describe('what the pit looks like when you get down to it', () => {
 
 test.describe('ash', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto(PIT);
     await page.waitForFunction(() => Boolean(window.__someMore));
     // Walk in the way a person does — tap the title card and wait out the
     // dolly. The bridge's `arrive` skips the walk and leaves the camera and
@@ -487,7 +500,7 @@ test.describe('ash', () => {
 
 test.describe('going and getting firewood', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto(PIT);
     await page.waitForFunction(() => Boolean(window.__someMore));
     await page.locator('canvas').click({ position: { x: 640, y: 400 } });
     await page.waitForFunction(() => window.__someMore!.store.state.ritual.stage !== 'arriving', null, {

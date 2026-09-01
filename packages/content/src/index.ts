@@ -10,5 +10,6 @@
 export * from './schema.js';
 export * from './validate.js';
 export * from './selection.js';
+export * from './voice.js';
 export * from './catalogue.js';
 export * from './environments/index.js';

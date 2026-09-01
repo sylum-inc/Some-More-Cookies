@@ -186,7 +186,7 @@ export const MIRROR_FLATS: EnvironmentManifest = {
     { id: 'telescope', label: 'Telescope', prominence: 'notable', note: 'The table is a perfect mount and the seeing is absurd. Also: point it down.' },
     { id: 'photography', label: 'Photograph', prominence: 'signature', note: 'Perfect symmetry, no clutter, a black sky and one light source. The hero product shot of the entire product is taken here and everyone finds that out on their own.' },
     { id: 'wading', label: 'Wade', prominence: 'notable', note: 'Blood-warm water over hard salt. Every step sends a ring out across the reflected stars for twenty metres.' },
-    { id: 'radio', label: 'Radio', prominence: 'available', note: 'The band is wide open and almost empty, which is somehow the most fitting possible radio experience.' },
+    { id: 'radio', label: 'Radio', prominence: 'available', note: 'The band is wide open and almost empty. Somehow that is the most fitting possible radio experience.' },
     { id: 'flashlight', label: 'Flashlight', prominence: 'available', note: 'The beam goes out across the water and does not come back. There is nothing for it to hit.' },
     { id: 'wildlife-watching', label: 'Watch for wildlife', prominence: 'available', note: 'The kit fox uses the causeway like a road, because it is one.' },
   ],

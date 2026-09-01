@@ -223,7 +223,7 @@ export const PINE_HOLLOW: EnvironmentManifest = {
     { id: 'fire-tending', label: 'Tend the fire', prominence: 'signature', note: 'The oak pieces reward a player who plans an hour ahead.' },
     { id: 'fishing', label: 'Fish the creek', prominence: 'available', note: 'Small trout behind the stones. Catch-and-release, and mostly an excuse to sit on a rock.' },
     { id: 'stargazing', label: 'Stargaze', prominence: 'available', note: 'Only a ragged patch of sky through the crowns — which makes the meteor that crosses it feel personal.' },
-    { id: 'photography', label: 'Photograph', prominence: 'notable', note: 'Firelight on straight trunks is the most forgiving light in the catalogue.' },
+    { id: 'photography', label: 'Photograph', prominence: 'notable', note: 'Firelight on straight trunks. The most forgiving light in the catalogue.' },
     { id: 'radio', label: 'Radio', prominence: 'available', note: 'Decent FM in the bowl if you angle the aerial toward the gap in the ridge.' },
     { id: 'flashlight', label: 'Flashlight', prominence: 'available', note: 'The reflector on the site post answers from anywhere in the site.' },
     { id: 'wildlife-watching', label: 'Watch for wildlife', prominence: 'notable', note: 'Stillness is the entire mechanic here.' },

@@ -336,3 +336,161 @@ test.describe('the firelight is this campsite’s firelight', () => {
     }
   });
 });
+
+/**
+ * Whether two nights at one campsite are two different nights (§5.4).
+ *
+ * Every environment names five things about itself that change between visits
+ * — how much wood is on the stack, how wet the duff is, whether the marine
+ * layer is in — with a range and a unit for each. Sixty of those across the
+ * catalogue, and until they were rolled, every visit produced the identical
+ * campsite. These read the world the player actually walks into, not the roll.
+ */
+test.describe('a campsite is a different night every night', () => {
+  /** What is actually lying about at this campsite, from the running world. */
+  async function woodAt(page: import('@playwright/test').Page, camp: string): Promise<{
+    total: number;
+    wettest: number;
+    byGrade: Record<string, number>;
+  }> {
+    await page.goto(`/?camp=${camp}&env=pine_hollow`);
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(600);
+    return page.evaluate(() => {
+      const patches = (
+        window.__someMore!.store.state.ritual as unknown as {
+          gathering: { patches: { grade: string; stock: number; moisture: number }[] };
+        }
+      ).gathering.patches;
+      const byGrade: Record<string, number> = {};
+      let total = 0;
+      let wettest = 0;
+      for (const patch of patches) {
+        byGrade[patch.grade] = (byGrade[patch.grade] ?? 0) + patch.stock;
+        total += patch.stock;
+        wettest = Math.max(wettest, patch.moisture);
+      }
+      return { total, wettest, byGrade };
+    });
+  }
+
+  /*
+   * The claim, tested the way a player would meet it: go back to the same
+   * campsite, and find it the same place on a different night.
+   *
+   * Same `camp=` seed and the same browser, so the Passport counts the visits
+   * — which is what separates "this campsite" from "this night". Anything that
+   * stopped the visit count advancing would show up here as a campsite frozen
+   * in one evening forever, which is precisely the state this replaced.
+   */
+  test('going back finds the same place on a different night', async ({ page }) => {
+    const nights: { visit: number; total: number; wettest: number }[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      const wood = await woodAt(page, 'camp-again');
+      const visit = await page.evaluate(
+        () => window.__someMore!.store.state.ritual.options.visitIndex,
+      );
+      nights.push({ visit, total: wood.total, wettest: wood.wettest });
+    }
+    // eslint-disable-next-line no-console
+    console.log(`  visits ${nights.map((n) => n.visit).join(', ')}; wood ${nights.map((n) => n.total).join(', ')}`);
+
+    // The Passport actually counted them.
+    expect(nights[0]!.visit).toBe(1);
+    expect(nights[nights.length - 1]!.visit).toBeGreaterThan(1);
+
+    // And the campsite was not the same evening five times over.
+    const totals = nights.map((n) => n.total);
+    expect(new Set(totals).size, `wood: ${totals.join(', ')}`).toBeGreaterThan(1);
+    // "Never zero. Fuel is not a pressure." — pine_hollow's own note.
+    expect(Math.min(...totals)).toBeGreaterThan(20);
+  });
+
+  test('and different campsites are different places, not one place twice', async ({ page }) => {
+    const totals: number[] = [];
+    for (const camp of ['camp-n1', 'camp-n2', 'camp-n3', 'camp-n4', 'camp-n5', 'camp-n6']) {
+      totals.push((await woodAt(page, camp)).total);
+    }
+    const spread = Math.max(...totals) / Math.min(...totals);
+    expect(spread, `totals: ${totals.join(', ')}`).toBeGreaterThan(1.2);
+    expect(Math.min(...totals)).toBeGreaterThan(20);
+  });
+});
+
+/**
+ * The one thing this campsite is for.
+ *
+ * `prominence` marks exactly one activity per environment as `signature` and
+ * had never decided anything. A player who can see the screen finds the tide
+ * pools by walking into them; the survey exists for the player who cannot.
+ */
+test.describe('the survey says what a campsite is for', () => {
+  test('it names this campsite’s signature activity, in the words written for it', async ({ page }) => {
+    await page.goto('/?camp=camp-signature&env=loonwater_narrows');
+    await page.waitForFunction(() => Boolean(window.__someMore));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(500);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+    await page.keyboard.press('q');
+    await page.waitForTimeout(400);
+    const text = await page.evaluate(() => (window.__someMore!.store.state.survey ?? []).join(' '));
+    expect(text).toContain('That is the thing this campsite is for.');
+    // Loonwater's signature is answering the loon, and the note written for it.
+    expect(text).toMatch(/Answer the loon/i);
+    expect(text).toMatch(/cup your hands/i);
+  });
+
+  /*
+   * Twenty-two of the catalogue's activity notes carry a sentence written to
+   * the team rather than to the player. None of them may reach a fire.
+   */
+  test('and never tells the player about the game or the catalogue', async ({ page }) => {
+    for (const env of ['cicada_bottoms', 'cedar_switchback', 'lantern_mesa']) {
+      await page.goto(`/?camp=camp-voice-${env}&env=${env}`);
+      await page.waitForFunction(() => Boolean(window.__someMore));
+      await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+      await page.waitForTimeout(400);
+      await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+      await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+        timeout: 20_000,
+      });
+      await page.keyboard.press('q');
+      await page.waitForTimeout(400);
+      const text = await page.evaluate(() => (window.__someMore!.store.state.survey ?? []).join(' '));
+      expect(text, env).not.toMatch(/\b(the game|the catalogue|the product|this environment)\b/i);
+    }
+  });
+});
+
+/**
+ * How closed the horizon is, drawn from the axis the catalogue grades on.
+ *
+ * A unit test pins the mapping; this is the end of it — the renderer actually
+ * putting a temperate rainforest's worth of trees around the cedar switchback
+ * and none at all on a salt pan. Read from the live `WebGLRenderer` counters,
+ * so it is what was drawn rather than what was intended.
+ */
+test.describe('the treeline is as closed as the manifest says', () => {
+  async function trianglesAt(page: import('@playwright/test').Page, env: string): Promise<number> {
+    await page.goto(`/?camp=camp-cover&env=${env}`);
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1200);
+    return page.evaluate(() => {
+      const gl = window.__someMore!.three!.gl as { info: { render: { triangles: number } } };
+      return gl.info.render.triangles;
+    });
+  }
+
+  test('a canopy campsite draws far more of a wood than a bare pan does', async ({ page }) => {
+    const canopy = await trianglesAt(page, 'cedar_switchback');
+    const bare = await trianglesAt(page, 'mirror_flats');
+    // eslint-disable-next-line no-console
+    console.log(`  cedar_switchback (canopy): ${canopy} triangles; mirror_flats (none): ${bare}`);
+    expect(canopy).toBeGreaterThan(bare * 1.4);
+    // And still inside the budget the whole scene is held to.
+    expect(canopy).toBeLessThan(60_000);
+  });
+});

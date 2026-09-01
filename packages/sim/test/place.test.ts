@@ -171,3 +171,114 @@ describe('being asked what it is like', () => {
     expect(nightColdness({}, -5)).toBeGreaterThan(0.7);
   });
 });
+
+/**
+ * How liminal the place is, and the one thing it is allowed to change.
+ *
+ * `character.eeriness` grades all twelve campsites 1..5 and had never been
+ * read. The schema's own calibration rule is the constraint that shapes what
+ * it can do: the axis "never reaches *threatening*", and "nothing stalks,
+ * chases or endangers the player at any value". So a strange place is one that
+ * keeps hearing things a long way off, and is less sure what they are — never
+ * one where something is out there.
+ */
+describe('eeriness', () => {
+  const homely: PlaceNotes = { ...NOTES, eeriness: 1 };
+  const strange: PlaceNotes = { ...NOTES, eeriness: 5 };
+
+  /** Everything heard over an hour, averaged over a spread of seeds. */
+  function heardPerHour(notes: PlaceNotes): number {
+    let total = 0;
+    for (let seed = 1; seed <= 12; seed++) {
+      total += listen(notes, 3600, conditions(), seed).heard.length;
+    }
+    return total / 12;
+  }
+
+  it('is the middle of the axis when a campsite says nothing', () => {
+    const said = heardPerHour(NOTES);
+    const middle = heardPerHour({ ...NOTES, eeriness: 3 });
+    expect(said).toBe(middle);
+  });
+
+  it('makes a strange place speak up from a distance more often than a homely one', () => {
+    expect(heardPerHour(strange)).toBeGreaterThan(heardPerHour(homely) * 1.3);
+  });
+
+  /*
+   * The bound that keeps this a mood rather than a sound effect.
+   *
+   * `stepPlace`'s own note: "a campsite that produces a distant sound every
+   * minute is a campsite with a sound effect, not a campsite in a landscape".
+   * So the ceiling is one every two minutes even at the strangest place in the
+   * catalogue — it currently sits around one every two and a half — and the
+   * floor is that the homely end has not gone silent.
+   */
+  it('keeps a distant sound rare even at the strange end', () => {
+    expect(heardPerHour(strange)).toBeLessThan(30);
+    expect(heardPerHour(homely)).toBeGreaterThan(2);
+  });
+
+  it('adds nothing to a campsite that its author did not write', () => {
+    const { heard } = listen(strange, 7200, conditions(), 5);
+    for (const id of heard) expect(['far_car', 'snag_creak']).toContain(id);
+  });
+
+  /*
+   * A homely place is *predictable*: the same creek, the same road, the same
+   * owl. A strange one is not — the thing its manifest gave a weight of one to
+   * is genuinely on the cards. Same list either way.
+   */
+  it('is less sure what you are hearing at the strange end', () => {
+    /*
+     * Equal minimum gaps, deliberately.
+     *
+     * The catalogue's own sounds carry different `minGapSeconds`, and with
+     * those in play the *frequency* of distant events decides the mix rather
+     * than the weights: at a campsite that speaks up often, the sound with the
+     * long gap is usually still inside it and cannot be picked. That is
+     * correct behaviour and it is not what this test is about, so the fixture
+     * takes it off the table and leaves only the weighting.
+     */
+    const even = (eeriness: number): PlaceNotes => ({
+      ...NOTES,
+      eeriness,
+      distant: [
+        { id: 'far_car', label: 'A car', weight: 3, minGapSeconds: 30, note: '' },
+        { id: 'snag_creak', label: 'The snag', weight: 5, minGapSeconds: 30, note: '' },
+      ],
+    });
+    const share = (notes: PlaceNotes): number => {
+      let common = 0;
+      let all = 0;
+      for (let seed = 1; seed <= 60; seed++) {
+        for (const id of listen(notes, 3600, conditions(), seed).heard) {
+          all++;
+          if (id === 'snag_creak') common++;
+        }
+      }
+      return common / all;
+    };
+    // `snag_creak` is weight 5 against `far_car`'s 3 — five eighths at even
+    // odds, more than that when the weights are sharpened, less when flattened.
+    expect(share(even(1))).toBeGreaterThan(share(even(5)) + 0.05);
+  });
+
+  it('still never says two things in one breath', () => {
+    const place = createPlace();
+    const rng = new Rng(4);
+    // Counted rather than asserted per step: two hours at sixty hertz is
+    // 432,000 steps, and an assertion inside that loop makes the test's own
+    // cost the thing being measured.
+    let doubled = 0;
+    let spoke = 0;
+    for (let i = 0; i < Math.round(7200 / SIM_DT); i++) {
+      stepPlace(place, strange, conditions(), SIM_DT, rng);
+      if (place.remark !== null && place.heard !== null) doubled++;
+      if (place.remark !== null || place.heard !== null) spoke++;
+    }
+    expect(doubled).toBe(0);
+    // And it did speak, so the zero above is a property rather than silence.
+    expect(spoke).toBeGreaterThan(4);
+  });
+});

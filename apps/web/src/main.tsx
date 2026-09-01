@@ -8,7 +8,7 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { getEnvironment, listEnvironments, selectEnvironment } from '@somemore/content';
+import { getEnvironment, inWorld, listEnvironments, selectEnvironment } from '@somemore/content';
 import {
   arrive,
   beginRoasting,
@@ -146,7 +146,26 @@ const store = new Store({
             insects: environment.ambience.insectNote,
             reverb: environment.ambience.reverbNote,
             distant: environment.ambience.distantEvents,
+            // How liminal this place is, 1..5. Decides how often and how
+            // unpredictably it is heard from a long way off — never
+            // anything more than that (schema §2.2: nothing stalks).
+            eeriness: environment.character.eeriness,
           },
+          // What is different about tonight (§5.4). Five per campsite,
+          // each with a range and a note saying what it should drive,
+          // and until they were rolled every visit was the same visit.
+          variations: environment.procedural.variations,
+          // What there is to do here, and which of it this campsite is
+          // *for*. `prominence` marks that one, and until the survey read
+          // it a player who could not see the screen had no way to learn
+          // it. Notes filtered on the way through: about a fifth of them
+          // carry a sentence addressed to the team, not to the player.
+          activities: environment.activities.map((activity) => ({
+            id: activity.id,
+            label: activity.label,
+            prominence: activity.prominence,
+            note: inWorld(activity.note),
+          })),
         },
         walkableRadiusM: environment.scene.walkableRadiusM,
       }

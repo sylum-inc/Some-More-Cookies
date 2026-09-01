@@ -41,6 +41,7 @@ import {
   type RitualStage,
   type RitualState,
   type WalkableWorld,
+  tonightsUndergrowth,
 } from '@somemore/sim';
 /*
  * The step, and the actions the world itself offers.
@@ -53,7 +54,7 @@ import {
  */
 import { beginRoasting, layFuel, operateMachine, stepRitual, tendFire } from '../net/shared.js';
 import { getEnvironment } from '@somemore/content';
-import { LAYOUT, machineToWorld, hashSeed, campFurniture } from './layout.js';
+import { LAYOUT, machineToWorld, hashSeed, campFurniture, treesForCover } from './layout.js';
 // Re-exported because half the app imports them from here and the split is a
 // tidying, not a change of address.
 export { LAYOUT, machineToWorld, hashSeed, campFurniture };
@@ -627,6 +628,15 @@ export function World({
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
   const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
+  /*
+   * How thick the low scatter is tonight, from the ritual's own roll.
+   *
+   * The understorey is drawn and never simulated, so the multiplier has to
+   * come back out of the simulation to reach it — the roll itself stays in
+   * `packages/sim`, where it is deterministic and shared between two clients
+   * at one fire (ADR-0006).
+   */
+  const undergrowth = useMemo(() => tonightsUndergrowth(ritual.variations), [ritual.variations]);
 
   // Shadows are a quality-tier decision, applied once.
   useEffect(() => {
@@ -1033,17 +1043,25 @@ export function World({
                 fog: environment.scene.fog.colour,
                 sky: environment.scene.nightPalette.zenith,
               },
-              // Only canopy kits become trees. Summing *all* vegetation would
-              // plant a forest on a heather moor, whose density is grass.
               // Which wood this campsite offers, in the order the pile shows it.
               fuelIds: environment.fuel.sources.map((source) => source.woodId),
-              treeCount: Math.min(
-                88,
-                Math.round(
-                  environment.scene.vegetation
-                    .filter((kit) => kit.heightRange.max >= 2.5)
-                    .reduce((total, kit) => total + kit.density, 0) * 1.8,
-                ),
+              /*
+               * How closed the horizon is, from the axis the catalogue grades
+               * campsites on rather than from a sum over the kit list.
+               *
+               * The old rule summed the density of every vegetation kit over
+               * 2.5 m and drew that many trees, which read as sensible and was
+               * wrong wherever it mattered: the cedar switchback is authored
+               * `canopy` — the densest cover in the catalogue, sky openness
+               * 0.08 — and was drawn with half the trees of a `moderate` lake
+               * shore. The kits still decide where in a cover band a campsite
+               * sits, so two dense woods are still two different woods.
+               */
+              treeCount: treesForCover(
+                environment.character.treeCover,
+                environment.scene.vegetation
+                  .filter((kit) => kit.heightRange.max >= 2.5)
+                  .reduce((total, kit) => total + kit.density, 0),
               ),
               /*
                * And everything below that line, which used to be thrown away.
@@ -1059,7 +1077,18 @@ export function World({
                 .filter((kit) => kit.heightRange.max < 2.5)
                 .map((kit) => ({
                   kitId: kit.kitId,
-                  density: kit.density,
+                  /*
+                   * Thicker or thinner tonight (§5.4).
+                   *
+                   * Seven campsites declare a variation that is about exactly
+                   * this — bracken density, grass height, Spanish moss
+                   * coverage, the wrack line's contents, leaf fall on the
+                   * platform, foxglove spires, how far the thermal moss rings
+                   * reach — and the meltwater cirque declares its inverse, in
+                   * snow lying over the ground. All of them rolled the same
+                   * number every visit until now.
+                   */
+                  density: kit.density * undergrowth,
                   minHeight: kit.heightRange.min,
                   maxHeight: kit.heightRange.max,
                   lowTierDrop: kit.lowTierDrop,

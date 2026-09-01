@@ -785,8 +785,12 @@ export function Campsite({
           {...(onVisitLandmark
             ? {
                 onClick: (event: { stopPropagation: () => void }) => {
-                  event.stopPropagation();
+                  // Not stopped: out of reach this is a tap on a thing across
+                  // the clearing, which means walk me over there. The handler
+                  // decides, and lets the movement layer have it if it is a
+                  // walk. See `onGather` for the same rule about firewood.
                   onVisitLandmark(landmark.id);
+                  void event;
                 },
                 onPointerOver: (event: { stopPropagation: () => void }) => {
                   event.stopPropagation();

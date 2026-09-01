@@ -190,6 +190,116 @@ export function resolveAmbienceProfile(
   };
 }
 
+/**
+ * A campsite's own soundscape, as the catalogue describes it.
+ *
+ * Structural rather than an import of `@somemore/content`, so the audio layer
+ * keeps knowing nothing about the content package.
+ */
+export interface CampsiteAmbienceSpec {
+  readonly wind: {
+    readonly character: string;
+    readonly baseLevel: number;
+    readonly gustiness: number;
+    /** What the wind is moving *through* — needles, grass, tin, nothing. */
+    readonly material: string;
+  };
+  readonly insectDensity: number;
+  readonly waterPresence: number;
+  readonly reverb: string;
+  /** Approximate dBFS of the quiet floor. Silence is used deliberately (§2.3). */
+  readonly nightFloorDb: number;
+}
+
+/** How each wind character behaves, beyond its level and its gustiness. */
+const WIND_CHARACTER: Record<string, { gustRateHz: number; cutoffHz: number; bandwidth: number }> = {
+  still: { gustRateHz: 0.02, cutoffHz: 300, bandwidth: 0.2 },
+  breathing: { gustRateHz: 0.05, cutoffHz: 420, bandwidth: 0.3 },
+  steady: { gustRateHz: 0.03, cutoffHz: 520, bandwidth: 0.42 },
+  gusting: { gustRateHz: 0.16, cutoffHz: 620, bandwidth: 0.5 },
+  onshore: { gustRateHz: 0.07, cutoffHz: 340, bandwidth: 0.55 },
+  channelled: { gustRateHz: 0.1, cutoffHz: 760, bandwidth: 0.3 },
+  katabatic: { gustRateHz: 0.04, cutoffHz: 260, bandwidth: 0.6 },
+  buffeting: { gustRateHz: 0.26, cutoffHz: 700, bandwidth: 0.58 },
+};
+
+/**
+ * How much of the wind you hear is the wind *in something*.
+ *
+ * The manifests describe the material in prose — "pine needles, thirty feet
+ * up", "dry grass and the tarp", "bare rock, nothing to catch it" — because it
+ * is written for a person. This reads the nouns out of it, and a site whose
+ * wind moves through nothing sounds like wind moving through nothing.
+ */
+function throughTreesFor(material: string): number {
+  const text = material.toLowerCase();
+  if (/needle|pine|fir|spruce|conifer|canopy|crown/.test(text)) return 0.72;
+  if (/leaf|leaves|aspen|birch|willow|cottonwood/.test(text)) return 0.58;
+  if (/grass|sedge|reed|bracken|scrub|brush/.test(text)) return 0.34;
+  if (/tarp|canvas|tin|metal|wire|line/.test(text)) return 0.2;
+  if (/rock|stone|sand|snow|ice|nothing|bare/.test(text)) return 0.08;
+  return 0.4;
+}
+
+/** Reverb wetness per space. A snowfield eats sound; a canyon hands it back. */
+const REVERB_WET: Record<string, number> = {
+  openForest: 0.35,
+  clearing: 0.3,
+  canyon: 0.52,
+  snowfield: 0.18,
+  indoorSmall: 0.44,
+};
+
+function isSpaceType(value: string): value is SpaceType {
+  return value in REVERB_WET;
+}
+
+/**
+ * Turns a campsite's written soundscape into a mix.
+ *
+ * Every environment in the catalogue has had one of these since the content
+ * was authored — a wind character and what it moves through, an insect
+ * density, how much of the bed is moving water, the reverb space, and the
+ * level of the quiet floor. The audio bridge used a single hardcoded preset
+ * for all of them, so twelve campsites written to sound completely different
+ * from one another sounded like one campsite.
+ */
+export function ambienceFromCampsite(id: string, spec: CampsiteAmbienceSpec): AmbienceProfile {
+  const character = WIND_CHARACTER[spec.wind.character] ?? WIND_CHARACTER['breathing']!;
+  const water = clamp01(spec.waterPresence);
+  const insects = clamp01(spec.insectDensity);
+  // dBFS to a linear room-tone level, floored so "silent" is still a floor
+  // and not an absence — §2.3 uses silence deliberately, which means it has
+  // to be a chosen quietness rather than nothing at all.
+  const floor = clamp(Math.pow(10, clamp(spec.nightFloorDb, -80, -20) / 20) * 2.2, 0.004, 0.12);
+
+  return resolveAmbienceProfile({
+    id,
+    wind: {
+      level: clamp01(spec.wind.baseLevel),
+      gustiness: clamp01(spec.wind.gustiness),
+      gustRateHz: character.gustRateHz,
+      cutoffHz: character.cutoffHz,
+      bandwidth: character.bandwidth,
+      throughTrees: throughTreesFor(spec.wind.material),
+    },
+    insects: {
+      density: insects,
+      // A dense chorus is not merely louder, it is busier.
+      chirpsPerMinute: 18 + insects * 62,
+    },
+    water: {
+      enabled: water > 0.02,
+      level: water * 0.6,
+      // A lot of water is close water.
+      distance: clamp01(0.8 - water * 0.5),
+      brightness: clamp01(0.25 + water * 0.35),
+    },
+    roomTone: { level: floor },
+    ...(isSpaceType(spec.reverb) ? { reverb: { space: spec.reverb, wet: REVERB_WET[spec.reverb]! } } : {}),
+  });
+}
+
 /** Ready-made campsites. Manifests may reference these by key and override fields. */
 export const AMBIENCE_PRESETS: Readonly<Record<string, AmbienceProfile>> = Object.freeze({
   lakeside: resolveAmbienceProfile({

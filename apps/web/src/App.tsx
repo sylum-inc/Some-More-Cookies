@@ -334,6 +334,28 @@ export function App({ store }: AppProps): React.ReactElement {
     return () => bridge.dispose();
   }, []);
 
+  /*
+   * What this campsite sounds like.
+   *
+   * Every environment has had a written soundscape since the catalogue was
+   * authored — a wind character and what it moves through, an insect density,
+   * how much of the bed is moving water, its reverb space, the level of its
+   * quiet floor. The bridge used one hardcoded preset for all of them, so a
+   * snowfield with no insects and a canyon with a river in it were the same
+   * bed of pine wind.
+   */
+  useEffect(() => {
+    const environment = getEnvironment(state.environmentId);
+    if (!environment) return;
+    audioRef.current?.setCampsite(environment.id, {
+      wind: environment.ambience.wind,
+      insectDensity: environment.ambience.insectDensity,
+      waterPresence: environment.ambience.waterPresence,
+      reverb: environment.ambience.reverb,
+      nightFloorDb: environment.ambience.nightFloorDb,
+    });
+  }, [state.environmentId]);
+
   // --- Sync ----------------------------------------------------------------
   // Local-first: this establishes an anonymous account and a server-side
   // campsite in the background. Nothing in the ritual waits for it, and a
@@ -466,6 +488,14 @@ export function App({ store }: AppProps): React.ReactElement {
                   landmarks: environment.scene.landmarks,
                   trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
                   occupied: campFurniture(),
+                  // What this site's SM-01 tends to be like. Recognition,
+                  // never difficulty (§3.3).
+                  machine: {
+                    quirkWeights: environment.machine.quirkWeights,
+                    stickerHint: environment.machine.stickerHint,
+                    flavourNote: environment.machine.flavourNote,
+                    frostNote: environment.machine.frostNote,
+                  },
                   // What this campsite is like, in its own words: the
                   // weather character, the ambience notes and the ground and
                   // elevation the scene manifest describes.
@@ -758,7 +788,26 @@ export function App({ store }: AppProps): React.ReactElement {
         if (ritual.stage === 'at-fire' || ritual.stage === 'after') beginRoastingAction(ritual);
         break;
       case 'machine':
-        if (ritual.stage === 'at-fire' || ritual.stage === 'after') store.setSubtitle('[the SM-01 is idle]');
+        if (ritual.stage === 'at-fire' || ritual.stage === 'after') {
+          /*
+           * What this site's unit is like, said once, the first time you come
+           * to it.
+           *
+           * The catalogue writes a line about every campsite's SM-01 — the
+           * concrete pad older than the machine, the damp in the door gasket
+           * that means the first close of the night rarely takes — and it went
+           * nowhere. Recognising a unit is the whole point of it being
+           * serialised, worn and quirky (§3.5), and you cannot recognise
+           * something nobody ever described to you.
+           */
+          const note = ritual.options.world.machine?.flavourNote;
+          if (note && !metTheMachine.current) {
+            metTheMachine.current = true;
+            store.setNotice(note);
+          } else {
+            store.setSubtitle('[the SM-01 is idle]');
+          }
+        }
         break;
       case 'log-seat':
         // Sitting down is the least flashy thing here and possibly the most
@@ -1309,6 +1358,8 @@ export function App({ store }: AppProps): React.ReactElement {
   const listenerScratch = useRef({ eye: vec3(), look: vec3() });
   /** The last weather change already announced, so it is said once. */
   const lastWeatherAt = useRef(-1);
+  /** Whether this site's unit has introduced itself yet. */
+  const metTheMachine = useRef(false);
 
   const onSimStep = useCallback(
     (r: RitualState) => {
@@ -1365,6 +1416,17 @@ export function App({ store }: AppProps): React.ReactElement {
        * the only progression the product has, the night going by, was
        * something a player could sit through without ever being told.
        */
+      /*
+       * How the frost reads against this air.
+       *
+       * Every campsite says — grey-blue and gone within a minute in damp
+       * forest air, or hard and lasting on a salt flat — and the reveal is the
+       * one moment it is true. Said as the door opens, once.
+       */
+      if (r.stageChangedTo === 'reveal') {
+        const frost = r.options.world.machine?.frostNote;
+        if (frost) store.setNotice(frost);
+      }
       if (r.windowChangedTo) {
         const said = describeWindow(r.windowChangedTo);
         if (said) store.setNotice(said);

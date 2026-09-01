@@ -54,6 +54,7 @@ import {
 } from './assembly.js';
 import {
   createMachine,
+  type MachineFlavourSpec,
   performAction,
   recordRun,
   stepMachine,
@@ -316,6 +317,14 @@ export interface RitualWorldContent {
   readonly landmarks?: readonly LandmarkSpec[];
   /** Bearing of the trail in, so signage stands where you come past it. */
   readonly trailBearing?: number;
+  /**
+   * `EnvironmentManifest.machine` — what this site's SM-01 tends to be like.
+   *
+   * Recognition, never difficulty: the campsite whose manifest says damp gets
+   * into the door gasket gets a unit whose door is more likely to stick, and
+   * finding the same fault on your second visit is the point of it.
+   */
+  readonly machine?: MachineFlavourSpec;
   /**
    * What this campsite is like, in its own words.
    *
@@ -614,7 +623,7 @@ export function createRitual(options: RitualOptions): RitualState {
     weather,
     marshmallow: createMarshmallow(),
     assembly: createAssembly({ assist: options.assemblyAssist ?? 0.5 }),
-    machine: createMachine(seed, options.environmentId),
+    machine: createMachine(seed, options.environmentId, world.machine ?? {}),
     bite: createBiteState(),
     wildlife: createWildlife({
       campsiteSeed: seed,

@@ -22,7 +22,7 @@ import {
   type WildlifeEvent,
 } from '@somemore/sim';
 import { AudioEngine, type AudioEngineOptions } from './engine.js';
-import { AMBIENCE_PRESETS } from './ambience.js';
+import { AMBIENCE_PRESETS, ambienceFromCampsite, type CampsiteAmbienceSpec } from './ambience.js';
 import { hashSeed } from './rng.js';
 import type { RadioProgramme } from './radio.js';
 import type { WildlifeAnimalAudio } from './wildlife.js';
@@ -158,6 +158,23 @@ export class AudioBridge {
    */
   constructor(private readonly engineOptions: AudioEngineOptions = {}) {}
 
+  /**
+   * The campsite this bridge is at, and therefore what it sounds like.
+   *
+   * Set before `unlock`, because the profile is handed to the engine when it
+   * is built. Every campsite used to get `pineRidge` whatever it was, so a
+   * snowfield with no insects and a canyon with a river in it were the same
+   * bed of pine wind — twelve written soundscapes, one mix.
+   */
+  private campsite: { id: string; spec: CampsiteAmbienceSpec } | null = null;
+
+  setCampsite(id: string, spec: CampsiteAmbienceSpec): void {
+    this.campsite = { id, spec };
+    // Already running: swap the bed rather than waiting for the next session.
+    const engine = this.engineValue;
+    if (engine) engine.setAmbienceProfile(ambienceFromCampsite(id, spec));
+  }
+
   /** The engine, once unlocked. Read-only inspection, for tests and dev tools. */
   get engine(): AudioEngine | null {
     return this.engineValue;
@@ -168,7 +185,9 @@ export class AudioBridge {
     if (!this.engineValue) {
       try {
         this.engineValue = new AudioEngine({
-          ambienceProfile: AMBIENCE_PRESETS.pineRidge,
+          ambienceProfile: this.campsite
+            ? ambienceFromCampsite(this.campsite.id, this.campsite.spec)
+            : AMBIENCE_PRESETS.pineRidge,
           ...this.engineOptions,
         });
       } catch {

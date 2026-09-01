@@ -125,6 +125,14 @@ const store = new Store({
           landmarks: environment.scene.landmarks,
           trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
           occupied: campFurniture(),
+          // What this site's SM-01 tends to be like. Recognition,
+          // never difficulty (§3.3).
+          machine: {
+            quirkWeights: environment.machine.quirkWeights,
+            stickerHint: environment.machine.stickerHint,
+            flavourNote: environment.machine.flavourNote,
+            frostNote: environment.machine.frostNote,
+          },
           // What this campsite is like, in its own words: the
           // weather character, the ambience notes and the ground and
           // elevation the scene manifest describes.

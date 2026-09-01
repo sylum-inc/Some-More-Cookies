@@ -102,11 +102,6 @@ function nextRemark(
   const unsaid = (id: string, telling: string | undefined): { id: string; telling: string } | null =>
     telling && telling.length > 0 && !said.has(id) ? { id, telling } : null;
 
-  // Frost first: it is the one that changes what you do next.
-  if (now.temperatureC <= 0.5) {
-    const frost = unsaid('frost', notes.temperature);
-    if (frost && said.has('temperature')) return { id: 'frost', telling: frost.telling };
-  }
   // The ground, once you have stood on it for a moment.
   if (now.elapsed > 8) {
     const ground = unsaid('ground', notes.ground);

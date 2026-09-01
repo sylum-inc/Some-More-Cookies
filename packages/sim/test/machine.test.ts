@@ -460,3 +460,47 @@ describe('frost growth', () => {
     expect(run('deep-freeze')).toBeGreaterThan(run('soft-set'));
   });
 });
+
+describe('a unit that belongs to its campsite', () => {
+  /**
+   * The catalogue has always said what each site's SM-01 tends to be like —
+   * "damp gets into the door gasket, so the first close of the night rarely
+   * takes" — and weighted its quirks accordingly. Every unit picked uniformly
+   * from the pool regardless, so the site that says its doors stick was no
+   * more likely to have a sticky door than a salt flat was.
+   */
+  it('leans toward the quirks its campsite says it has', () => {
+    const withWeights = { 'sticky-door': 40 };
+    let weightedSticky = 0;
+    let plainSticky = 0;
+    for (let i = 0; i < 120; i++) {
+      const weighted = deriveMachineIdentity(`camp-${i}`, 'pine_hollow', { quirkWeights: withWeights });
+      const plain = deriveMachineIdentity(`camp-${i}`, 'pine_hollow');
+      if (weighted.quirks.some((q) => q.id === 'sticky-door')) weightedSticky++;
+      if (plain.quirks.some((q) => q.id === 'sticky-door')) plainSticky++;
+    }
+    expect(weightedSticky).toBeGreaterThan(plainSticky * 1.8);
+    // But never a template: an unlisted quirk is still possible.
+    const anyOther = Array.from({ length: 60 }, (_, i) =>
+      deriveMachineIdentity(`other-${i}`, 'pine_hollow', { quirkWeights: withWeights }),
+    ).some((identity) => identity.quirks.some((q) => q.id !== 'sticky-door'));
+    expect(anyOther).toBe(true);
+  });
+
+  it('carries the sticker its campsite says it carries, first', () => {
+    const hint = 'CAMPGROUND INSPECTION 08, half peeled';
+    const identity = deriveMachineIdentity('sticker-camp', 'pine_hollow', { stickerHint: hint });
+    expect(identity.stickers[0]).toBe(hint);
+    // And it is still a used machine with other stickers on it.
+    expect(identity.stickers.length).toBeGreaterThan(1);
+  });
+
+  it('is the same unit every time you come back to it', () => {
+    const flavour = { quirkWeights: { 'slow-amber': 5 }, stickerHint: 'LOT 14' };
+    const a = deriveMachineIdentity('same', 'pine_hollow', flavour);
+    const b = deriveMachineIdentity('same', 'pine_hollow', flavour);
+    expect(a.serial).toBe(b.serial);
+    expect(a.quirks.map((q) => q.id)).toEqual(b.quirks.map((q) => q.id));
+    expect(a.stickers).toEqual(b.stickers);
+  });
+});

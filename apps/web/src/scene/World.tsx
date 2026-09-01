@@ -23,6 +23,7 @@ import {
   eyePosition,
   gatherFuel,
   offered,
+  patchAt,
   visitLandmark,
   terrainHeight,
   isEmberBed,
@@ -91,6 +92,14 @@ const CROUCH_AT_THE_FIRE = 1.4;
  * gesture can be performed by accident while trying for the other.
  */
 const BANK_SWEEP = 0.12;
+
+/**
+ * How close you have to be to pick a stick up off the ground.
+ *
+ * Matches the reach the walkable world gives a fuel patch, so what the prompt
+ * offers and what a tap on the wood itself does are the same thing.
+ */
+const GATHER_REACH = 1.3;
 
 /**
  * True when the player is close enough to put a hand in the pit.
@@ -967,13 +976,30 @@ export function World({
         fuelPatches={ritual.gathering.patches}
         landmarks={ritual.landmarks}
         onVisitLandmark={(id) => {
+          // Reachable only from where you are standing, for the same reason
+          // the firewood is: a tap on something across the clearing is a walk.
+          const landmark = ritual.landmarks.find((l) => l.id === id);
+          if (!landmark) return;
+          const reach = landmark.kind === 'natural' ? 2 : 1.5;
+          if (Math.hypot(player.position.x - landmark.x, player.position.z - landmark.z) > reach) return;
           const met = visitLandmark(ritual, id);
           if (!met) return;
           if (met.telling) store.setNotice(met.telling);
           store.touch();
         }}
         onGather={(patchId) => {
-          // Same act as reaching for it on foot; the ray just aimed for you.
+          /*
+           * Same act as reaching for it on foot — but only if you are on foot
+           * and there.
+           *
+           * A tap on a stick across the clearing is a *walk*, the same as a
+           * tap on the fire is. Without this check it was also a pickup, so
+           * the armful filled itself on the way over and the walk that was
+           * meant to be the cost of the wood cost nothing at all.
+           */
+          const patch = patchAt(ritual.gathering, patchId);
+          if (!patch) return;
+          if (Math.hypot(player.position.x - patch.x, player.position.z - patch.z) > GATHER_REACH) return;
           const result = gatherFuel(ritual, patchId);
           if (result.full) store.setNotice('Your arms are full. Take it back to the fire first.');
           else if (result.empty) store.setNotice('Nothing left here worth carrying.');

@@ -157,7 +157,30 @@ const STICKER_POOL = [
  * Deterministic, so a player's machine is *their* machine on every device and
  * after every reinstall — which is the point of serialising it at all.
  */
-export function deriveMachineIdentity(campsiteSeed: number | string, environmentId: string): MachineIdentity {
+/**
+ * What the local unit tends to be like, from the campsite's own manifest.
+ *
+ * Recognition data, never difficulty (spec §3.3, §3.5). A campsite that says
+ * the damp gets into the door gasket gets a unit whose door is more likely to
+ * stick — it is not a harder machine, it is *that* machine, and coming back to
+ * it and finding the same fault is the whole of what this is for.
+ */
+export interface MachineFlavourSpec {
+  /** Quirk id → relative weight here. Anything unlisted still has a chance. */
+  readonly quirkWeights?: Readonly<Record<string, number>>;
+  /** The sticker or stamp this site's unit tends to carry. */
+  readonly stickerHint?: string;
+  /** One line about this site's unit. */
+  readonly flavourNote?: string;
+  /** How frost reads against this environment's air. */
+  readonly frostNote?: string;
+}
+
+export function deriveMachineIdentity(
+  campsiteSeed: number | string,
+  environmentId: string,
+  flavour: MachineFlavourSpec = {},
+): MachineIdentity {
   const base = typeof campsiteSeed === 'string' ? hashString(campsiteSeed) : campsiteSeed;
   const rng = new Rng(mixSeeds(base, hashString(`sm01:${environmentId}`)));
 
@@ -172,13 +195,39 @@ export function deriveMachineIdentity(campsiteSeed: number | string, environment
   const checkChar = letters[(hashString(`${built}${letter}${digits}`) % letters.length + letters.length) % letters.length] ?? 'A';
   const serial = `SM01-${built}${letter}-${digits}-${checkChar}`;
 
-  // One to three quirks, more likely on a worn unit.
+  /*
+   * One to three quirks, more likely on a worn unit, and biased by what this
+   * campsite says its unit is like.
+   *
+   * The weights came with the catalogue and were ignored: every unit picked
+   * uniformly from the pool, so the site whose manifest says damp gets into
+   * the door gasket was no more likely to have a sticky door than a salt flat
+   * was. Weighted picking without replacement, so an unlisted quirk is still
+   * possible — a unit is a unit, not a template.
+   */
+  const weights = flavour.quirkWeights ?? {};
+  const remaining = [...QUIRK_POOL];
   const quirkCount = wear > 0.66 ? rng.int(2, 3) : wear > 0.35 ? rng.int(1, 2) : rng.int(0, 1);
-  const quirkPool = rng.shuffle([...QUIRK_POOL]);
-  const quirks = quirkPool.slice(0, quirkCount);
+  const quirks: MachineQuirk[] = [];
+  for (let i = 0; i < quirkCount && remaining.length > 0; i++) {
+    const picked = rng.weightedPick(remaining, (quirk) => Math.max(0.25, weights[quirk.id] ?? 1));
+    if (!picked) break;
+    quirks.push(picked);
+    remaining.splice(remaining.indexOf(picked), 1);
+  }
 
   const stickerCount = rng.int(1, 4);
   const stickers = rng.shuffle([...STICKER_POOL]).slice(0, stickerCount);
+  /*
+   * And the sticker this site's units tend to carry.
+   *
+   * Put at the front because it is the one somebody would describe first, and
+   * only when the campsite named one — a unit with no local sticker keeps the
+   * ones the pool gave it.
+   */
+  if (flavour.stickerHint && !stickers.includes(flavour.stickerHint)) {
+    stickers.unshift(flavour.stickerHint);
+  }
 
   const maintenance: MaintenanceEntry[] = [];
   const entryCount = rng.int(2, 5);
@@ -291,11 +340,15 @@ export type MachineEvent =
   | 'beep-reject'
   | 'lever-throw';
 
-export function createMachine(campsiteSeed: number | string, environmentId: string): MachineState {
+export function createMachine(
+  campsiteSeed: number | string,
+  environmentId: string,
+  flavour: MachineFlavourSpec = {},
+): MachineState {
   const seedValue =
     typeof campsiteSeed === 'string' ? hashString(campsiteSeed) : campsiteSeed >>> 0;
   return {
-    identity: deriveMachineIdentity(campsiteSeed, environmentId),
+    identity: deriveMachineIdentity(campsiteSeed, environmentId, flavour),
     stage: 'idle',
     program: 'standard',
     stageElapsed: 0,

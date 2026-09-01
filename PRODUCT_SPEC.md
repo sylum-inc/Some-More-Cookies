@@ -237,6 +237,10 @@ Environments are **selected, not assumed** — 20+ concepts are generated and ev
 
 Each launch environment has its own systemic personality: soundscape · weather profile · wildlife roster · available fuels · props · activities · secrets · radio behaviour · arrival sequence · procedural rules · SM-01 quirks.
 
+**And it sounds like itself.** Each environment states a wind character and what that wind is moving *through* — pine needles thirty feet up, dry grass and the tarp, bare rock with nothing to catch it — plus an insect density, how much of the bed is moving water, a reverb space and the level of its quiet floor. All of it reaches the mix, so a snowfield with no insects and a canyon with a river in it are not the same bed of pine wind.
+
+**And its SM-01 is its own.** Each site's manifest weights which quirks the local unit tends to have and names the sticker it tends to carry. A campsite that says damp gets into the door gasket gets a unit whose door is more likely to stick. This is recognition, never difficulty (§3.3): coming back and finding the same fault is the point of it.
+
 **A campsite remarks on itself, when the remark is true.** Each environment carries a paragraph of sensory writing — what the ground is, what shape the land is in, what the wind does here and what it moves through, how cold it gets, whether there are insects, how the place sounds, and three or four things you might hear a long way off. None of it is read out on arrival. The wind note lands when the wind actually gets up; the cold note when the night actually turns cold; what this place does to a fire, while it is doing it. Each lands once. Distant sounds are rare by their own stated minimum gaps and are subtitled, because they are sounds. Asking what is around you answers with whatever of it is true at that moment.
 
 **Construction:** modular biome kits + data-driven scene manifests + procedural variation + handcrafted landmarks. An environment is *data*; adding one requires no engine change.

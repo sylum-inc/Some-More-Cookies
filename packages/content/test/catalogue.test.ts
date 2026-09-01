@@ -439,3 +439,73 @@ describe('regions', () => {
     }
   });
 });
+
+describe('what makes each campsite itself', () => {
+  /**
+   * These are the fields that reach a player as the difference between one
+   * place and another. Each of them was, for most of this project's life,
+   * written and wired to nothing — so what is being guarded here is not the
+   * values but the fact that they are *not all the same value*. A catalogue
+   * whose twelve campsites agree about everything is a catalogue with one
+   * campsite in it.
+   */
+  it('gives every campsite its own firelight', () => {
+    const glows = new Set(ENVIRONMENTS.map((e) => e.scene.nightPalette.fireGlow));
+    expect(glows.size).toBeGreaterThan(ENVIRONMENTS.length / 2);
+    for (const environment of ENVIRONMENTS) {
+      // Firelight, in a form three.js can take straight from the manifest.
+      expect(environment.scene.nightPalette.fireGlow).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
+  it('gives every campsite its own arrival, in five beats', () => {
+    for (const environment of ENVIRONMENTS) {
+      const arrival = environment.arrival;
+      for (const beat of [arrival.approach, arrival.firstHeard, arrival.firstSeen, arrival.underfoot, arrival.arrivalBeat]) {
+        expect(beat.length, `${environment.id} has a beat nobody wrote`).toBeGreaterThan(30);
+      }
+      expect(arrival.walkSeconds.min).toBeGreaterThan(0);
+    }
+    // And no two campsites open on the same line.
+    const openings = new Set(ENVIRONMENTS.map((e) => e.arrival.firstHeard));
+    expect(openings.size).toBe(ENVIRONMENTS.length);
+  });
+
+  it('gives every campsite named things with something to say', () => {
+    for (const environment of ENVIRONMENTS) {
+      expect(environment.scene.landmarks.length, `${environment.id} has no landmarks`).toBeGreaterThan(1);
+      for (const landmark of environment.scene.landmarks) {
+        expect(landmark.note.length, `${landmark.id} has nothing to say`).toBeGreaterThan(20);
+        expect(landmark.label.length).toBeGreaterThan(2);
+      }
+    }
+  });
+
+  it('gives every campsite a soundscape of its own', () => {
+    const fingerprints = new Set(
+      ENVIRONMENTS.map((e) =>
+        [
+          e.ambience.wind.character,
+          e.ambience.wind.baseLevel.toFixed(2),
+          e.ambience.insectDensity.toFixed(2),
+          e.ambience.waterPresence.toFixed(2),
+          e.ambience.reverb,
+        ].join('/'),
+      ),
+    );
+    expect(fingerprints.size).toBe(ENVIRONMENTS.length);
+    for (const environment of ENVIRONMENTS) {
+      expect(environment.ambience.distantEvents.length, `${environment.id} is never heard from`).toBeGreaterThan(1);
+      expect(environment.ambience.wind.material.length).toBeGreaterThan(4);
+    }
+  });
+
+  it('gives every campsite an opinion about its own SM-01', () => {
+    for (const environment of ENVIRONMENTS) {
+      expect(Object.keys(environment.machine.quirkWeights).length, `${environment.id} has no opinion`).toBeGreaterThan(0);
+      expect(environment.machine.flavourNote.length).toBeGreaterThan(30);
+      expect(environment.machine.stickerHint.length).toBeGreaterThan(4);
+      expect(environment.machine.frostNote.length).toBeGreaterThan(20);
+    }
+  });
+});

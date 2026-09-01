@@ -1360,6 +1360,8 @@ export function App({ store }: AppProps): React.ReactElement {
   const lastWeatherAt = useRef(-1);
   /** Whether this site's unit has introduced itself yet. */
   const metTheMachine = useRef(false);
+  /** Which of this campsite's activities have introduced themselves. */
+  const activitiesMet = useRef<Set<string>>(new Set());
 
   const onSimStep = useCallback(
     (r: RitualState) => {
@@ -1392,6 +1394,40 @@ export function App({ store }: AppProps): React.ReactElement {
        * part of a minute before it arrives — long enough to sweep the ash over
        * the coals and bring the wood in off the stones.
        */
+      /*
+       * What this campsite makes of the thing you have just started doing.
+       *
+       * Every environment says what each of its activities is like *here* —
+       * "small trout behind the stones, and mostly an excuse to sit on a
+       * rock", "only a ragged patch of sky through the crowns, which makes the
+       * meteor that crosses it feel personal". Nine notes per campsite, twelve
+       * campsites, and not one of them had ever been shown to anybody.
+       *
+       * Said the first time you do the thing, because that is when it is about
+       * you rather than about the manifest, and only for activities that
+       * actually exist — a note about something a player cannot do would be
+       * worse than no note at all.
+       */
+      const doingNow =
+        r.fishing.phase === 'soaking' || r.fishing.phase === 'nibble'
+          ? 'fishing'
+          : r.stargazing.posture === 'reclined' || r.stargazing.binoculars
+            ? 'stargazing'
+            : r.radio.on
+              ? 'radio'
+              : r.torch.on
+                ? 'flashlight'
+                : r.skipping.held || r.skipping.phase === 'flying'
+                  ? 'stone-skipping'
+                  : r.gathering.gathered > 0
+                    ? 'foraging'
+                    : null;
+      if (doingNow && !activitiesMet.current.has(doingNow)) {
+        activitiesMet.current.add(doingNow);
+        const note = getEnvironment(state.environmentId)?.activities.find((a) => a.id === doingNow)?.note;
+        if (note) store.setNotice(note);
+      }
+
       /*
        * The campsite saying what it is like, when the saying is true.
        *

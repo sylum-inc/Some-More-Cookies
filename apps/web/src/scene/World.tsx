@@ -1131,6 +1131,7 @@ export function World({
           store.touch();
         }}
         canTouch={() => atThePit(player) && handsFreeForTheFire(ritual.stage)}
+        {...(environment ? { glow: environment.scene.nightPalette.fireGlow } : {})}
         {...(grabbedFuelRef ? { grabbedRef: grabbedFuelRef } : {})}
       />
 

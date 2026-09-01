@@ -62,6 +62,15 @@ export interface FireProps {
    * renderer's, and certainly not a control the player has to find.
    */
   onMoveLog?: (logId: string, x: number, z: number) => void;
+  /**
+   * The colour this campsite's fire throws, from its night palette.
+   *
+   * Every environment states one and none of them had ever been used: the
+   * dynamic light was the same orange at a pine hollow, a salt flat and a
+   * snowfield. Firelight is the only light most of these places have, so it is
+   * most of what makes them look different from each other.
+   */
+  glow?: string | number;
   /** Shared with the input layer so a drag on a log is not also a look. */
   grabbedRef?: React.MutableRefObject<string | null>;
   /**
@@ -82,6 +91,7 @@ export function Fire({
   maxParticles,
   onWorkBed,
   onMoveLog,
+  glow,
   grabbedRef,
   canTouch,
 }: FireProps): React.ReactElement {
@@ -228,6 +238,8 @@ export function Fire({
   );
 
   const dummy = useMemo(() => new THREE.Object3D(), []);
+  /** The campsite's own firelight, or the catalogue's default warm orange. */
+  const glowColor = useMemo(() => new THREE.Color(glow ?? 0xff9b47), [glow]);
   const color = useMemo(() => new THREE.Color(), []);
 
   useFrame((state) => {
@@ -349,12 +361,25 @@ export function Fire({
       const jitter = 1 + Math.sin(t * 11) * 0.06 * flicker + Math.sin(t * 23.3) * 0.035 * flicker;
       light.intensity = base * jitter;
       light.position.y = 0.28 + fire.flameHeight * 0.35;
-      light.color.setRGB(1, 0.52 + intensity * 0.16, 0.2);
+      /*
+       * The campsite's own firelight at full flame, reddening as it dies.
+       *
+       * The curve is the one that was here — hot and yellow at the top, deep
+       * and red at the bottom — with the top of it now being the colour this
+       * environment says its fire throws rather than one orange for all of
+       * them.
+       */
+      light.color.setRGB(
+        glowColor.r,
+        glowColor.g * (0.76 + intensity * 0.24),
+        glowColor.b * (0.62 + intensity * 0.38),
+      );
     }
     const emberLight = emberLightRef.current;
     if (emberLight) {
       emberLight.intensity = emberGlow * 3.2 * brightness;
-      emberLight.color.setRGB(1, 0.3, 0.08);
+      // Coals are the same fire, much further down the same curve.
+      emberLight.color.setRGB(glowColor.r, glowColor.g * 0.49, glowColor.b * 0.29);
     }
 
     // --- Fuel --------------------------------------------------------------

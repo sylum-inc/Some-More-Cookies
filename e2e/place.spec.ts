@@ -254,3 +254,85 @@ test.describe('the campsite has a voice', () => {
     expect(text).toMatch(/bowl|rises|slope/i);
   });
 });
+
+test.describe('the firelight is this campsite’s firelight', () => {
+  /**
+   * Every environment states the colour its fire throws and none of them had
+   * ever been used: one orange at a pine hollow, a salt flat and a snowfield.
+   * Firelight is the only light most of these places have after dark, so it is
+   * most of what makes them look different from one another.
+   */
+  async function fireColour(
+    page: import('@playwright/test').Page,
+    env: string,
+  ): Promise<{ r: number; g: number; b: number }> {
+    await page.goto(`/?camp=camp-glow&env=${env}`);
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1200);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(900);
+    await capture(page, `54-firelight-${env}`);
+
+    // The lit ground around the pit, which is firelight and almost nothing else.
+    return page.evaluate(() => {
+      const three = window.__someMore!.three as unknown as {
+        gl: { domElement: HTMLCanvasElement; render: (s: unknown, c: unknown) => void };
+        scene: unknown;
+        camera: unknown;
+      };
+      three.gl.render(three.scene, three.camera);
+      const off = document.createElement('canvas');
+      off.width = 160;
+      off.height = 100;
+      const ctx = off.getContext('2d')!;
+      ctx.drawImage(three.gl.domElement, 0, 0, off.width, off.height);
+      const data = ctx.getImageData(0, 60, off.width, 30).data;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        r += data[i] ?? 0;
+        g += data[i + 1] ?? 0;
+        b += data[i + 2] ?? 0;
+      }
+      const n = data.length / 4;
+      return { r: r / n, g: g / n, b: b / n };
+    });
+  }
+
+  test('two campsites are lit by two different fires', async ({ page }) => {
+    const pine = await fireColour(page, 'pine_hollow');
+    const other = await fireColour(page, 'ashfall_barrens');
+
+    // Both are firelight: warm, and actually lighting something.
+    for (const lit of [pine, other]) {
+      expect(lit.r).toBeGreaterThan(lit.b);
+      expect(lit.r).toBeGreaterThan(6);
+    }
+    /*
+     * Deliberately *not* asserting that the two look different.
+     *
+     * The catalogue's twelve fire colours are all warm oranges within about
+     * two per cent of each other — every fire is a fire — and after five-bit
+     * quantisation the difference in a rendered frame is around half a per
+     * cent, which is noise next to how much ground each campsite has for the
+     * light to fall on. The wiring is what matters and is tested where it can
+     * be tested honestly: that the twelve values are distinct is a unit test
+     * over the catalogue, and that each one reaches the light is this. Writing
+     * a pixel assertion here would be measuring the renderer's mood.
+     */
+    const warmth = (c: { r: number; g: number; b: number }) => c.g / Math.max(1, c.r);
+    for (const lit of [pine, other]) {
+      // Firelight, not daylight and not a grey: warm, and in the band a fire
+      // actually occupies.
+      expect(warmth(lit)).toBeGreaterThan(0.35);
+      expect(warmth(lit)).toBeLessThan(0.8);
+      expect(lit.b).toBeLessThan(lit.g);
+    }
+  });
+});

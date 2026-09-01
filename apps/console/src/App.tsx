@@ -681,8 +681,16 @@ function ContentTab({
         )}
         {issues !== null && issues.length > 0 && (
           <div data-testid="validate-issues" style={{ marginTop: 10 }}>
+            {/*
+              "all of them" is the point of this line — the gate reports every
+              failure rather than stopping at the first, so an author fixes one
+              document once instead of publishing five times. It just does not
+              survive a count of one: "1 problem, all of them:" was on screen
+              in `console-validation-issues.png`. The clause is plural or it is
+              absent.
+            */}
             <div style={{ color: C.danger, fontSize: 13, fontWeight: 600 }}>
-              {issues.length} problem{issues.length === 1 ? '' : 's'}, all of them:
+              {issues.length === 1 ? '1 problem:' : `${issues.length} problems, all of them:`}
             </div>
             <IssueList issues={issues} />
           </div>

@@ -278,6 +278,35 @@ test.describe('the assists a player can actually reach', () => {
     await expect(page.getByRole('button', { name: 'Add wood' })).toBeVisible();
   });
 
+  /*
+   * A slider reads out its value, not where its knob happens to sit.
+   *
+   * The default formatter showed `(value - min) / (max - min)`, which is the
+   * position on the track — identical to the value for a dial running 0..1, so
+   * five of the seven sliders looked right and hid the two that did not. At its
+   * own default the panel said **"Text size 16%"**, which is not a text size
+   * and is an alarming thing to show somebody who opened this screen because
+   * the type was too small; fire brightness read "57%" with the fire at exactly
+   * the brightness its author chose.
+   */
+  test('a slider says what it is set to, not where its knob is', async ({ page }) => {
+    await boot(page);
+    await page.getByRole('button', { name: 'Settings' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Settings' });
+
+    // Both of these run over a range that does not start at zero, which is the
+    // whole reason they were wrong and the 0..1 dials were not.
+    for (const label of ['Text size', 'Fire brightness']) {
+      const row = dialog.locator('label').filter({ hasText: label }).first();
+      await expect(row, `${label} is not on the settings screen`).toBeVisible();
+      await expect(row, `${label} does not read as its own default`).toContainText('100%');
+    }
+
+    // And a 0..1 dial is unchanged by that: at full it still reads full.
+    const dither = dialog.locator('label').filter({ hasText: 'Dithering' }).first();
+    await expect(dither).toContainText('100%');
+  });
+
   test('the keys are written down somewhere a player can read them', async ({ page }) => {
     await boot(page);
     await page.getByRole('button', { name: 'Settings' }).click();

@@ -341,7 +341,24 @@ function Slider({
   scale: number;
   format?: (value: number) => string;
 }): React.ReactElement {
-  const display = format ? format(value) : `${Math.round(((value - min) / (max - min)) * 100)}%`;
+  /*
+   * The value, not the position on the track.
+   *
+   * This used to read `(value - min) / (max - min)`, which is where the knob
+   * sits — and for a dial that runs 0..1 that is the same number, so five of
+   * the seven sliders looked right and hid the two that did not. Text size
+   * runs 0.85..1.8, so at its default of 1.0 the panel said **"Text size
+   * 16%"**: a figure that is not a text size, and an alarming one to show
+   * somebody who came to this panel because the type was too small. Fire
+   * brightness runs 0.35..1.5 and read "57%" with the fire at exactly the
+   * brightness its author chose.
+   *
+   * Read as a value, both say 100% at their default, which is what a player
+   * means by "normal", and every 0..1 dial is unchanged. Fixing the default
+   * rather than passing a `format` to the two offenders also means the next
+   * slider with a non-zero minimum does not arrive with the same bug.
+   */
+  const display = format ? format(value) : `${Math.round(value * 100)}%`;
   return (
     <label style={{ display: 'block', marginBottom: `${12 * scale}px`, color: TOKENS.ink }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: `${13 * scale}px` }}>

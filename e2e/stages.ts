@@ -92,6 +92,107 @@ export async function openWorld(page: Page, camp: string, env = 'pine_hollow'): 
   await page.waitForTimeout(2500);
 }
 
+/** What the camera was doing when the wait ended; logged when it gave up. */
+export interface CameraStillness {
+  still: boolean;
+  /** Rendered frames sampled before the answer. */
+  frames: number;
+  elapsedMs: number;
+  /** The player still had somewhere to walk to. */
+  walking: boolean;
+  /** Per-frame change on the last sample: metres, quaternion units, degrees. */
+  last: { position: number; look: number; fov: number };
+}
+
+/**
+ * Waits until the camera has stopped, judged frame by frame.
+ *
+ * A stage change is a walk and a head-turn (`World.tsx`): the player is given
+ * somewhere to stand and something to look at, and the camera follows both
+ * with easing. A screenshot taken while either is still happening is a
+ * picture of nothing in particular, and Playwright's own "two consecutive
+ * stable screenshots" check then fails on the whole moving frame.
+ *
+ * The first version of this polled the camera position from the test runner
+ * every 120 ms and called two close reads "still". On a software renderer a
+ * frame can take longer than that, so two polls landed inside one frame,
+ * agreed with each other, and declared a camera still that was halfway
+ * through turning toward the machine. Sampled from inside the page on
+ * `requestAnimationFrame` instead: every sample is a rendered frame, three
+ * unchanged frames in a row means the render loop has stopped moving it, and
+ * the look direction and field of view count as well as the position, because
+ * the head-turn and the lens change are what a stage change mostly is.
+ */
+export async function waitForCameraStill(page: Page, timeoutMs = 12_000): Promise<CameraStillness> {
+  const outcome = await page.evaluate(
+    ({ timeoutMs, stillFrames }) =>
+      new Promise<CameraStillness>((resolve) => {
+        interface CameraLike {
+          position: { x: number; y: number; z: number };
+          quaternion: { x: number; y: number; z: number; w: number };
+          fov?: number;
+        }
+        const handle = window.__someMore;
+        const camera = (handle?.three as { camera?: CameraLike } | undefined)?.camera;
+        const started = performance.now();
+        const last = { position: 0, look: 0, fov: 0 };
+        if (!camera) {
+          resolve({ still: true, frames: 0, elapsedMs: 0, walking: false, last });
+          return;
+        }
+        const snapshot = (): number[] => {
+          const p = camera.position;
+          const q = camera.quaternion;
+          return [p.x, p.y, p.z, q.x, q.y, q.z, q.w, camera.fov ?? 0];
+        };
+        let previous = snapshot();
+        let frames = 0;
+        let run = 0;
+        const walking = (): boolean =>
+          Boolean((handle?.player as { moveTarget?: unknown } | undefined)?.moveTarget);
+        const sample = (): void => {
+          frames++;
+          const next = snapshot();
+          last.position = Math.hypot(
+            next[0]! - previous[0]!,
+            next[1]! - previous[1]!,
+            next[2]! - previous[2]!,
+          );
+          last.look = Math.hypot(
+            next[3]! - previous[3]!,
+            next[4]! - previous[4]!,
+            next[5]! - previous[5]!,
+            next[6]! - previous[6]!,
+          );
+          last.fov = Math.abs(next[7]! - previous[7]!);
+          previous = next;
+          const stillFrame =
+            last.position < 0.0005 && last.look < 0.0005 && last.fov < 0.01 && !walking();
+          run = stillFrame ? run + 1 : 0;
+          const elapsedMs = performance.now() - started;
+          if (run >= stillFrames) {
+            resolve({ still: true, frames, elapsedMs, walking: false, last });
+          } else if (elapsedMs >= timeoutMs) {
+            resolve({ still: false, frames, elapsedMs, walking: walking(), last });
+          } else {
+            requestAnimationFrame(sample);
+          }
+        };
+        requestAnimationFrame(sample);
+      }),
+    { timeoutMs, stillFrames: 3 },
+  );
+  if (!outcome.still) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `camera still moving after ${Math.round(outcome.elapsedMs)} ms / ${outcome.frames} frames` +
+        ` (walking: ${outcome.walking}; last frame moved ${outcome.last.position.toFixed(4)} m,` +
+        ` ${outcome.last.look.toFixed(4)} look, ${outcome.last.fov.toFixed(3)} deg)`,
+    );
+  }
+  return outcome;
+}
+
 /**
  * Drives the ritual through every stage, calling `visit` at each one.
  *
@@ -99,49 +200,6 @@ export async function openWorld(page: Page, camp: string, env = 'pine_hollow'): 
  * screenshot or a `renderer.info` read sees a fully composed frame rather than
  * the first frame after a state change.
  */
-/**
- * Waits until the camera has stopped moving.
- *
- * `settleMs` is a fixed wait, and a fixed wait is a bet on how fast the
- * machine is. The camera is the player's own eyes and it *eases* — toward the
- * thing they walked up to, down into a crouch, out of a stance — so a frame
- * taken while an ease is still running is a frame of a camera in a place it
- * was never going to stop.
- *
- * That is not hypothetical. The `assembled` baseline caught the SM-01 mid
- * head-turn: the diff against a later run showed the whole machine doubled at
- * an offset, twelve per cent of the frame, with no content changed at all.
- * Under software rendering the frame rate swings by an order of magnitude, so
- * whether 900 ms is enough depends on what else the machine was doing.
- *
- * Polls the live camera until two consecutive reads agree to within a
- * millimetre, then gives up rather than failing: a caller that cannot get a
- * still camera still deserves its screenshot, and the tolerance below is far
- * tighter than anything a baseline can see.
- */
-export async function waitForCameraStill(page: Page, timeoutMs = 4000): Promise<void> {
-  const read = (): Promise<[number, number, number] | null> =>
-    page.evaluate(() => {
-      const three = window.__someMore?.three as unknown as
-        | { camera?: { position: { x: number; y: number; z: number } } }
-        | undefined;
-      const p = three?.camera?.position;
-      return p ? ([p.x, p.y, p.z] as [number, number, number]) : null;
-    });
-
-  let previous = await read();
-  if (previous === null) return;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await page.waitForTimeout(120);
-    const next = await read();
-    if (next === null) return;
-    const moved = Math.hypot(next[0] - previous[0], next[1] - previous[1], next[2] - previous[2]);
-    if (moved < 0.001) return;
-    previous = next;
-  }
-}
-
 export async function driveRitual(
   page: Page,
   visit: StageVisitor,

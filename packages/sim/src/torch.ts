@@ -22,7 +22,7 @@
  */
 
 import { angleDelta, approach, clamp, clamp01, lerp, smoothstep } from './math.js';
-import type { Vec3 } from './types.js';
+import { SIM_DT, type Vec3 } from './types.js';
 
 /* -------------------------------------------------------------------------- */
 /* State                                                                      */
@@ -44,6 +44,22 @@ export const TORCH_BEAM = {
 const SWEEP_FULL = 2.1;
 const SWEEP_START = 0.18;
 
+/**
+ * How far back the beam's speed is measured over, in seconds.
+ *
+ * The aim reaches the model as a series of reports, and on a slow renderer
+ * those reports are a staircase: drag-to-look is applied in the first fixed
+ * step of a frame and spent (`locomotion.ts`), so a smooth quarter-turn on a
+ * phone drawing fifteen frames a second arrives as one big jump followed by
+ * three steps of nothing. Measured one step at a time, that read as a beam
+ * that was mostly still — the wildlife minded a raked torch less the slower
+ * the machine drawing it. Measured over the last third of a second, the same
+ * turn is the same speed however it was chopped up. An animal's sense of
+ * "that light is moving" is not sixteen milliseconds long either.
+ */
+const SWEEP_WINDOW_SECONDS = 0.3;
+const SWEEP_WINDOW_STEPS = Math.round(SWEEP_WINDOW_SECONDS / SIM_DT);
+
 /** Seconds of a held beam before it reads as *held* rather than passing over. */
 const STEADY_FULL_SECONDS = 2.4;
 
@@ -64,11 +80,16 @@ export interface TorchState {
   sweep: number;
   /** Seconds the beam has been held on one place. Resets when it moves. */
   steadySeconds: number;
-  /** Angular speed of the beam this step, rad/s. */
+  /** Angular speed of the beam over the last {@link SWEEP_WINDOW_SECONDS}, rad/s. */
   slewRate: number;
-  /** Where the beam was last step, so the slew rate is measured not trusted. */
-  lastYaw: number;
-  lastPitch: number;
+  /**
+   * Radians the beam has been aimed through since the last step, so the slew
+   * rate is measured from the aim it was given, never trusted from outside.
+   */
+  pendingMove: number;
+  /** Per-step angular speeds over the window, a ring; `recentIndex` is next. */
+  recentRates: number[];
+  recentIndex: number;
   elapsed: number;
 }
 
@@ -84,8 +105,9 @@ export function createTorch(): TorchState {
     sweep: 0,
     steadySeconds: 0,
     slewRate: 0,
-    lastYaw: 0,
-    lastPitch: -0.1,
+    pendingMove: 0,
+    recentRates: new Array<number>(SWEEP_WINDOW_STEPS).fill(0),
+    recentIndex: 0,
     elapsed: 0,
   };
 }
@@ -137,8 +159,10 @@ export function focusTorch(torch: TorchState, focus: number): void {
  * the wildlife).
  */
 export function aimTorch(torch: TorchState, yaw: number, pitch: number): void {
+  const nextPitch = clamp(pitch, -1.35, 1.35);
+  torch.pendingMove += Math.hypot(angleDelta(torch.yaw, yaw), nextPitch - torch.pitch);
   torch.yaw = yaw;
-  torch.pitch = clamp(pitch, -1.35, 1.35);
+  torch.pitch = nextPitch;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -149,16 +173,19 @@ export function aimTorch(torch: TorchState, yaw: number, pitch: number): void {
  * Advances the torch one fixed timestep.
  *
  * Deterministic and clock-free: the sweep is measured from how far the aim
- * moved during `dt`, so a replay of the same aim timeline produces the same
- * disturbance and therefore the same wildlife (ADR-0006).
+ * moved, averaged over the last {@link SWEEP_WINDOW_SECONDS} of steps, so a
+ * replay of the same aim timeline produces the same disturbance and therefore
+ * the same wildlife (ADR-0006).
  */
 export function stepTorch(torch: TorchState, dt: number): void {
   torch.elapsed += dt;
 
-  const moved = Math.hypot(angleDelta(torch.lastYaw, torch.yaw), torch.pitch - torch.lastPitch);
-  torch.lastYaw = torch.yaw;
-  torch.lastPitch = torch.pitch;
-  torch.slewRate = dt > 0 ? moved / dt : 0;
+  torch.recentRates[torch.recentIndex] = dt > 0 ? torch.pendingMove / dt : 0;
+  torch.recentIndex = (torch.recentIndex + 1) % torch.recentRates.length;
+  torch.pendingMove = 0;
+  let total = 0;
+  for (const rate of torch.recentRates) total += rate;
+  torch.slewRate = total / torch.recentRates.length;
 
   if (!torch.on) {
     torch.sweep = approach(torch.sweep, 0, 6, dt);

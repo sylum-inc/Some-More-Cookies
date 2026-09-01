@@ -161,9 +161,36 @@ describe('determinism and honesty', () => {
     takeTorch(torch);
     aimTorch(torch, 1.4, 0.1);
     stepTorch(torch, SIM_DT);
-    expect(torch.slewRate).toBeGreaterThan(50);
+    // A 1.4-radian flick, spread over the third of a second the speed is
+    // measured across, is a beam being raked about by any reading.
+    expect(torch.slewRate).toBeGreaterThan(2.1);
     hold(torch, 1);
     expect(torch.slewRate).toBe(0);
+  });
+
+  it('reads a smooth turn the same however the frames chop it up', () => {
+    // Drag-to-look reaches the model as one jump per frame followed by a
+    // frame's worth of steps with nothing in them. A phone drawing fifteen
+    // frames a second must alarm the wildlife exactly as much as a desktop
+    // drawing sixty, for the same turn of the head.
+    const turn = (stepsPerFrame: number): number => {
+      const torch = createTorch();
+      takeTorch(torch);
+      const steps = Math.round(2 / SIM_DT);
+      for (let i = 0; i < steps; i++) {
+        if (i % stepsPerFrame === 0) {
+          aimTorch(torch, torch.yaw + 2.5 * SIM_DT * stepsPerFrame, torch.pitch);
+        }
+        stepTorch(torch, SIM_DT);
+      }
+      return torch.sweep;
+    };
+    const smooth = turn(1);
+    const chopped = turn(4);
+    const ci = turn(16);
+    expect(smooth).toBeGreaterThan(0.9);
+    expect(chopped).toBeGreaterThan(0.9);
+    expect(ci).toBeGreaterThan(0.75);
   });
 
   it('replays identically from the same aim timeline', () => {

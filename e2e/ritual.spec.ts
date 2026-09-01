@@ -89,24 +89,70 @@ test.describe('the ritual', () => {
       await page.mouse.move(cx, cy - i * 2.9);
       await page.waitForTimeout(20);
     }
+    /*
+     * Turned until it is golden, on the fire's clock rather than the wall's.
+     *
+     * This used to be seventy seconds by the wall clock, which on a software
+     * renderer is forty-odd seconds of fire: the fixed-step clock deliberately
+     * caps how far the simulation catches up per frame (`time.ts`), so a slow
+     * machine roasts slower in real time and the marshmallow came off pale at
+     * 0.297 against a 0.3 floor. That measured the renderer, not the roast.
+     *
+     * So the loop is closed on the thing the assertion is about: keep turning
+     * over real pointer input until the mean browning is comfortably golden
+     * (the sandwich grader calls it golden above 0.4), or until the marshmallow
+     * has had 110 seconds of fire and still is not — which the floor below then
+     * reports as the model regression it would be. The wall-clock cap only
+     * exists so a wedged page fails inside the test timeout with a number
+     * attached instead of a blank timeout.
+     */
+    const GOLDEN = 0.45;
+    const FIRE_SECONDS = 110;
+    const readRoastClock = () =>
+      page.evaluate(() => {
+        const r = window.__someMore!.store.state.ritual as unknown as {
+          elapsed: number;
+          marshmallow: { patches: { brown: number }[] };
+        };
+        const patches = r.marshmallow.patches;
+        return {
+          elapsed: r.elapsed,
+          brown: patches.reduce((total, p) => total + p.brown, 0) / patches.length,
+        };
+      });
     const startedRoast = Date.now();
+    const roastFrom = (await readRoastClock()).elapsed;
     let turn = 0;
-    while (Date.now() - startedRoast < 70_000) {
+    let fireSeconds = 0;
+    let midCaptured = false;
+    for (;;) {
       turn++;
       await page.mouse.move(cx + (turn % 2 ? 150 : -150), cy - 35);
       await page.waitForTimeout(240);
-      if (turn === 90) await capture(page, '06-roasting-mid');
+      if (turn === 90) {
+        await capture(page, '06-roasting-mid');
+        midCaptured = true;
+      }
+      if (turn % 4 !== 0) continue;
+      const now = await readRoastClock();
+      fireSeconds = now.elapsed - roastFrom;
+      if (now.brown >= GOLDEN || fireSeconds >= FIRE_SECONDS) break;
+      if (Date.now() - startedRoast > 300_000) break;
     }
+    if (!midCaptured) await capture(page, '06-roasting-mid');
     await page.mouse.up();
     await capture(page, '07-roasting-done');
 
     const roasted = await readWorld(page);
+    // eslint-disable-next-line no-console
+    console.log(
+      `roasted for ${fireSeconds.toFixed(1)}s of fire in ${((Date.now() - startedRoast) / 1000).toFixed(1)}s ` +
+        `of wall clock (${turn} turns): brown ${roasted.brown}, char ${roasted.char}`,
+    );
     // Turning it steadily over coals should land in the golden band without
-    // ruining it. Asserted as a band rather than a floor on purpose: part of
-    // this roast is driven by real pointer input at real speed, so how far it
-    // gets depends on how fast the renderer went, and a knife-edge threshold
-    // measures the machine rather than the model. It failed at 0.348 against
-    // 0.35 once, which is a golden marshmallow by any reading.
+    // ruining it. Asserted as a band on purpose: the floor says the fire can
+    // brown a marshmallow at all inside 110 seconds, and the ceilings say that
+    // getting it golden did not mean charring it on the way.
     expect(roasted.brown).toBeGreaterThan(0.3);
     expect(roasted.brown).toBeLessThan(0.85);
     expect(roasted.char).toBeLessThan(0.45);

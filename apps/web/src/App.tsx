@@ -466,6 +466,20 @@ export function App({ store }: AppProps): React.ReactElement {
                   landmarks: environment.scene.landmarks,
                   trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
                   occupied: campFurniture(),
+                  // What this campsite is like, in its own words: the
+                  // weather character, the ambience notes and the ground and
+                  // elevation the scene manifest describes.
+                  place: {
+                    ground: environment.scene.groundNote,
+                    elevation: environment.scene.elevationNote,
+                    temperature: environment.weatherCharacter.temperatureNote,
+                    wind: environment.weatherCharacter.windNote,
+                    exposure: environment.weatherCharacter.exposureNote,
+                    nightRangeC: environment.weatherCharacter.nightRangeC,
+                    insects: environment.ambience.insectNote,
+                    reverb: environment.ambience.reverbNote,
+                    distant: environment.ambience.distantEvents,
+                  },
                 },
                 walkableRadiusM: environment.scene.walkableRadiusM,
               }
@@ -1327,6 +1341,22 @@ export function App({ store }: AppProps): React.ReactElement {
        * part of a minute before it arrives — long enough to sweep the ash over
        * the coals and bring the wood in off the stones.
        */
+      /*
+       * The campsite saying what it is like, when the saying is true.
+       *
+       * A remark is prose the environment wrote about itself and lands once,
+       * as it becomes true — the wind note when the wind gets up, the cold
+       * note when the night turns cold. A distant sound is something heard a
+       * long way off, and goes to the subtitle channel because that is what it
+       * is: a sound, which somebody who cannot hear it still has to be told
+       * about (§12).
+       */
+      if (r.place.remark) store.setNotice(r.place.remark.telling);
+      if (r.place.heard) {
+        lastSubtitle.current = { text: `[${r.place.heard.note}]`, at: performance.now() };
+        store.setSubtitle(`[${r.place.heard.note}]`);
+      }
+
       /*
        * The night turning over into its next part.
        *

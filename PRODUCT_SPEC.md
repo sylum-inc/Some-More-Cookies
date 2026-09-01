@@ -237,6 +237,8 @@ Environments are **selected, not assumed** — 20+ concepts are generated and ev
 
 Each launch environment has its own systemic personality: soundscape · weather profile · wildlife roster · available fuels · props · activities · secrets · radio behaviour · arrival sequence · procedural rules · SM-01 quirks.
 
+**A campsite remarks on itself, when the remark is true.** Each environment carries a paragraph of sensory writing — what the ground is, what shape the land is in, what the wind does here and what it moves through, how cold it gets, whether there are insects, how the place sounds, and three or four things you might hear a long way off. None of it is read out on arrival. The wind note lands when the wind actually gets up; the cold note when the night actually turns cold; what this place does to a fire, while it is doing it. Each lands once. Distant sounds are rare by their own stated minimum gaps and are subtitled, because they are sounds. Asking what is around you answers with whatever of it is true at that moment.
+
 **Construction:** modular biome kits + data-driven scene manifests + procedural variation + handcrafted landmarks. An environment is *data*; adding one requires no engine change.
 
 **The arrival is the campsite's own.** Each environment describes its walk in as five beats — the path, the first thing audible before anything is visible, the first thing that resolves out of the dark, what the ground does underfoot, and the moment the site is finally *there*. They land in order across the walk, and a second tap goes straight in: nobody is held in a title sequence.

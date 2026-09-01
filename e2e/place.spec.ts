@@ -198,3 +198,59 @@ test.describe('the named things', () => {
     }
   });
 });
+
+test.describe('the campsite has a voice', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?camp=camp-voice&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(500);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+    await page.waitForTimeout(500);
+  });
+
+  test('it says what it is like, and is heard from a long way off', async ({ page }) => {
+    const said: string[] = [];
+    const heard: string[] = [];
+    // A quarter of an hour of campsite, in slices, watching what it says.
+    for (let slice = 0; slice < 30; slice += 1) {
+      await act(page, 'advanceSeconds', 30);
+      const spoke = await page.evaluate(() => {
+        const r = window.__someMore!.store.state.ritual as unknown as {
+          place: { said: string[] | Set<string>; lastHeard: Map<string, number> | Record<string, number> };
+        };
+        const saidIds = Array.isArray(r.place.said) ? r.place.said : Array.from(r.place.said as Set<string>);
+        const lastHeard =
+          r.place.lastHeard instanceof Map
+            ? Array.from(r.place.lastHeard.keys())
+            : Object.keys(r.place.lastHeard ?? {});
+        return { saidIds, lastHeard };
+      });
+      for (const id of spoke.saidIds) if (!said.includes(id)) said.push(id);
+      for (const id of spoke.lastHeard) if (!heard.includes(id)) heard.push(id);
+    }
+
+    // It talked about itself, and it was not a list read out on arrival.
+    expect(said.length, `said: ${said.join(', ')}`).toBeGreaterThan(1);
+    expect(said).toContain('ground');
+    // And something happened out past the treeline that had nothing to do
+    // with the player.
+    expect(heard.length, `heard: ${heard.join(', ')}`).toBeGreaterThan(0);
+  });
+
+  test('asking what is around you answers in this campsite’s own words', async ({ page }) => {
+    // Asked the way a player asks: the survey key.
+    await page.keyboard.press('q');
+    await page.waitForTimeout(400);
+    const text = await page.evaluate(
+      () => (window.__someMore!.store.state.survey ?? []).join(' '),
+    );
+    // The ground this campsite actually has, not a generic description.
+    expect(text).toMatch(/needle|duff|litter/i);
+    // And the shape of the land it is in.
+    expect(text).toMatch(/bowl|rises|slope/i);
+  });
+});

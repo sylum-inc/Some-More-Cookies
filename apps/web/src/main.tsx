@@ -125,6 +125,20 @@ const store = new Store({
           landmarks: environment.scene.landmarks,
           trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
           occupied: campFurniture(),
+          // What this campsite is like, in its own words: the
+          // weather character, the ambience notes and the ground and
+          // elevation the scene manifest describes.
+          place: {
+            ground: environment.scene.groundNote,
+            elevation: environment.scene.elevationNote,
+            temperature: environment.weatherCharacter.temperatureNote,
+            wind: environment.weatherCharacter.windNote,
+            exposure: environment.weatherCharacter.exposureNote,
+            nightRangeC: environment.weatherCharacter.nightRangeC,
+            insects: environment.ambience.insectNote,
+            reverb: environment.ambience.reverbNote,
+            distant: environment.ambience.distantEvents,
+          },
         },
         walkableRadiusM: environment.scene.walkableRadiusM,
       }

@@ -26,6 +26,7 @@
  */
 
 import { isEmberBed } from './fire.js';
+import { surveyPlace } from './place.js';
 import { focused, reachable, type PlayerState, type WalkableWorld } from './locomotion.js';
 import { animalsPresent, type RitualState } from './ritual.js';
 
@@ -151,6 +152,21 @@ export function surveySurroundings(
     lines.push(
       `${capitalise(nameOf(entry.i.id))} is ${relativeBearing(player, entry.i.x, entry.i.z)}, ${paces(entry.d)}.`,
     );
+  }
+
+  // 3b. What this place is actually like — its own words, and only the ones
+  //     that are true at this moment. A survey that recited the whole
+  //     paragraph every time would be a brochure.
+  for (const line of surveyPlace(ritual.options.world.place ?? {}, {
+    elapsed: ritual.elapsed,
+    deepNight: ritual.window === 'deep-night' || ritual.window === 'pre-dawn',
+    temperatureC: ritual.weather.temperatureC,
+    windSpeed: ritual.weather.windSpeed,
+    precipitation: ritual.weather.precipitation,
+    distanceFromFire: Math.hypot(player.position.x, player.position.z),
+    fireHarried: false,
+  })) {
+    lines.push(line);
   }
 
   // 4. Where you are standing, if the world has a name for it.

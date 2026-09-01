@@ -69,6 +69,13 @@ import {
   type WalkableWorld,
 } from './locomotion.js';
 import {
+  createPlace,
+  stepPlace,
+  type PlaceNotes,
+  type PlaceState,
+  type PlaceConditions,
+} from './place.js';
+import {
   placeLandmarks,
   landmarkAt,
   type LandmarkSpec,
@@ -309,6 +316,14 @@ export interface RitualWorldContent {
   readonly landmarks?: readonly LandmarkSpec[];
   /** Bearing of the trail in, so signage stands where you come past it. */
   readonly trailBearing?: number;
+  /**
+   * What this campsite is like, in its own words.
+   *
+   * `WeatherCharacter`, `AmbienceProfile` and the scene's ground and elevation
+   * notes, which between them are a paragraph of sensory writing per
+   * environment that had never been read out to anybody.
+   */
+  readonly place?: PlaceNotes;
   /** Where the client's own props already stand, so nothing is placed inside one. */
   readonly occupied?: readonly Occupied[];
 }
@@ -443,6 +458,8 @@ export interface RitualState {
   gathering: GatheringState;
   /** The named things at this campsite, and where they turned out to be. */
   landmarks: PlacedLandmark[];
+  /** The campsite's own voice: what it has said about itself, and when. */
+  place: PlaceState;
   weather: WeatherState;
   marshmallow: MarshmallowState;
   assembly: AssemblyState;
@@ -577,6 +594,7 @@ export function createRitual(options: RitualOptions): RitualState {
   return {
     stage: 'arriving',
     fire,
+    place: createPlace(),
     landmarks: placeLandmarks({
       landmarks: world.landmarks ?? [],
       radius: walkableRadiusM,
@@ -794,6 +812,17 @@ export function stepRitual(ritual: RitualState, dt: number = SIM_DT): void {
 /* The world around the ritual                                                */
 /* -------------------------------------------------------------------------- */
 
+/** Reused so the campsite's own voice allocates nothing per frame. */
+const placeScratch: PlaceConditions = {
+  elapsed: 0,
+  deepNight: false,
+  temperatureC: 12,
+  windSpeed: 0,
+  precipitation: 0,
+  distanceFromFire: 0,
+  fireHarried: false,
+};
+
 // Reused every step so the world systems allocate nothing per frame.
 const wildlifeScratch: WildlifeInput = createWildlifeInput();
 const radioScratch: { weather: RadioConditions['weather']; machineNoise: number } = {
@@ -900,6 +929,25 @@ function stepWorld(ritual: RitualState, dt: number): void {
   const previousWindow = ritual.window;
   ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
   ritual.windowChangedTo = ritual.window === previousWindow ? null : ritual.window;
+
+  /*
+   * The campsite, remarking on itself when the remark is true.
+   *
+   * Stepped here rather than at the top because it is conditioned on the
+   * window, the weather and where the player is standing, all of which this
+   * function has just settled.
+   */
+  placeScratch.elapsed = ritual.elapsed;
+  placeScratch.deepNight = ritual.window === 'deep-night' || ritual.window === 'pre-dawn';
+  placeScratch.temperatureC = ritual.weather.temperatureC;
+  placeScratch.windSpeed = ritual.weather.windSpeed;
+  placeScratch.precipitation = ritual.weather.precipitation;
+  placeScratch.distanceFromFire = Math.hypot(presence.position.x, presence.position.z);
+  // "Harried" means the weather is actually taking the fire apart, which is
+  // when a campsite's own line about how exposed it is means anything.
+  placeScratch.fireHarried =
+    ritual.fire.rain > 0.25 || (ritual.fire.windSpeed > 3.4 && ritual.fire.flame > 0.15);
+  stepPlace(ritual.place, ritual.options.world.place ?? {}, placeScratch, dt, stream(ritual, 'place'));
 
   if (presence.places.includes('water-edge')) ritual.shoreSeconds += dt;
 

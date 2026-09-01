@@ -13,6 +13,7 @@ export * from './time.js';
 export * from './fire.js';
 export * from './gathering.js';
 export * from './landmarks.js';
+export * from './place.js';
 export * from './heatfield.js';
 export * from './roasting.js';
 export * from './assembly.js';

@@ -541,6 +541,24 @@ happened before the change rather than after.
 | 50 | **"Text size 16%".** The settings panel showed every slider's *position on its track* rather than its value. For a dial running 0..1 those are the same number, so five of the seven looked right and hid the two that did not: text size runs 0.85..1.8 and read **16%** at its own default, and fire brightness runs 0.35..1.5 and read 57% with the fire at exactly the brightness its author chose | A figure that is not a text size, shown to somebody who opened that screen *because the type was too small*. Fixed in the default formatter rather than by passing a `format` to the two offenders, so the next slider with a non-zero minimum does not arrive with the same bug. Every 0..1 dial is unchanged, which is why this survived so long |
 | 51 | **"1 problem, all of them:"** in the live-ops console | "All of them" is the point of that line — the publish gate reports every failure rather than stopping at the first — and it does not survive a count of one. The clause is plural or it is absent |
 
+And one near-miss worth writing down, because it is the same failure the
+whole session has been about. `w3-walked.png` is a black rectangle: seventy
+per cent of the frame is pure black and the ground the player stands on
+renders at **0.58 out of 255** — a fifth of the floor `night.spec.ts` sets,
+and worse than the four-to-seven that test was written to fix. I had it
+written up as a defect before checking its date. It is from a session three
+days earlier, no spec in the repository produces it, and
+`artifacts/screenshots/` is gitignored — so it had sat there through every run
+since, indistinguishable at a glance from the hundred and seventeen frames the
+suite had just written.
+
+The lesson is not about that frame. It is that a scratch directory which
+accumulates across sessions will eventually be read as current by whoever
+audits it, and auditing is precisely the activity that trusts it. Four stale
+files removed. The check that caught it is two lines of `os.path.getmtime`
+comparing every capture against the newest, and it is worth running first next
+time.
+
 Number 43 is the sharper of the two. A visual baseline compares whole frames at
 a six to twelve per cent tolerance, and one UI panel moving under another is a
 fraction of one per cent of the pixels — so the visual suite could not have

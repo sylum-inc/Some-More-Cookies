@@ -21,6 +21,15 @@ import {
   woodType,
   type FireState,
 } from '../src/fire.js';
+import {
+  createWeather,
+  describeWeatherChange,
+  incomingWeather,
+  rainIsComing,
+  stepWeather,
+  DEFAULT_WEATHER_PROFILE,
+  type WeatherKind,
+} from '../src/weather.js';
 import { Rng } from '../src/rng.js';
 import { SIM_DT } from '../src/types.js';
 
@@ -512,5 +521,77 @@ describe('ash, banking, and waking a fire up', () => {
     fanFire(open, 1);
     fanFire(buried, 1);
     expect(open.emberTemp - openBefore).toBeGreaterThan(3 * (buried.emberTemp - buriedBefore));
+  });
+});
+
+describe('weather you can see coming', () => {
+  it('says what is on its way, once, and long before it lands', () => {
+    const weather = createWeather(
+      { ...DEFAULT_WEATHER_PROFILE, weights: { clear: 1, rain: 1 }, transitionSeconds: 30 },
+      new Rng(3),
+    );
+    const rng = new Rng(9);
+    let announced: WeatherKind | null = null;
+    let announcedAt = -1;
+    let arrivedAt = -1;
+    for (let i = 0; i < 60 * 400; i++) {
+      stepWeather(weather, SIM_DT, rng);
+      const t = (i + 1) * SIM_DT;
+      if (weather.changedTo && announced === null) {
+        announced = weather.changedTo;
+        announcedAt = t;
+      }
+      if (announced !== null && arrivedAt < 0 && weather.kind === announced) arrivedAt = t;
+    }
+    expect(announced).not.toBeNull();
+    // Half a minute at least between being told and having to deal with it.
+    expect(arrivedAt - announcedAt).toBeGreaterThan(30);
+    expect(describeWeatherChange('clear', 'rain')).toMatch(/rain/i);
+    // Nothing to remark on when nothing changes.
+    expect(describeWeatherChange('clear', 'clear')).toBeNull();
+  });
+
+  it('knows rain is coming before a drop has fallen', () => {
+    const weather = createWeather(DEFAULT_WEATHER_PROFILE, new Rng(1));
+    weather.kind = 'clear';
+    weather.nextKind = 'clear';
+    weather.transition = 1;
+    weather.precipitation = 0;
+    expect(rainIsComing(weather)).toBe(false);
+    expect(incomingWeather(weather)).toBeNull();
+
+    weather.nextKind = 'rain';
+    weather.transition = 0;
+    expect(rainIsComing(weather)).toBe(true);
+    const coming = incomingWeather(weather)!;
+    expect(coming.kind).toBe('rain');
+    expect(coming.seconds).toBeGreaterThan(40);
+  });
+
+  it('banking is the answer, and it is a bounded one', () => {
+    // A shower on an open bed with wood on it, versus the same fire put away.
+    const open = createEstablishedFire();
+    const banked = createEstablishedFire();
+    bankFire(banked, 1);
+    bankFire(banked, 1);
+    run(open, 30);
+    run(banked, 30);
+    open.rain = 0.9;
+    banked.rain = 0.9;
+    run(open, 200);
+    run(banked, 200);
+
+    expect(banked.emberTemp).toBeGreaterThan(open.emberTemp);
+    // And the open one is knocked about, not killed: rain costs the pace of
+    // the evening, never the evening (spec §4.1).
+    expect(open.emberMass).toBeGreaterThan(0.2);
+    expect(open.emberTemp).toBeGreaterThan(280);
+    open.rain = 0;
+    run(open, 120);
+    // Rake it back open, feed it, and it comes straight back.
+    rakeEmbers(open, 1);
+    addLog(open, 'pine', { moisture: 0.05, spot: spotFrom(0.1, 1.2, 0.6) });
+    run(open, 120);
+    expect(open.flame).toBeGreaterThan(0.5);
   });
 });

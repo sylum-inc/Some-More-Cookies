@@ -41,13 +41,19 @@ export interface FireProps {
   settings: RenderSettings;
   maxParticles: number;
   /**
-   * Touching the bed itself, at the point you touched it.
+   * Working the bed with your hands, at the point you touched it.
    *
-   * What that means is the caller's business and depends on what is in the
-   * player's hands: empty, it pokes the coals; full of wood, it lays a piece
-   * down exactly there. The pit reports where it was touched and takes no view.
+   * `inward` is how far the touch travelled toward the middle of the pit, in
+   * metres: positive for a sweep that pulls ash over the coals, negative for
+   * one that rakes it back off them, and about zero for a tap. Those are the
+   * same two motions with the same tool, told apart the way they are told
+   * apart in life — by which way you moved your hand.
+   *
+   * What each of them means is the caller's business, because it also depends
+   * on what is in the player's other hand. The pit reports the gesture and
+   * takes no view.
    */
-  onTouchBed?: (x: number, z: number) => void;
+  onWorkBed?: (work: { x: number; z: number; inward: number }) => void;
   /**
    * Arranging: dragging one piece of fuel across the pit.
    *
@@ -74,7 +80,7 @@ export function Fire({
   fire,
   settings,
   maxParticles,
-  onTouchBed,
+  onWorkBed,
   onMoveLog,
   grabbedRef,
   canTouch,
@@ -89,6 +95,8 @@ export function Fire({
   const ashRef = useRef<THREE.Mesh>(null);
   /** The piece currently under a finger, if any. */
   const dragging = useRef<string | null>(null);
+  /** Where a hand went into the ash, so a sweep can be told from a tap. */
+  const sweep = useRef<{ radius: number; x: number; z: number } | null>(null);
 
   const flameCount = Math.min(FLAME_COUNT, Math.max(4, Math.floor(maxParticles / 12)));
   const emberCount = Math.min(EMBER_COUNT, Math.max(6, Math.floor(maxParticles / 8)));
@@ -442,27 +450,63 @@ export function Fire({
         />
       ))}
 
-      {/* Ash bed. Also the rake target: you poke the coals by reaching into
-          them, not by pressing a control labelled "rake". */}
+      {/*
+        The ash bed, and the two things a person does to one with their hands.
+
+        You poke the coals by reaching into them, not by pressing a control
+        labelled "rake" — and you bank the fire by sweeping the ash back over
+        them, not by pressing one labelled "bank". Same hand, same tool, told
+        apart by which way it moved: out to open the bed, in to bury it.
+      */}
       <mesh
         ref={ashRef}
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, 0.005, 0]}
         receiveShadow
-        onClick={
-          onTouchBed
+        onPointerDown={
+          onWorkBed
             ? (event) => {
                 // Out of reach this is a tap on a fire across the clearing,
                 // which means "walk me over there" — so it has to be left
                 // alone to bubble out to the movement layer.
                 if (canTouch && !canTouch()) return;
                 event.stopPropagation();
-                onTouchBed(event.point.x, event.point.z);
+                sweep.current = {
+                  radius: Math.hypot(event.point.x, event.point.z),
+                  x: event.point.x,
+                  z: event.point.z,
+                };
+                // Say the pit has the gesture, or a sweep across the coals
+                // would turn the player's head at the same time.
+                if (grabbedRef) grabbedRef.current = '__bed';
+                try {
+                  (event.target as Element | null)?.setPointerCapture(event.pointerId);
+                } catch {
+                  /* Older Safari. The sweep still works while over the bed. */
+                }
+              }
+            : undefined
+        }
+        onPointerUp={
+          onWorkBed
+            ? (event) => {
+                const started = sweep.current;
+                sweep.current = null;
+                if (grabbedRef) grabbedRef.current = null;
+                try {
+                  (event.target as Element | null)?.releasePointerCapture(event.pointerId);
+                } catch {
+                  /* Nothing to release. */
+                }
+                if (!started || (canTouch && !canTouch())) return;
+                event.stopPropagation();
+                const ended = Math.hypot(event.point.x, event.point.z);
+                onWorkBed({ x: started.x, z: started.z, inward: started.radius - ended });
               }
             : undefined
         }
         onPointerOver={(event) => {
-          if (!onTouchBed || (canTouch && !canTouch())) return;
+          if (!onWorkBed || (canTouch && !canTouch())) return;
           event.stopPropagation();
           if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
         }}

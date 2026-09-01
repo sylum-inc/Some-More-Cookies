@@ -152,4 +152,62 @@ test.describe('the night is dark and legible', () => {
     // Still night, and still darker than standing at a fire.
     expect(away.mean).toBeLessThan(30);
   });
+
+  /**
+   * The night going by, in pictures.
+   *
+   * A session carries six hours of sky across about an hour of playing, so the
+   * moon genuinely crosses and goes down and the cold genuinely arrives. The
+   * one thing that must never happen is the sun coming up over the campfire,
+   * and the only honest way to check that is to look.
+   */
+  test('the sky moves through the night and never turns into a morning', async ({ page }) => {
+    await page.goto('/?camp=camp-arc&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1500);
+    await page.mouse.click(512, 420);
+    await waitForWorld(page, "r.stage === 'at-fire'", 'arrival', 40_000);
+    await page.waitForTimeout(1200);
+
+    const readSky = () =>
+      page.evaluate(() => {
+        const r = window.__someMore!.store.state.ritual as unknown as {
+          window: string;
+          weather: { temperatureC: number };
+          stargazing: { sky: { moon: { altitude: number; azimuth: number } } };
+        };
+        return {
+          window: r.window,
+          tempC: r.weather.temperatureC,
+          moonAltitude: r.stargazing.sky.moon.altitude,
+          moonAzimuth: r.stargazing.sky.moon.azimuth,
+        };
+      });
+
+    const shots: { window: string; tempC: number; moonAltitude: number; mean: number }[] = [];
+    for (let step = 0; step < 4; step++) {
+      const sky = await readSky();
+      const frame = await measure(page);
+      shots.push({ ...sky, mean: frame.mean });
+      await page.screenshot({ path: `artifacts/screenshots/night-arc-${step}-${sky.window}.png` });
+      // Fourteen minutes: one whole part of the night.
+      await advanceSeconds(page, 14 * 60);
+      await page.waitForTimeout(900);
+    }
+
+    const windows = shots.map((s) => s.window);
+    // The night moved. It did not sit at one hour of one evening for an hour.
+    expect(new Set(windows).size).toBeGreaterThan(2);
+    expect(windows[windows.length - 1]).toBe('dawn');
+
+    // It got colder doing it.
+    expect(shots[shots.length - 1]!.tempC).toBeLessThan(shots[0]!.tempC - 2);
+
+    // The moon is somewhere else than it was.
+    const moonMoved = Math.abs(shots[shots.length - 1]!.moonAltitude - shots[0]!.moonAltitude);
+    expect(moonMoved).toBeGreaterThan(0.15);
+
+    // And at no point did it become daytime.
+    for (const shot of shots) expect(shot.mean).toBeLessThan(34);
+  });
 });

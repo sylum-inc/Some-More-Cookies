@@ -108,6 +108,16 @@ export function machineToWorld(local: [number, number, number]): [number, number
 const CROUCH_AT_THE_FIRE = 1.4;
 
 /**
+ * How far a hand has to travel in toward the middle of the pit before it is
+ * banking the fire rather than poking it.
+ *
+ * Twelve centimetres across a pit forty-two across: comfortably more than a
+ * tap wanders and comfortably less than the width of the bed, so neither
+ * gesture can be performed by accident while trying for the other.
+ */
+const BANK_SWEEP = 0.12;
+
+/**
  * True when the player is close enough to put a hand in the pit.
  *
  * The same distance decides whether you are crouched over the fire and whether
@@ -997,17 +1007,22 @@ export function World({
         fire={ritual.fire}
         settings={settings}
         maxParticles={qualitySettings.maxParticles}
-        onTouchBed={(x, z) => {
+        onWorkBed={({ x, z, inward }) => {
           if (!atThePit(player)) return;
           /*
-           * Hands full of wood means putting a piece down exactly there.
+           * Which way your hand went, and what is in the other one.
            *
-           * The pit is somewhere you place things now, so the same touch that
-           * pokes the coals when your hands are empty lays wood where you
-           * pointed when they are not. No mode, no control: what you are
-           * carrying decides what touching a fire does.
+           * Swept inward, you are pulling ash over the coals: that is banking,
+           * and it is the answer to rain coming and to going to bed. Raked
+           * outward — or just poked — you are opening the bed back up. And if
+           * your arms are full of wood, touching the fire means putting a
+           * piece down exactly where you pointed. No modes, no controls: the
+           * gesture and your hands say everything.
            */
-          if (ritual.gathering.armful.length > 0) {
+          if (inward > BANK_SWEEP) {
+            tendFire(ritual, { type: 'bank' });
+            store.setNotice('Ash over the coals. They will keep.');
+          } else if (ritual.gathering.armful.length > 0) {
             if (layFuel(ritual, { spot: { x, z } })) store.setNotice(describeArmful(ritual.gathering));
           } else {
             tendFire(ritual, { type: 'rake' });

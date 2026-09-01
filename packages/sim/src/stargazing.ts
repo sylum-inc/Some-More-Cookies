@@ -102,6 +102,17 @@ export interface StargazingEvent {
 export interface StargazingConfig {
   /** Epoch milliseconds the session's sky is computed for. Injected, never read. */
   readonly epochMs: number;
+  /**
+   * How much faster the sky runs than the clock. 1 is real time.
+   *
+   * A night is nine or ten hours and a session is an hour or two, so at real
+   * time the moon shifts about fifteen degrees and nothing else in the sky
+   * appears to happen at all. The ritual sets this so that a session carries
+   * the sky from late evening to first light — the moon genuinely crosses and
+   * goes down, and the constellations that were rising when you arrived are
+   * overhead by the time you are eating.
+   */
+  readonly timeScale?: number;
   readonly latitudeDeg?: number;
   readonly longitudeDeg?: number;
   /** 0..1 fraction of sky visible from the fire, from the scene manifest. */
@@ -141,6 +152,8 @@ export interface StargazingState {
   readonly latitudeDeg: number;
   readonly longitudeDeg: number;
   readonly epochMs: number;
+  /** How much faster the sky runs than the clock. */
+  readonly timeScale: number;
   secondsUntilSkyRefresh: number;
   /** Seconds spent actually looking up. Feeds the significance model. */
   lookingSeconds: number;
@@ -173,6 +186,7 @@ export function createStargazing(config: StargazingConfig): StargazingState {
     holdingId: null,
     holdSeconds: 0,
     meteors: [],
+    timeScale: config.timeScale ?? 1,
     sky: skyState(new Date(epochMs), latitudeDeg, longitudeDeg, 0),
     skyOpenness: clamp01(config.skyOpenness ?? 0.6),
     latitudeDeg,
@@ -244,7 +258,7 @@ export function skyTargets(
   cloudCover: number,
   constellations: readonly Constellation[] = CONSTELLATIONS,
 ): SkyTarget[] {
-  const date = new Date(state.epochMs + state.elapsed * 1000);
+  const date = new Date(state.epochMs + state.elapsed * 1000 * state.timeScale);
   const cloud = clamp01(cloudCover);
   const targets: SkyTarget[] = [];
   for (const constellation of constellations) {
@@ -337,7 +351,7 @@ export function stepStargazing(
     state.secondsUntilSkyRefresh = SKY_REFRESH_SECONDS;
     // No cloud: the reference sky. Cloud is applied where it is read.
     state.sky = skyState(
-      new Date(state.epochMs + state.elapsed * 1000),
+      new Date(state.epochMs + state.elapsed * 1000 * state.timeScale),
       state.latitudeDeg,
       state.longitudeDeg,
       0,

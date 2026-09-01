@@ -19,6 +19,7 @@ import {
   createPlayer,
   describeArmful,
   describeTorch,
+  describeWindow,
   eyePosition,
   gatherFuel,
   patchAt,
@@ -26,6 +27,7 @@ import {
   lookDirection,
   createWorld,
   offered,
+  rainIsComing,
   raiseBinoculars,
   releaseCatch,
   setTorchFocus,
@@ -1210,6 +1212,9 @@ export function App({ store }: AppProps): React.ReactElement {
   // --- Simulation-driven audio and subtitles ------------------------------
   const lastSubtitle = useRef<{ text: string; at: number } | null>(null);
   const listenerScratch = useRef({ eye: vec3(), look: vec3() });
+  /** The last weather change already announced, so it is said once. */
+  const lastWeatherAt = useRef(-1);
+
   const onSimStep = useCallback(
     (r: RitualState) => {
       const bridge = audioRef.current;
@@ -1231,6 +1236,32 @@ export function App({ store }: AppProps): React.ReactElement {
           lastSubtitle.current = { text: described, at: performance.now() };
           store.setSubtitle(described);
         }
+      }
+      /*
+       * The weather saying what it is about to do.
+       *
+       * Written as a notice rather than a subtitle because it is not the
+       * description of a sound: it is the thing a person sitting by a fire
+       * notices and acts on. It lands as the change starts, which is the best
+       * part of a minute before it arrives — long enough to sweep the ash over
+       * the coals and bring the wood in off the stones.
+       */
+      /*
+       * The night turning over into its next part.
+       *
+       * A remark, not a milestone. Nothing unlocks and nothing is scored —
+       * staying out is not rewarded and never will be — but until this existed
+       * the only progression the product has, the night going by, was
+       * something a player could sit through without ever being told.
+       */
+      if (r.windowChangedTo) {
+        const said = describeWindow(r.windowChangedTo);
+        if (said) store.setNotice(said);
+      }
+      const weatherEvent = r.weatherEvents[r.weatherEvents.length - 1];
+      if (weatherEvent && weatherEvent.at !== lastWeatherAt.current) {
+        lastWeatherAt.current = weatherEvent.at;
+        store.setNotice(weatherEvent.telling);
       }
       if (r.marshmallow.ignitedThisStep) {
         lastSubtitle.current = { text: '[the marshmallow catches fire]', at: performance.now() };
@@ -1351,6 +1382,15 @@ export function App({ store }: AppProps): React.ReactElement {
    */
   const fireWantsWood = ritual.fire.flame < 0.34;
   const fireWantsRaking = ritual.fire.oxygen < 0.55 && ritual.fire.emberMass > 0.2;
+  /*
+   * Rain in the air, and an open fire under it.
+   *
+   * The diegetic route is to sweep the ash over the coals with your hand, and
+   * that is the one the game teaches. This offers the same act to a player who
+   * cannot perform a directional drag, and — because weather announces itself
+   * a minute ahead — it appears while there is still time to use it.
+   */
+  const fireWantsBanking = rainIsComing(ritual.weather) && ritual.fire.ashCover < 0.55;
 
   const handleAddLog = useCallback(() => {
     tendFire(ritual, { type: 'add-log', woodId: 'oak' });
@@ -1359,6 +1399,12 @@ export function App({ store }: AppProps): React.ReactElement {
 
   const handleRake = useCallback(() => {
     tendFire(ritual, { type: 'rake' });
+    store.touch();
+  }, [ritual, store]);
+
+  const handleBank = useCallback(() => {
+    tendFire(ritual, { type: 'bank' });
+    store.setNotice('Ash over the coals. They will keep.');
     store.touch();
   }, [ritual, store]);
 
@@ -1585,6 +1631,7 @@ export function App({ store }: AppProps): React.ReactElement {
         on that setting a walk to the woodpile is not a rhythm, it is a wall.
       */}
       {((state.stage === 'roasting' && fireWantsRaking) ||
+        fireWantsBanking ||
         state.accessibility.simplifiedGestures) &&
         state.overlay === 'none' && (
         <div
@@ -1606,6 +1653,9 @@ export function App({ store }: AppProps): React.ReactElement {
           )}
           {(fireWantsRaking || state.accessibility.simplifiedGestures) && (
             <SideButton label="Rake coals" onClick={handleRake} textScale={state.accessibility.textScale} />
+          )}
+          {(fireWantsBanking || state.accessibility.simplifiedGestures) && (
+            <SideButton label="Bank the coals" onClick={handleBank} textScale={state.accessibility.textScale} />
           )}
         </div>
       )}

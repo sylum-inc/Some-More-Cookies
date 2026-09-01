@@ -247,6 +247,10 @@ With permission, real-world context may influence the world: time of day, season
 
 Weather evolves during a session and affects fire, visibility, sound, wildlife, exploration, and roasting. Rare dramatic events: fog, storms, meteor showers, snow squalls, heat lightning.
 
+**Weather announces itself.** A change takes the best part of a minute to arrive, and it is remarked on as it *starts* — sensory, never a forecast and never a countdown: *"The wind has turned around, and there is rain in it."* That minute is the whole difference between weather you respond to and weather that happens to you, and everything a person needs to do inside it — sweep the ash over the coals, bring the wood in off the stones — fits comfortably. Rain on an open bed costs a couple of hundred degrees and comes straight back; on a banked one it costs almost nothing. **Weather threatens the fire and never the night.**
+
+**The night has an arc.** A session carries about six hours of sky across roughly an hour of playing: the moon genuinely crosses and goes down, the constellations that were rising when you arrived are overhead by the time you are eating, and the animals keep their hours. The cold comes on through it and is worst just before it gets light, which is why the fire matters more at four in the morning than it did at ten — the same wood is slower to dry and slower to take. Each part of the night is remarked on once as it turns over. Nothing unlocks, nothing is scored, and staying out is never rewarded; the night simply goes by, and now you can feel it. The one hard rule: the world is always night, and the sky model must never put the sun up over the campfire.
+
 Real astronomy may drive moon phase/position, constellations, planets, and meteor showers — rendered through the PS1 art direction (dithered, low-res, beautiful).
 
 **Never lock important content behind waiting for a real astronomical event.** Rare sky events are gifts, not gates.

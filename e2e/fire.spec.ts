@@ -418,6 +418,47 @@ test.describe('ash', () => {
     await page.waitForTimeout(800);
   });
 
+  test('you bank the fire by sweeping the ash over it with your hand', async ({ page }) => {
+    await comeToTheFire(page);
+    const before = await readFire(page);
+    expect(before.ashCover).toBeLessThan(0.3);
+
+    // The two motions are the same hand and the same tool, told apart by which
+    // way it moved. In, over the coals: that is banking.
+    const outer = await screenPoint(page, 0.34, 0.02, 0.12);
+    const middle = await screenPoint(page, 0.02, 0.02, 0.01);
+    expect(outer.behind).toBe(false);
+    expect(middle.behind).toBe(false);
+    for (let sweeps = 0; sweeps < 2; sweeps++) {
+      await page.mouse.move(outer.x, outer.y);
+      await page.mouse.down();
+      for (let i = 1; i <= 6; i++) {
+        await page.mouse.move(
+          outer.x + ((middle.x - outer.x) * i) / 6,
+          outer.y + ((middle.y - outer.y) * i) / 6,
+        );
+        await page.waitForTimeout(25);
+      }
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+    }
+
+    const swept = await readFire(page);
+    expect(swept.ashCover).toBeGreaterThan(before.ashCover + 0.5);
+    await expect(page.getByTestId('notice')).toContainText('keep');
+    await act(page, 'advanceSeconds', 90);
+    await page.waitForTimeout(300);
+    const settled = await readFire(page);
+    expect(settled.flame).toBeLessThan(0.2);
+    await capture(page, '48-fire-swept-over');
+
+    // And a tap in the middle opens it back up, the same as it always did.
+    await page.mouse.click(middle.x, middle.y);
+    await page.waitForTimeout(250);
+    const raked = await readFire(page);
+    expect(raked.ashCover).toBeLessThan(settled.ashCover - 0.3);
+  });
+
   test('banking puts the fire away and raking brings it back', async ({ page }) => {
     await comeToTheFire(page);
     const before = await readFire(page);

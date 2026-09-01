@@ -76,7 +76,7 @@ import {
   type FuelSourceSpec,
   type GatherResult,
 } from './gathering.js';
-import { createWeather, stepWeather, weatherFireEffect, type WeatherProfile, type WeatherState, DEFAULT_WEATHER_PROFILE } from './weather.js';
+import { describeWeatherChange, type WeatherKind, createWeather, stepWeather, weatherFireEffect, type WeatherProfile, type WeatherState, DEFAULT_WEATHER_PROFILE } from './weather.js';
 import {
   createWildlife,
   createWildlifeInput,
@@ -202,7 +202,7 @@ import {
 } from './fishing.js';
 import { createTrace, type Trace } from './significance.js';
 import { Rng, hashString, mixSeeds } from './rng.js';
-import { clamp, clamp01 } from './math.js';
+import { clamp, clamp01, smoothstep } from './math.js';
 import { vec3, type Vec3, SIM_DT } from './types.js';
 
 export type RitualStage =
@@ -367,6 +367,58 @@ const WINDOW_ORDER: readonly ActivityWindow[] = ['dusk', 'early-night', 'deep-ni
 /** Real minutes of play before the night moves on one window. */
 const WINDOW_SECONDS = 14 * 60;
 
+/**
+ * How much of a real night a session carries you across.
+ *
+ * Six hours over the fifty-six minutes it takes to cross the four window
+ * boundaries: late evening when you arrive, first light by the time you are
+ * finishing. Deliberately short of a whole night at both ends — the world is
+ * always night (§5.5), and a session that ran to sunrise would put the sun up
+ * over the campfire, which is the one thing the sky model must never do.
+ */
+const NIGHT_SPAN_MS = 6 * 3600 * 1000;
+
+/**
+ * Where in the night a session starts and where it has got to.
+ *
+ * 0 is the start of dusk and 1 is full dawn; the windows divide it evenly.
+ * The same number drives the sky, the cold, and which animals are about, so
+ * they cannot drift apart.
+ */
+export function nightProgress(startWindow: ActivityWindow, elapsedSeconds: number): number {
+  const start = Math.max(0, WINDOW_ORDER.indexOf(startWindow));
+  const span = (WINDOW_ORDER.length - 1) * WINDOW_SECONDS;
+  return clamp01((start * WINDOW_SECONDS + elapsedSeconds) / span);
+}
+
+/**
+ * How much colder it is than the weather alone would make it.
+ *
+ * The cold comes on through the night and is worst just before it gets light,
+ * which is both true and the reason a fire matters more at four in the morning
+ * than it did at ten. It eases a little at dawn, the way it does.
+ */
+export function nightChill(progress: number): number {
+  return -7.5 * smoothstep(0, 0.82, progress) + 1.8 * smoothstep(0.84, 1, progress);
+}
+
+/** Said once, as the night turns over into its next part. */
+export function describeWindow(window: ActivityWindow): string | null {
+  switch (window) {
+    case 'early-night':
+      return 'The last of the light has gone out of the sky.';
+    case 'deep-night':
+      return 'It is properly late now, and properly cold.';
+    case 'pre-dawn':
+      return 'The coldest part of it. Everything has gone quiet.';
+    case 'dawn':
+      return 'There is grey in the east. That went quickly.';
+    case 'dusk':
+    default:
+      return null;
+  }
+}
+
 export interface RitualState {
   stage: RitualStage;
   fire: FireState;
@@ -426,10 +478,28 @@ export interface RitualState {
   skipEvents: SkipEvent[];
   fishingEvents: FishingEvent[];
   skyEvents: StargazingEvent[];
+  /**
+   * The weather saying what it is about to do, in words, bounded.
+   *
+   * A change takes the best part of a minute to arrive, so this lands while
+   * there is still time to bank the fire and bring the wood in off the stones.
+   * That is the whole difference between weather you respond to and weather
+   * that happens to you.
+   */
+  weatherEvents: { at: number; kind: WeatherKind; telling: string }[];
   /** Reused observation object, so discovery allocates nothing per frame. */
   observationScratch: DiscoveryObservation;
   /** Which part of the night it is. */
   window: ActivityWindow;
+  /**
+   * The part of the night it has just turned into, for one step.
+   *
+   * The only progression this product has is the night going by, and until
+   * this existed the player was never told it had. It is a remark, not a
+   * milestone: nothing unlocks, nothing is scored, and staying out is not
+   * rewarded — the night simply moves, and you can feel it.
+   */
+  windowChangedTo: ActivityWindow | null;
   sandwich: SandwichRecord | null;
   /** Where the player is holding the marshmallow. */
   roastInput: RoastInput;
@@ -520,7 +590,20 @@ export function createRitual(options: RitualOptions): RitualState {
     torch: createTorch(),
     fishing: createFishing(),
     stargazing: createStargazing({
-      epochMs: options.skyEpochMs ?? 0,
+      /*
+       * Wound back to the start of the night, so the session's own arc runs
+       * forward across it rather than sitting at two in the morning forever.
+       * `skyEpochMs` is the middle of the night by construction — see
+       * `nightEpoch` — so half the span back from it is late evening.
+       */
+      epochMs:
+        (options.skyEpochMs ?? 0) > 0
+          ? (options.skyEpochMs as number) -
+            NIGHT_SPAN_MS / 2 +
+            nightProgress(options.startWindow ?? 'dusk', 0) * NIGHT_SPAN_MS
+          : 0,
+      // Six hours of sky over fifty-six minutes of session.
+      timeScale: NIGHT_SPAN_MS / ((WINDOW_ORDER.length - 1) * WINDOW_SECONDS * 1000),
       latitudeDeg: options.latitudeDeg ?? 44,
       longitudeDeg: options.longitudeDeg ?? -73,
       skyOpenness: world.skyOpenness ?? 0.6,
@@ -537,8 +620,10 @@ export function createRitual(options: RitualOptions): RitualState {
     skipEvents: [],
     fishingEvents: [],
     skyEvents: [],
+    weatherEvents: [],
     observationScratch: createObservation(),
     window: options.startWindow ?? 'early-night',
+    windowChangedTo: null,
     sandwich: null,
     roastInput: { position: vec3(0, 0.45, 0.75), rotation: 0, blow: 0 },
     sandwichCount: 0,
@@ -610,6 +695,17 @@ export function stepRitual(ritual: RitualState, dt: number = SIM_DT): void {
   ritual.elapsed += dt;
   ritual.stageChangedTo = null;
 
+  /*
+   * The cold coming on.
+   *
+   * Handed to the weather rather than applied after it, so that the fire, the
+   * fuel drying at the pit edge, the audio and anything else reading the
+   * temperature all see one number. It is what makes the fire matter more at
+   * four in the morning than it did at ten — the same fire, the same wood, a
+   * night that has got about eight degrees harder to sit out in.
+   */
+  ritual.weather.nightChill = nightChill(nightProgress(ritual.options.startWindow, ritual.elapsed));
+
   // Weather first: it feeds the fire.
   stepWeather(ritual.weather, dt, stream(ritual, 'weather-step'));
   const effect = weatherFireEffect(ritual.weather);
@@ -619,6 +715,17 @@ export function stepRitual(ritual: RitualState, dt: number = SIM_DT): void {
   // which is why banking is the answer to a shower rather than standing there
   // watching it go out.
   ritual.fire.rain = clamp01(ritual.weather.precipitation);
+  if (ritual.weather.changedTo) {
+    const telling = describeWeatherChange(ritual.weather.kind, ritual.weather.changedTo);
+    if (telling) {
+      ritual.weatherEvents.push({
+        at: ritual.elapsed,
+        kind: ritual.weather.changedTo,
+        telling,
+      });
+      trimTail(ritual.weatherEvents, 32);
+    }
+  }
 
   stepFire(ritual.fire, dt, stream(ritual, 'fire'));
 
@@ -759,7 +866,9 @@ function splashing(ritual: RitualState): number {
 
 function stepWorld(ritual: RitualState, dt: number): void {
   const presence = ritual.presence;
+  const previousWindow = ritual.window;
   ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
+  ritual.windowChangedTo = ritual.window === previousWindow ? null : ritual.window;
 
   if (presence.places.includes('water-edge')) ritual.shoreSeconds += dt;
 

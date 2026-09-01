@@ -795,8 +795,12 @@ export function stepFire(fire: FireState, dt: number, rng: Rng): void {
     // fuel "steals" a fire: the energy goes into evaporation, not flame. How
     // fast depends on where it is sitting — which is the point of the rack.
     if (log.moisture > 0) {
+      // Cold air carries less away. A log that dried in four minutes at dusk
+      // takes six at four in the morning, which is a small thing that adds up
+      // to the fire being more work as the night goes on.
+      const airBite = clamp(0.72 + (config.ambientC + 6) / 46, 0.7, 1.12);
       const dryingRate =
-        0.022 * ambientHeat * log.radiance * (0.5 + fire.oxygen * 0.5) * Math.sqrt(grade.burns);
+        0.022 * ambientHeat * log.radiance * (0.5 + fire.oxygen * 0.5) * Math.sqrt(grade.burns) * airBite;
       log.moisture = Math.max(0, log.moisture - dryingRate * dt);
       // Damp wood smokes heavily while it dries.
       smokeGen += log.moisture * wood.smokiness * log.ignition * 1.6;

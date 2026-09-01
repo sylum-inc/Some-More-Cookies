@@ -75,6 +75,22 @@ export interface WeatherState {
   humidity: number;
   skyEvent: SkyEvent;
   skyEventSeconds: number;
+  /**
+   * The kind the weather started turning toward on this step, or null.
+   *
+   * Set for exactly one step, the way `stageChangedTo` is, and it is the whole
+   * of the warning system: weather takes the best part of a minute to arrive,
+   * so knowing it has *started* is knowing it is coming. Everything a player
+   * needs to do about rain — bank the fire, bring the wood in off the stones —
+   * fits comfortably inside that minute, which is what makes weather a thing
+   * you respond to rather than a thing that happens to you.
+   */
+  changedTo: WeatherKind | null;
+  /**
+   * Degrees the night itself has taken off the temperature, written by the
+   * caller. Nothing here decides it: the weather does not know what time it is.
+   */
+  nightChill: number;
   elapsed: number;
   secondsUntilTransition: number;
   profile: WeatherProfile;
@@ -118,6 +134,8 @@ export function createWeather(profile: WeatherProfile, rng: Rng): WeatherState {
     humidity: character.humidity,
     skyEvent: 'none',
     skyEventSeconds: 0,
+    changedTo: null,
+    nightChill: 0,
     elapsed: 0,
     secondsUntilTransition: profile.transitionSeconds * rng.range(0.6, 1.4),
     profile,
@@ -132,12 +150,16 @@ function pickKind(profile: WeatherProfile, rng: Rng): WeatherKind {
 
 export function stepWeather(weather: WeatherState, dt: number, rng: Rng): void {
   weather.elapsed += dt;
+  weather.changedTo = null;
 
   // Transition scheduling.
   weather.secondsUntilTransition -= dt;
   if (weather.secondsUntilTransition <= 0 && weather.transition >= 1) {
     weather.nextKind = pickKind(weather.profile, rng);
-    if (weather.nextKind !== weather.kind) weather.transition = 0;
+    if (weather.nextKind !== weather.kind) {
+      weather.transition = 0;
+      weather.changedTo = weather.nextKind;
+    }
     weather.secondsUntilTransition = weather.profile.transitionSeconds * rng.range(0.7, 1.5);
   }
 
@@ -163,7 +185,7 @@ export function stepWeather(weather: WeatherState, dt: number, rng: Rng): void {
   weather.humidity = approach(weather.humidity, lerp(from.humidity, to.humidity, t), 0.25, dt);
   weather.temperatureC = approach(
     weather.temperatureC,
-    weather.profile.baseTempC + lerp(from.tempOffset, to.tempOffset, t),
+    weather.profile.baseTempC + lerp(from.tempOffset, to.tempOffset, t) + weather.nightChill,
     0.08,
     dt,
   );
@@ -180,6 +202,51 @@ export function stepWeather(weather: WeatherState, dt: number, rng: Rng): void {
       weather.skyEventSeconds = rng.range(45, 210);
     }
   }
+}
+
+/**
+ * How long until the change that is on its way has fully arrived, and what it
+ * is. Null when the weather is settled.
+ */
+export function incomingWeather(weather: WeatherState): { kind: WeatherKind; seconds: number } | null {
+  if (weather.transition >= 1 || weather.nextKind === weather.kind) return null;
+  // The blend takes 55 seconds end to end; see `stepWeather`.
+  return { kind: weather.nextKind, seconds: Math.max(0, (1 - weather.transition) * 55) };
+}
+
+/** Whether there is rain in what is falling or in what is coming. */
+export function rainIsComing(weather: WeatherState): boolean {
+  if (weather.precipitation > 0.12) return true;
+  const next = incomingWeather(weather);
+  return next !== null && CHARACTER[next.kind].precipitation > 0.25;
+}
+
+/**
+ * What the change feels like, said once, as it starts.
+ *
+ * Sensory rather than a forecast, and never a countdown: the point is that a
+ * person sitting by a fire notices the wind turn and knows what it means,
+ * which is a thing worth knowing rather than a number worth reading. Null when
+ * the change is not the sort anybody would remark on.
+ */
+export function describeWeatherChange(from: WeatherKind, to: WeatherKind): string | null {
+  if (from === to) return null;
+  const wetter = CHARACTER[to].precipitation - CHARACTER[from].precipitation;
+  const windier = CHARACTER[to].wind - CHARACTER[from].wind;
+  const colder = CHARACTER[to].tempOffset - CHARACTER[from].tempOffset;
+
+  if (to === 'storm') return 'The wind comes round hard and the treetops start moving. This one means it.';
+  if (to === 'snow-squall') return 'The air goes white at the edges. Something is coming down the valley.';
+  if (to === 'fog') return 'The far trees have gone. It is closing in.';
+  if (to === 'snow') return 'The first of it is coming down, slow and enormous.';
+  if (wetter > 0.4) return 'The wind has turned around, and there is rain in it.';
+  if (wetter > 0.1) return 'Something fine is starting to fall. You can hear it before you feel it.';
+  if (wetter < -0.25) return 'It is easing off. The dripping is just the trees now.';
+  if (windier > 2) return 'The wind gets up. Sparks go sideways and the flames lean with it.';
+  if (colder < -3) return 'The cold arrives all at once, the way it does out here.';
+  if (to === 'clear' && CHARACTER[from].cloud > 0.6) return 'The cloud tears open and the stars are all still there.';
+  if (CHARACTER[to].cloud - CHARACTER[from].cloud > 0.4) return 'The stars go out one patch at a time.';
+  return null;
 }
 
 /** How weather modifies fire behaviour. */

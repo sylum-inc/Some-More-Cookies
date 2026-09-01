@@ -12,6 +12,7 @@ import {
   describeArmful,
   describeSeat,
   heatBand,
+  isBanked,
   isEmberBed,
   patchAt,
   sampleHeat,
@@ -95,6 +96,8 @@ export function reachLabel(id: string, ritual?: RitualState, seated = false): st
     }
     // Hands full of wood means putting wood on, not poking the coals.
     if (id === 'fire' && ritual.gathering.armful.length > 0) return 'Lay it on';
+    // And a pit under ash wants the ash off before it wants anything else.
+    if (id === 'fire' && isBanked(ritual.fire)) return 'Rake the ash back';
     if (id === 'log-seat') return seated ? 'Stand up' : 'Sit down';
     if (id === 'torch') return ritual.torch.held ? (ritual.torch.on ? 'Switch it off' : 'Switch it on') : 'Take the torch';
     if (id === 'water-edge') return ritual.skipping.held ? 'Throw it' : 'Pick up a stone';
@@ -206,6 +209,26 @@ function machineLine(machine: RitualState['machine'], keys: boolean): string {
   }
 }
 
+/**
+ * A bed with heat in it, nothing burning, and nothing fine enough to catch.
+ *
+ * The state a player is in about ninety seconds into a return visit: they have
+ * raked the ash off, they can see the coals, they have put a split log on it,
+ * and nothing at all is happening. What is missing is tinder, and there is
+ * none at camp — the woodpile is split logs. Saying so is the difference
+ * between a walk out to the treeline and giving up on the campsite.
+ */
+function needsFineFuel(ritual: RitualState): boolean {
+  if (ritual.fire.flame > 0.12) return false;
+  if (ritual.fire.emberTemp < 150 || ritual.fire.emberMass < 0.03) return false;
+  // A full roasting bed is not a fire in trouble, it is the fire you wanted.
+  // Strictly below `isEmberBed`'s threshold so the two can never both speak.
+  if (ritual.fire.emberMass >= 0.16) return false;
+  const hasFine = ritual.fire.logs.some((log) => log.grade !== 'log' && log.mass > 0.005);
+  const hasFineInHand = ritual.gathering.armful.some((piece) => piece.grade !== 'log');
+  return !hasFine && !hasFineInHand;
+}
+
 function guidanceFor(
   ritual: RitualState,
   stage: RitualStage,
@@ -217,6 +240,24 @@ function guidanceFor(
     case 'arriving':
       return 'Walk toward the fire.';
     case 'at-fire':
+      /*
+       * A pit you left banked reads as a dead one, and it is not.
+       *
+       * This is the single line that stands between "there is heat under
+       * there, go and find it" and a player concluding the fire is out and the
+       * campsite is broken. It says what is true and what to do about it, and
+       * then gets out of the way — the next line, once the ash is off, is the
+       * one that explains why the split log they are about to try will not
+       * take.
+       */
+      if (isBanked(ritual.fire)) {
+        return keys
+          ? 'Grey ash, and heat still under it. E rakes it back off the coals.'
+          : 'Grey ash, and heat still under it. Sweep it back off the coals.';
+      }
+      if (needsFineFuel(ritual)) {
+        return 'Those coals are alive but low. They want something finer than a log to catch on.';
+      }
       if (isEmberBed(ritual.fire)) return 'The fire has burned down to coals.';
       return keys
         ? 'Look around. WASD walks, the arrow keys look.'

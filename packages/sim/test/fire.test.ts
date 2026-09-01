@@ -147,16 +147,30 @@ describe('fire simulation', () => {
 
   describe('oxygen', () => {
     it('wood leaned into a tepee breathes better than wood heaped flat', () => {
+      // Full logs, because heaping is about wood with mass in it. Two nearly
+      // spent remnants lying together are not a smothered fire and should not
+      // be described as one.
       const airy = createEstablishedFire();
-      airy.logs.forEach((l, i) => (l.spot = spotFrom(0.14, i * 2.1, 1)));
       const smothered = createEstablishedFire();
-      // Same logs, same place, lying on top of each other.
-      smothered.logs.forEach((l) => (l.spot = spotFrom(0.03, 0, 0)));
+      for (const fire of [airy, smothered]) fire.logs = [];
+      for (let i = 0; i < 3; i++) {
+        addLog(airy, 'oak', { spot: spotFrom(0.14, i * 2.1, 1) });
+        // Same place, one on top of the other, which is the whole of it.
+        addLog(smothered, 'oak', { spot: spotFrom(0.03, 0, 0) });
+      }
       run(airy, 20);
       run(smothered, 20);
       expect(airy.oxygen).toBeGreaterThan(smothered.oxygen);
       expect(describeArrangement(airy)).toBe('tepee');
       expect(describeArrangement(smothered)).toBe('heaped');
+      // And a single log lying by itself on an open bed is neither: it is in
+      // the open air, and it breathes like it.
+      const alone = createEstablishedFire();
+      alone.logs = [];
+      addLog(alone, 'oak', { spot: spotFrom(0.1, 0.5, 0) });
+      run(alone, 20);
+      expect(alone.logs[0]!.airflow).toBeGreaterThan(0.4);
+      expect(describeArrangement(alone)).toBe('spread');
     });
 
     it('piling on too much fuel chokes the fire', () => {

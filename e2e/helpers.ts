@@ -126,7 +126,32 @@ export async function advanceUntil(
     }
     await act(page, 'advanceSeconds', 3);
   }
-  throw new Error(`Fast-forwarded ${maxSeconds}s without reaching ${label} (${predicate})`);
+  /*
+   * Say what it *did* reach.
+   *
+   * A timeout that reports only the predicate it wanted sends whoever reads it
+   * off guessing, and the fire has a dozen numbers any one of which could be
+   * the reason. This is the cheapest possible improvement to every future
+   * failure in this file.
+   */
+  const reached = await page.evaluate(() => {
+    const r = window.__someMore!.store.state.ritual as unknown as {
+      stage: string;
+      fire: { flame: number; emberMass: number; emberTemp: number; ashCover: number; oxygen: number; logs: { grade: string; mass: number }[] };
+    };
+    return {
+      stage: r.stage,
+      flame: Number(r.fire.flame.toFixed(3)),
+      emberMass: Number(r.fire.emberMass.toFixed(3)),
+      emberTemp: Math.round(r.fire.emberTemp),
+      ashCover: Number(r.fire.ashCover.toFixed(2)),
+      oxygen: Number(r.fire.oxygen.toFixed(2)),
+      fuel: r.fire.logs.map((l) => `${l.grade}:${l.mass.toFixed(2)}`),
+    };
+  });
+  throw new Error(
+    `Fast-forwarded ${maxSeconds}s without reaching ${label} (${predicate}). Reached ${JSON.stringify(reached)}`,
+  );
 }
 
 /** Runs the SM-01 through its full ritual, one control at a time. */

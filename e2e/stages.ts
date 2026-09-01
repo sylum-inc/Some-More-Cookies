@@ -117,12 +117,71 @@ export async function driveRitual(
   await act(page, 'arrive');
   await at('at-fire');
 
+  /*
+   * The pit may be banked.
+   *
+   * A campsite you have used before is found the way you left it: grey ash,
+   * no flame, and two hundred degrees underneath. Any suite that navigates
+   * twice — the offline one boots cold after a warm visit — meets it on the
+   * second run, and a split log on a cold bed does nothing at all, which is
+   * the whole point of the wood the catalogue describes. So wake it the way a
+   * person does before driving the ritual.
+   */
+  const banked = await page.evaluate(() => {
+    const fire = (window.__someMore!.store.state.ritual as unknown as {
+      fire: { ashCover: number; flame: number };
+    }).fire;
+    return fire.ashCover > 0.5 && fire.flame < 0.05;
+  });
+  // Worth saying out loud in every suite: a run that woke last night's coals
+  // and a run that walked in on a burning fire are two different nights.
+  // eslint-disable-next-line no-console
+  console.log(`pit on arrival: ${banked ? 'banked — waking it' : 'burning'}`);
+  if (banked) {
+    await act(page, 'rake');
+    await act(page, 'rake');
+    await act(page, 'fan');
+    // Dry fine fuel, standing in for an armful brought back from the treeline.
+    await act(page, 'layFuel', 'pine', 'tinder', 0.05, 0.4, 0.02);
+    await act(page, 'layFuel', 'pine', 'tinder', 0.05, 2.5, 0.02);
+    for (let i = 0; i < 3; i += 1) {
+      await act(page, 'layFuel', 'birch', 'kindling', 0.09, i * 2.1, 0.04);
+    }
+    await act(page, 'advanceSeconds', 3);
+    await act(page, 'fan');
+    await advanceUntil(page, 'r.fire.flame > 0.5', 'last night’s coals catching', 300);
+    // Kindling does not last. What it leaves behind is a bed a real log will
+    // take from, and a real log alight is what "the fire is back" means.
+    await act(page, 'layFuel', 'pine', 'log', 0.11, 1.1, 0.1);
+    await advanceUntil(
+      page,
+      "r.fire.logs.some((l) => l.grade === 'log' && l.ignition > 0.5)",
+      'a split log properly alight',
+      400,
+    );
+  }
+
   await act(page, 'rake');
   await act(page, 'addLog', 'oak');
   await at('fire-tended');
 
-  // The ember bed is the roasting surface the thermal model is tuned for.
-  await advanceUntil(page, 'r.fire.flame < 0.2 && r.fire.emberMass > 0.2', 'ember bed', 900);
+  /*
+   * The ember bed is the roasting surface the thermal model is tuned for —
+   * and a bed is not ready because it exists, it is ready because it is hot.
+   *
+   * The mass and the temperature are both in here because a fire woken from
+   * last night's coals passes "low flame, some coals" almost immediately and
+   * is still building. Half a bed radiates about half as much, and roasting
+   * over it browns a fifth of what an established fire does — which is the
+   * right behaviour and the wrong moment to start. A player who knows what
+   * they are doing waits for the bed. So does this.
+   */
+  await advanceUntil(
+    page,
+    'r.fire.flame < 0.2 && r.fire.emberMass > 0.45 && r.fire.emberTemp > 540',
+    'a bed hot enough to cook on',
+    900,
+  );
   await at('ember-bed');
 
   // --- Roasting, driven with the keyboard --------------------------------
@@ -130,13 +189,66 @@ export async function driveRitual(
   // accessibility path the acceptance suite proves works, used here because
   // key presses reach the same control as a drag without depending on
   // pointer timing.
+  /*
+   * What the fire was actually like when the roasting started.
+   *
+   * Printed because "the roast came out pale" is unactionable and "the roast
+   * came out pale over a bed of 0.33 at 480 degrees in a four-metre wind" is
+   * a diagnosis. Two suites drive the same ritual over two different fires —
+   * one walked in on, one woken from last night's coals — and the difference
+   * between them lives here.
+   */
+  // eslint-disable-next-line no-console
+  console.log(
+    'roasting over: ' +
+      JSON.stringify(
+        await page.evaluate(() => {
+          const r = window.__someMore!.store.state.ritual as unknown as {
+            fire: { flame: number; emberMass: number; emberTemp: number; ashCover: number; windSpeed: number; oxygen: number };
+            weather: { kind: string; precipitation: number; temperatureC: number };
+          };
+          return {
+            ember: Number(r.fire.emberMass.toFixed(2)),
+            temp: Math.round(r.fire.emberTemp),
+            flame: Number(r.fire.flame.toFixed(2)),
+            ash: Number(r.fire.ashCover.toFixed(2)),
+            wind: Number(r.fire.windSpeed.toFixed(2)),
+            weather: r.weather.kind,
+            rain: Number(r.weather.precipitation.toFixed(2)),
+            airC: Math.round(r.weather.temperatureC),
+          };
+        }),
+      ),
+  );
+
   await act(page, 'beginRoasting');
   for (let i = 0; i < 6; i += 1) await page.keyboard.press('ArrowUp');
   await at('roasting');
 
-  for (let turn = 0; turn < 24; turn += 1) {
+  /*
+   * Turned until it is roasted, not for a fixed count of turns.
+   *
+   * Thirty-eight seconds is a golden marshmallow over a bed at six hundred and
+   * sixty degrees and a pale one over a bed at five hundred and fifty woken
+   * from last night's coals in light rain — and the person holding the stick
+   * would simply have held it there longer. Turning to a result rather than to
+   * a stopwatch is what anybody does, and it keeps this driver measuring the
+   * ritual instead of measuring the weather.
+   */
+  for (let turn = 0; turn < 90; turn += 1) {
     await page.keyboard.press('ArrowRight');
     await act(page, 'advanceSeconds', 1.6);
+    if (turn < 11) continue;
+    const done = await page.evaluate(() => {
+      const m = (window.__someMore!.store.state.ritual as unknown as {
+        marshmallow: { patches: { brown: number; char: number }[]; burning: boolean };
+      }).marshmallow;
+      const mean = (pick: (p: { brown: number; char: number }) => number) =>
+        m.patches.reduce((total, p) => total + pick(p), 0) / m.patches.length;
+      return { brown: mean((p) => p.brown), char: mean((p) => p.char), burning: m.burning };
+    });
+    // Golden, or starting to catch. Either way it comes off the fire.
+    if (done.burning || done.char > 0.18 || done.brown > 0.34) break;
   }
   // Measured, not assumed. See `RoastOutcome`: the suites that use this driver
   // report the result so a roasting stage that has stopped roasting shows up as

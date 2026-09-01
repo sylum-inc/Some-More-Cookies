@@ -564,17 +564,56 @@ export function App({ store }: AppProps): React.ReactElement {
   }, [state.audioReady, store]);
 
   // --- Arrival walk ------------------------------------------------------
+  /**
+   * The walk in, as this campsite's own walk in.
+   *
+   * Every environment in the catalogue has had a five-beat arrival written for
+   * it since the content was authored — the path, the first thing you hear
+   * before anything is visible, the first thing that resolves out of the dark,
+   * what the ground does underfoot, and the beat where the place is finally
+   * *there*. None of it had ever been shown to anybody: twelve campsites, one
+   * five-second dolly, the same words on all of them, which were no words.
+   *
+   * The beats land in order across the walk. `walkSeconds` in the manifest is
+   * how long an unhurried walk in would really take — twenty to forty seconds,
+   * which is right for a walk and much too long to be made to watch — so the
+   * dolly takes a fraction of it, and a second tap skips the rest. Nobody
+   * should be held in a title sequence.
+   */
+  const arrival = useMemo(() => getEnvironment(state.environmentId)?.arrival ?? null, [state.environmentId]);
+
+  const arrivalLines = useMemo(
+    () =>
+      arrival
+        ? [arrival.firstHeard, arrival.firstSeen, arrival.underfoot, arrival.arrivalBeat].filter(
+            (line): line is string => typeof line === 'string' && line.length > 0,
+          )
+        : [],
+    [arrival],
+  );
+
+  const [arrivalLine, setArrivalLine] = useState(-1);
+
   const beginArrival = useCallback(() => {
     if (arrivingRef.current || ritual.stage !== 'arriving') return;
     arrivingRef.current = true;
     const started = performance.now();
-    const duration = 5200;
+    // A real walk in is half a minute. This is the part of it worth watching.
+    const walk = arrival ? clamp01((arrival.walkSeconds.min - 12) / 30) : 0;
+    const duration = state.render.reducedMotion ? 4200 : 6800 + walk * 6000;
     const tick = () => {
-      const t = Math.min(1, (performance.now() - started) / duration);
+      if (skipArrival.current) arrivalRef.current = 1;
+      const t = skipArrival.current ? 1 : Math.min(1, (performance.now() - started) / duration);
       arrivalRef.current = easeInOut(t);
+      // Beats spread across the walk, the last one landing as the place opens.
+      if (arrivalLines.length > 0) {
+        const index = Math.min(arrivalLines.length - 1, Math.floor(t * arrivalLines.length * 1.02));
+        setArrivalLine((previous) => (previous === index ? previous : index));
+      }
       if (t < 1) {
         requestAnimationFrame(tick);
       } else {
+        setArrivalLine(-1);
         // World places the player at the fireside on the stage change, so
         // every route in lands identically.
         arriveAction(ritual);
@@ -582,7 +621,10 @@ export function App({ store }: AppProps): React.ReactElement {
       }
     };
     requestAnimationFrame(tick);
-  }, [ritual, store]);
+  }, [ritual, store, arrival, arrivalLines, state.render.reducedMotion]);
+
+  /** Set by a tap during the walk. Nobody is held in a title sequence. */
+  const skipArrival = useRef(false);
 
   /**
    * Throws the stone in hand.
@@ -779,7 +821,8 @@ export function App({ store }: AppProps): React.ReactElement {
       store.setControls('pointer');
 
       if (ritual.stage === 'arriving') {
-        beginArrival();
+        if (arrivingRef.current) skipArrival.current = true;
+        else beginArrival();
         return;
       }
 
@@ -1827,7 +1870,33 @@ export function App({ store }: AppProps): React.ReactElement {
             zIndex: 15,
           }}
         >
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', maxWidth: 'min(74vw, 720px)' }}>
+            {/*
+              This campsite's own arrival, in its own words.
+
+              Before you tap, the path in. Once you are walking, the four beats
+              the manifest wrote for this place: what you hear before anything
+              is visible, what resolves out of the dark, what the ground does
+              underfoot, and the moment the site is finally there. Announced as
+              well as drawn, because nothing here is delivered through one
+              channel (§12) — and a walk in the dark is exactly the moment a
+              player who cannot see the screen has least else to go on.
+            */}
+            <div
+              aria-live="polite"
+              style={{
+                fontFamily: FONT_STACK.serif,
+                fontSize: `${15 * state.accessibility.textScale}px`,
+                lineHeight: 1.55,
+                color: 'rgba(232,224,205,0.82)',
+                textShadow: '0 2px 18px rgba(0,0,0,0.95)',
+                marginBottom: 26,
+                minHeight: `${3.2 * 15 * state.accessibility.textScale}px`,
+                transition: state.render.reducedMotion ? 'none' : 'opacity 420ms ease',
+              }}
+            >
+              {arrivingRef.current ? (arrivalLine >= 0 ? arrivalLines[arrivalLine] : '') : (arrival?.approach ?? '')}
+            </div>
             <div
               style={{
                 fontFamily: FONT_STACK.serif,
@@ -1849,7 +1918,7 @@ export function App({ store }: AppProps): React.ReactElement {
                 animation: 'none',
               }}
             >
-              {arrivingRef.current ? '' : 'TAP TO WALK IN'}
+              {arrivingRef.current ? 'TAP TO GO STRAIGHT IN' : 'TAP TO WALK IN'}
             </div>
           </div>
         </div>

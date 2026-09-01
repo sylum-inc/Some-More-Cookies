@@ -54,6 +54,29 @@ test.describe('the ritual', () => {
     await capture(page, '04-ember-bed');
 
     // --- Roast, with real drags -------------------------------------------
+    // What the fire was actually like, because "the roast came out pale" is
+    // unactionable and a bed temperature is a diagnosis.
+    // eslint-disable-next-line no-console
+    console.log(
+      'roasting over: ' +
+        JSON.stringify(
+          await page.evaluate(() => {
+            const r = window.__someMore!.store.state.ritual as unknown as {
+              fire: { flame: number; emberMass: number; emberTemp: number; ashCover: number; windSpeed: number };
+              weather: { kind: string; precipitation: number };
+            };
+            return {
+              ember: Number(r.fire.emberMass.toFixed(2)),
+              temp: Math.round(r.fire.emberTemp),
+              flame: Number(r.fire.flame.toFixed(2)),
+              ash: Number(r.fire.ashCover.toFixed(2)),
+              wind: Number(r.fire.windSpeed.toFixed(2)),
+              weather: r.weather.kind,
+              rain: Number(r.weather.precipitation.toFixed(2)),
+            };
+          }),
+        ),
+    );
     await act(page, 'beginRoasting');
     await page.waitForTimeout(400);
     await capture(page, '05-roasting-start');

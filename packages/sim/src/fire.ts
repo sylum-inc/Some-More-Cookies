@@ -256,19 +256,43 @@ export function restingLean(fire: FireState, x: number, z: number, ignoreId?: st
 }
 
 /**
- * A free spot for a piece dropped without aim.
+ * Where a piece lands when it is dropped in without aim.
  *
- * Deterministic — it is derived from how much is already in the pit — because
- * a fire that rearranged itself differently on replay would break both
- * multiplayer reconciliation and the whole point of arranging.
+ * On the fire, which is what a person tossing a log on a fire is aiming at.
+ * The first version spread successive pieces around the pit on a golden angle
+ * so nothing ever touched anything, and the result was a fire made of lone
+ * flat logs with an airflow of about a quarter — every one of them smouldering
+ * at a third alight for twenty minutes and never really burning. That is what
+ * a badly built fire *should* look like, and it is not what you get for
+ * throwing a log on one.
+ *
+ * So it goes near what is already burning, offset enough not to stack straight
+ * on top of it. `restingLean` then does the rest: the piece comes to rest
+ * against the pile the way wood does, and a fire you never think about is a
+ * reasonable fire. Arranging it deliberately is still better, and heaping it
+ * all in one place is still worse.
  */
 export function freeSpot(fire: FireState, lean = 0.45): LogSpot {
-  const n = fire.logs.length;
-  // Golden angle, so successive pieces land around the pit rather than on
-  // each other, which is what an unaimed armful would actually do.
-  const bearing = n * 2.399963229728653;
-  const radius = lerp(0.07, 0.17, ((n * 7) % 5) / 4);
-  return spotFrom(radius, bearing, lean);
+  let x = 0;
+  let z = 0;
+  let mass = 0;
+  for (const log of fire.logs) {
+    if (log.mass <= 0.02) continue;
+    x += log.spot.x * log.mass;
+    z += log.spot.z * log.mass;
+    mass += log.mass;
+  }
+  const centreX = mass > 0 ? x / mass : 0;
+  const centreZ = mass > 0 ? z / mass : 0;
+  // Successive pieces go round the pile rather than onto the same point, so an
+  // armful thrown on in one go still ends up as a stack and not as a column.
+  const bearing = fire.logs.length * 2.399963229728653;
+  const offset = SUPPORT_RADIUS * 0.62;
+  const spotX = centreX + Math.cos(bearing) * offset;
+  const spotZ = centreZ + Math.sin(bearing) * offset;
+  const radius = Math.min(PIT.bedRadius * 0.92, Math.hypot(spotX, spotZ));
+  const heading = Math.atan2(spotZ, spotX);
+  return spotFrom(radius, heading, lean);
 }
 
 /** A single piece of fuel in the pit. */
@@ -722,9 +746,20 @@ export function stepFire(fire: FireState, dt: number, rng: Rng): void {
     // and air is `airflow` below.
     log.heat = clamp01(overBed * (0.9 + spot.lean * 0.14));
     log.radiance = clamp01(reach * 0.92 + log.heat * 0.08);
-    // Ash raked over the pit buries the fuel as well as the coals, which is
-    // why banking a fire that still has wood burning on it works at all.
-    log.airflow = clamp01(0.3 + spot.lean * 0.52 - smother * 0.42) * (1 - fire.ashCover * 0.6);
+    /*
+     * Air, and what takes it away.
+     *
+     * The baseline is what a piece lying by itself on an open bed gets, which
+     * is plenty: it is in the open air. The first calibration started it at
+     * 0.3 and read every unobstructed log as half strangled — one split log
+     * dropped on a healthy fire sat at a third alight for twenty minutes and
+     * never properly burned, which is not what happens when you put a log on a
+     * fire. Leaning adds to it, because a chimney draws. Neighbours take it
+     * away, because that is what smothering is. And ash over the top takes
+     * nearly all of it, which is why banking a fire that still has wood
+     * burning on it works at all.
+     */
+    log.airflow = clamp01(0.5 + spot.lean * 0.36 - smother * 0.5) * (1 - fire.ashCover * 0.72);
 
     airSum += log.airflow * log.mass;
     massSum += log.mass;

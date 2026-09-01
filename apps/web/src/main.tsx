@@ -178,7 +178,7 @@ if (typeof window !== 'undefined') {
        * stand in for. It is deliberately not how anything in the interface
        * puts wood on a fire.
        */
-      layFuel: wrap((woodId = 'oak', grade = 'log', radius = 0.12, bearing = 0) =>
+      layFuel: wrap((woodId = 'oak', grade = 'log', radius = 0.12, bearing = 0, moisture?: unknown) =>
         tendFire(store.state.ritual, {
           type: 'add-log',
           woodId: woodId as string,
@@ -187,6 +187,10 @@ if (typeof window !== 'undefined') {
             x: Math.cos(bearing as number) * (radius as number),
             z: Math.sin(bearing as number) * (radius as number),
           },
+          // Omitted means "as damp as tonight makes it", which is what the
+          // woodpile hands you. Given, it stands for fuel the player went and
+          // found somewhere dry.
+          ...(moisture === undefined ? {} : { moisture: moisture as number }),
         }),
       ),
       moveFuel: wrap((logId: unknown, x = 0, z = 0) =>

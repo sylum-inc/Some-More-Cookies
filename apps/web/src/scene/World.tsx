@@ -131,6 +131,20 @@ function atThePit(player: PlayerState): boolean {
 }
 
 /**
+ * Whether the player's hands are free to be put in the fire.
+ *
+ * Adding a second pointer surface to the pit — drag a log, sweep the ash —
+ * put it in competition with every other drag in the product, and the pit won:
+ * a press that landed on the ash bed while a marshmallow was on the stick took
+ * the gesture, stopped it reaching the roasting control, and left seventy
+ * seconds of turning the stick doing nothing at all. You cannot rake a fire
+ * you are holding a roasting stick over, and now the fire knows it.
+ */
+function handsFreeForTheFire(stage: RitualStage): boolean {
+  return stage === 'at-fire' || stage === 'after';
+}
+
+/**
  * How far the player turns away from the fire to look at the sandwich.
  * Composing it against the flames washed the object out and read as
  * levitation.
@@ -1105,7 +1119,7 @@ export function World({
           tendFire(ritual, { type: 'move-log', logId, spot: { x, z } });
           store.touch();
         }}
-        canTouch={() => atThePit(player)}
+        canTouch={() => atThePit(player) && handsFreeForTheFire(ritual.stage)}
         {...(grabbedFuelRef ? { grabbedRef: grabbedFuelRef } : {})}
       />
 

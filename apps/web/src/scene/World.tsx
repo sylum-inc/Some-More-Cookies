@@ -139,14 +139,43 @@ export const HOLD_TURN = 1.15;
 /** Held high enough that the sight line clears the fire pit entirely. */
 const HOLD_HEIGHT = 1.24;
 const HOLD_RADIUS = 1.3;
+/** How far out in front of the eye a thing you are looking at is held. */
+const HOLD_REACH = 0.33;
+/** And how far below it, and to which side. Hands are not on your forehead. */
+const HOLD_BELOW_EYE = 0.12;
+const HOLD_ASIDE = 0.07;
 /** Camera offset around the fire, so the pit is never directly behind. */
 const HOLD_VIEW_OFFSET = 0.38;
 
-/** Where the sandwich is held while being inspected and eaten. */
-export function holdPoint(): [number, number, number] {
-  const angle = LAYOUT.playerBearing + HOLD_TURN;
-  return [Math.cos(angle) * HOLD_RADIUS, HOLD_HEIGHT, Math.sin(angle) * HOLD_RADIUS];
+/**
+ * Where the sandwich is held while being inspected and eaten.
+ *
+ * In your hands, which sounds obvious and was not the case. It used to be a
+ * fixed point in the world, a metre and a third out from the pit on a fixed
+ * bearing — chosen when the camera was flown to a composed shot that framed
+ * exactly that spot. The camera is the player's eyes now, and the player
+ * finishes the machine standing at the machine: so the finished sandwich, the
+ * whole point of the product, was hanging in the air across the clearing
+ * behind them while they stood looking into an empty freezer.
+ *
+ * It goes in front of the person holding it, a little below the eye and a
+ * little to one side, which is where a thing you are holding and looking at
+ * actually is. Eating then happens wherever you happen to be standing, which
+ * is what the design always said it did.
+ */
+export function holdPointFor(player: PlayerState): [number, number, number] {
+  const eye = eyePosition(player, holdScratch);
+  const forward = Math.cos(player.facing);
+  const forwardZ = Math.sin(player.facing);
+  return [
+    eye.x + forward * HOLD_REACH - forwardZ * HOLD_ASIDE,
+    eye.y - HOLD_BELOW_EYE,
+    eye.z + forwardZ * HOLD_REACH + forward * HOLD_ASIDE,
+  ];
 }
+
+/** Reused so holding a sandwich allocates nothing per frame. */
+const holdScratch = vec3(0, 0, 0);
 
 /** Unit vector pointing out of the machine's face. */
 const MACHINE_FRONT: [number, number] = [Math.sin(LAYOUT.machineRotation), Math.cos(LAYOUT.machineRotation)];
@@ -483,7 +512,14 @@ function poseFor(
       // Framed against the dark treeline. The camera sits off the sandwich's
       // own bearing and at nearly its height, so the line of sight passes
       // above and to one side of the pit rather than straight through it.
-      const hold = holdPoint();
+      // The composed pose is retained for the arrival dolly only; the hold it
+      // frames is the old fixed one, and nothing flies to it any more.
+      const angle = LAYOUT.playerBearing + HOLD_TURN;
+      const hold: [number, number, number] = [
+        Math.cos(angle) * HOLD_RADIUS,
+        HOLD_HEIGHT,
+        Math.sin(angle) * HOLD_RADIUS,
+      ];
       const view = LAYOUT.playerBearing + HOLD_TURN + HOLD_VIEW_OFFSET;
       return {
         position: [Math.cos(view) * 1.62, HOLD_HEIGHT + 0.035, Math.sin(view) * 1.62],
@@ -583,6 +619,8 @@ export function World({
   /** Where a hand closed on the sandwich, while it is being lifted out. */
   const liftFrom = useRef<{ x: number; y: number } | null>(null);
   const lastStage = useRef<RitualStage>(ritual.stage);
+  /** The sandwich in the player's hands, moved every frame. */
+  const heldSandwichRef = useRef<THREE.Group>(null);
   /** What the player is turning to look at, or null once they have arrived. */
   const lookGoal = useRef<[number, number, number] | null>(null);
   const shake = useRef(0);
@@ -671,6 +709,19 @@ export function World({
        * Any look input at all abandons the goal, so this can steer you toward
        * the machine and never away from wherever you decide to look instead.
        */
+      /*
+       * While it is in your hands, the thing you are looking at is your hands.
+       *
+       * Refreshed rather than snapshotted: the machine is worked from a stoop
+       * and the sandwich comes out of it as you stand up, so a heading taken at
+       * the moment the stage changed was aimed at where your hands were when
+       * you were forty centimetres lower — and left you looking at the ground
+       * in front of the freezer. Any look input still abandons it below, so
+       * this steers your head onto the sandwich once and never holds it there.
+       */
+      if (ritual.stage === 'eating' && lookGoal.current !== null) {
+        lookGoal.current = holdPointFor(player);
+      }
       const goal = lookGoal.current;
       if (goal) {
         const look = intentRef.current.look;
@@ -730,6 +781,16 @@ export function World({
       stepRitual(ritual, dt);
       onSimStep?.(ritual);
     });
+
+    // The sandwich goes where the hands go.
+    const held = heldSandwichRef.current;
+    if (held) {
+      const [hx, hy, hz] = holdPointFor(player);
+      held.position.set(hx, hy, hz);
+      // Turned to face whoever is holding it, so it reads as a sandwich rather
+      // than as a slab seen edge on.
+      held.rotation.y = player.facing + Math.PI / 2;
+    }
 
     // A look delta is consumed once, not once per simulation step.
     intentRef.current.look = undefined;
@@ -800,6 +861,16 @@ export function World({
         // And what to turn toward once there. Cleared the moment the player
         // looks anywhere themselves.
         lookGoal.current = focusFor(ritual.stage);
+        /*
+         * And look at what you have just taken out.
+         *
+         * `focusFor` cannot answer this one, because where the sandwich is
+         * depends on where you are standing: you finish the machine with your
+         * head down in its chamber, and the thing you came for is now in your
+         * hands. Snapshotted rather than followed — the ease only has to bring
+         * your head up off the freezer, and after that you are looking at it.
+         */
+        if (ritual.stage === 'eating') lookGoal.current = holdPointFor(player);
       }
       lastStage.current = ritual.stage;
       store.setStageFromRitual();
@@ -1132,14 +1203,22 @@ export function World({
         </group>
       )}
 
+      {/*
+        In your hands, and following them.
+
+        Positioned in the frame loop rather than from a prop: a React render
+        happens when the store says something changed, and a thing you are
+        holding has to keep up with your feet, not with the store.
+      */}
       {showSandwichInHand && ritual.sandwich && (
-        <Sandwich
-          sandwich={ritual.sandwich}
-          bite={ritual.bite}
-          settings={settings}
-          position={holdPoint()}
-          spin={settings.reducedMotion ? 0 : 0.18}
-        />
+        <group ref={heldSandwichRef}>
+          <Sandwich
+            sandwich={ritual.sandwich}
+            bite={ritual.bite}
+            settings={settings}
+            spin={settings.reducedMotion ? 0 : 0.18}
+          />
+        </group>
       )}
 
       {/* Ember glow reflected on the ground: a quiet cue that the coals are

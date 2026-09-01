@@ -769,6 +769,9 @@ export function App({ store }: AppProps): React.ReactElement {
    */
   const grabbedFuel = useRef<string | null>(null);
 
+  /** Stages where the fire is the thing in front of you and your hands are free. */
+  const FIRESIDE_STAGES: ReadonlySet<string> = new Set(['at-fire', 'roasting', 'after']);
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
       unlockAudio();
@@ -1630,9 +1633,17 @@ export function App({ store }: AppProps): React.ReactElement {
         Simplified gestures keeps both controls, because for somebody relying
         on that setting a walk to the woodpile is not a rhythm, it is a wall.
       */}
-      {((state.stage === 'roasting' && fireWantsRaking) ||
-        fireWantsBanking ||
-        state.accessibility.simplifiedGestures) &&
+      {/*
+        Only while your hands are free and you are at the fire.
+
+        These sat over the top of the reveal and the first bite until this
+        condition existed: a player looking at the sandwich they came for was
+        being offered two controls for a fire behind them.
+      */}
+      {FIRESIDE_STAGES.has(state.stage) &&
+        ((state.stage === 'roasting' && fireWantsRaking) ||
+          fireWantsBanking ||
+          state.accessibility.simplifiedGestures) &&
         state.overlay === 'none' && (
         <div
           style={{

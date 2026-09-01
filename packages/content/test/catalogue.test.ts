@@ -617,6 +617,8 @@ describe('every authored field reaches somebody', () => {
  *
  * These pin the split, so that what a player hears is something a person read.
  */
+const ARTEFACT = /\b(the game|the catalogue|the product|this environment)\b/i;
+
 describe('the voice a note is written in', () => {
   it('never tells a player about the game, the catalogue or the product', () => {
     const leaked: string[] = [];
@@ -676,6 +678,89 @@ describe('the voice a note is written in', () => {
       ).toBeGreaterThan(20);
       expect(signature!.label.length).toBeGreaterThan(3);
     }
+  });
+
+  /*
+   * The activity notes were where this was found; they were not where it
+   * lived.
+   *
+   * The first pass filtered `activities[].note` and stopped there, and the
+   * end-to-end survey test promptly read a player two sentences from the
+   * cicada bottoms' own ambience prose: "that silence is the eeriest sound in
+   * the game", and "which is why the environment feels sheltered". The problem
+   * was never the activity list — it is that *every* authored string can end
+   * up in front of somebody, and 386 of them do.
+   *
+   * So this covers all of them: the ground and elevation notes, the weather
+   * character, the ambience, every distant sound, all five arrival beats,
+   * every landmark, every firewood source, every animal, the SM-01's own
+   * flavour, and the activities. `worldContent.ts` is where the filter is
+   * applied on the way to the simulation, and `App.tsx` applies it to the
+   * arrival, which the simulation never sees.
+   */
+  it('keeps the artefact out of all 386 player-facing strings', () => {
+    const leaked: string[] = [];
+    let checked = 0;
+    let fieldsWereStrings = 0;
+    for (const environment of ENVIRONMENTS) {
+      const fields: [string, string][] = [
+        ['scene.groundNote', environment.scene.groundNote],
+        ['scene.elevationNote', environment.scene.elevationNote],
+        ['weatherCharacter.temperatureNote', environment.weatherCharacter.temperatureNote],
+        ['weatherCharacter.windNote', environment.weatherCharacter.windNote],
+        ['weatherCharacter.exposureNote', environment.weatherCharacter.exposureNote],
+        ['ambience.insectNote', environment.ambience.insectNote],
+        ['ambience.reverbNote', environment.ambience.reverbNote],
+        ['arrival.approach', environment.arrival.approach],
+        ['arrival.firstHeard', environment.arrival.firstHeard],
+        ['arrival.firstSeen', environment.arrival.firstSeen],
+        ['arrival.underfoot', environment.arrival.underfoot],
+        ['arrival.arrivalBeat', environment.arrival.arrivalBeat],
+        ['machine.flavourNote', environment.machine.flavourNote],
+        ['machine.frostNote', environment.machine.frostNote],
+        ['machine.stickerHint', environment.machine.stickerHint],
+        ...environment.ambience.distantEvents.map(
+          (event, i): [string, string] => [`ambience.distantEvents[${i}]`, event.note],
+        ),
+        ...environment.scene.landmarks.map(
+          (landmark, i): [string, string] => [`scene.landmarks[${i}]`, landmark.note],
+        ),
+        ...environment.fuel.sources.map(
+          (source, i): [string, string] => [`fuel.sources[${i}]`, source.foundAs],
+        ),
+        ...environment.wildlife.map(
+          (species): [string, string] => [`wildlife.${species.id}`, species.note],
+        ),
+        ...environment.activities.map(
+          (activity): [string, string] => [`activities.${activity.id}`, activity.note],
+        ),
+      ];
+      for (const [path, text] of fields) {
+        checked++;
+        // A typo in the list above would silently check nothing — the first
+        // draft of this test read `weatherCharacter.frostNote`, which is not a
+        // field, and got `undefined` twelve times.
+        if (typeof text === 'string' && text.length > 0) fieldsWereStrings++;
+        const shown = inWorld(text);
+        if (ARTEFACT.test(shown)) leaked.push(`${environment.id}/${path}: ${shown}`);
+        // And nothing may be filtered away to nothing: an authored string that
+        // is entirely commentary leaves a player with silence where the
+        // catalogue promised a sentence. Split it in the manifest instead.
+        if (shown.length === 0) leaked.push(`${environment.id}/${path}: (nothing left)`);
+      }
+    }
+    expect(checked).toBeGreaterThan(350);
+    expect(fieldsWereStrings, 'a field name in this list does not exist').toBe(checked);
+    expect(leaked).toEqual([]);
+  });
+
+  it('does not cut a sticker in half at an abbreviation', () => {
+    // "DEPT. OF PARKS · CLEARED, ..." was split after "DEPT." by a naive
+    // sentence rule, and the filter kept the abbreviation and dropped the
+    // sticker.
+    expect(inWorld('DEPT. OF PARKS · CLEARED, and a stamp under it.')).toBe(
+      'DEPT. OF PARKS · CLEARED, and a stamp under it.',
+    );
   });
 
   it('is a no-op on a note written entirely in the world', () => {

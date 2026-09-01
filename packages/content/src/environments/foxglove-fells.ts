@@ -27,7 +27,7 @@ export const FOXGLOVE_FELLS: EnvironmentManifest = {
     approach:
       'A green track through heather, sunk half a metre below the moor by centuries of feet. It holds water. There are stone flags laid in the worst bits, some of them worn hollow.',
     firstHeard:
-      'Water in a gill somewhere to your left, and a curlew — a long rising bubbling call that is the single most evocative sound in the catalogue and that nobody can place.',
+      'Water in a gill somewhere to your left, and a curlew — a long rising bubbling call that nobody can place. The single most evocative sound in the catalogue.',
     firstSeen:
       'The fold: a low circle of drystone wall coming out of the fog about fifteen metres before you would otherwise have walked into it.',
     underfoot:
@@ -174,7 +174,7 @@ export const FOXGLOVE_FELLS: EnvironmentManifest = {
     distantEvents: [
       { id: 'curlew_far', label: 'A curlew, further out', weight: 6, minGapSeconds: 110, note: 'The rising bubble, from somewhere in the fog, answered once from much further away.' },
       { id: 'stone_falls', label: 'A stone comes off the wall', weight: 3, minGapSeconds: 400, note: 'One clack and a small settle from a stretch of wall you cannot see. Two hundred years of this.' },
-      { id: 'sheep_cough', label: 'A sheep coughs', weight: 4, minGapSeconds: 200, note: 'An astonishingly human sound from ten metres away in the fog, and the funniest thing in the catalogue the first time it happens.' },
+      { id: 'sheep_cough', label: 'A sheep coughs', weight: 4, minGapSeconds: 200, note: 'An astonishingly human sound from ten metres away in the fog. The funniest thing in the catalogue the first time it happens.' },
       { id: 'gate_swing', label: 'The gate swings', weight: 4, minGapSeconds: 240, note: 'A rusted hinge, twice, and then stopping. The wind did it. The wind does it.' },
       { id: 'beck_surge', label: 'The beck rises a note', weight: 5, minGapSeconds: 150, note: 'After rain upstream, twenty minutes before the rain reaches you.' },
     ],

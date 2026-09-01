@@ -122,7 +122,7 @@ export const LOONWATER_NARROWS: EnvironmentManifest = {
       canPersist: true,
       investigatesObjects: false,
       traces: ['a feather on the waterline', 'a wake crossing the narrows at dawn'],
-      note: 'A pair. One is missing a bit of the collar pattern and is recognisably the same bird across visits. The wail carries the length of the lake and if you answer it — badly, with your own voice — it will sometimes answer back, and that is the best thing in this environment.',
+      note: 'A pair. One is missing a bit of the collar pattern and is recognisably the same bird across visits. The wail carries the length of the lake and if you answer it — badly, with your own voice — it will sometimes answer back. The best thing in this environment.',
     },
     {
       id: 'beaver_narrows',
@@ -188,7 +188,7 @@ export const LOONWATER_NARROWS: EnvironmentManifest = {
     distantEvents: [
       { id: 'loon_far', label: 'A loon, down the lake', weight: 7, minGapSeconds: 100, note: 'The wail, from a long way off, answered by the pair off the point.' },
       { id: 'beaver_slap', label: 'Tail slap', weight: 4, minGapSeconds: 240, note: 'A flat crack across the water and then complete silence for a long time.' },
-      { id: 'wolf_far', label: 'Wolves, very far', weight: 2, minGapSeconds: 600, note: 'Three or four voices, kilometres away, for about twenty seconds. They never come nearer and the game never suggests they might.' },
+      { id: 'wolf_far', label: 'Wolves, very far', weight: 2, minGapSeconds: 600, note: 'Three or four voices, kilometres away, for about twenty seconds. They never come nearer. The game never suggests they might.' },
       { id: 'ice_or_rock', label: 'A knock from the island', weight: 3, minGapSeconds: 400, note: 'One hard sound from the direction of the island, unexplained, not repeated.' },
       { id: 'lake_lap_change', label: 'The lapping changes', weight: 6, minGapSeconds: 80, note: 'A distant boat wake or a wind shift arriving as a change in the water rhythm against the rock, a minute before anything else changes.' },
     ],

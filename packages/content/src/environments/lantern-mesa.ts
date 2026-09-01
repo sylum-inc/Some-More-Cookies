@@ -134,7 +134,7 @@ export const LANTERN_MESA: EnvironmentManifest = {
       canPersist: true,
       investigatesObjects: true,
       traces: ['a chocolate wrapper up on a rock ledge', 'small hand-shaped prints on the SM-01 lid'],
-      note: 'Enormous eyes, banded tail, hands. Will absolutely go through your things while looking directly at you and is the single most charming animal in the game.',
+      note: 'Enormous eyes, banded tail, hands. Will absolutely go through your things while looking directly at you. The single most charming animal in the game.',
     },
     {
       id: 'bark_scorpion_glow',

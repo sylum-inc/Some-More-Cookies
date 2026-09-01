@@ -258,7 +258,7 @@ export const ASHFALL_BARRENS: EnvironmentManifest = {
     quirkWeights: { 'early-frost': 3, 'flicker-segment': 2.5, 'long-hold': 2.5, 'double-relay': 2 },
     flavourNote:
       'Minerals from the steam have etched a permanent pale bloom across the machine’s windward panel, in a pattern like frost that never leaves. The unit sits on a bed of gravel someone levelled by hand, and the completion tone carries an absurd distance across the flats.',
-    stickerHint: 'DEPT. OF PARKS · CLEARED, with a second stamp beneath it in a language the game never translates.',
+    stickerHint: 'DEPT. OF PARKS · CLEARED, with a second stamp beneath it in a language nobody here reads. The game never translates it.',
     frostNote: 'Real frost lands on top of the mineral bloom and for about a minute you cannot tell which is which.',
   },
   procedural: {

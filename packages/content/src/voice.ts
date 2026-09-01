@@ -45,10 +45,19 @@
 const OUT_OF_WORLD =
   /\b(the game|the catalogue|the product|this environment|the audio engine|reference|people will|people love|experience)\b/i;
 
-/** Splits on sentence ends, keeping the punctuation with its sentence. */
+/**
+ * Splits on sentence ends, keeping the punctuation with its sentence.
+ *
+ * The lookbehind for an abbreviation is not decoration. A sticker in the
+ * catalogue reads "DEPT. OF PARKS · CLEARED, with a second stamp beneath it in
+ * a language the game never translates", and a naive split cut it after
+ * "DEPT." — so the filter kept the abbreviation and threw the sticker away.
+ * A full stop after a short run of capitals is an abbreviation, not the end of
+ * a sentence.
+ */
 function sentences(text: string): string[] {
   return text
-    .split(/(?<=[.!?])\s+/)
+    .split(/(?<![A-Z]{1,5})(?<=[.!?])\s+/)
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }

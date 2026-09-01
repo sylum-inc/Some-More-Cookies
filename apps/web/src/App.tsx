@@ -79,6 +79,7 @@ import { World, isAnchored } from './scene/World.js';
 import { LAYOUT, campFurniture, hashSeed } from './scene/layout.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
 import { getEnvironment, inWorld } from '@somemore/content';
+import { worldContentFor } from './state/worldContent.js';
 import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
@@ -476,60 +477,7 @@ export function App({ store }: AppProps): React.ReactElement {
           ...(environment ? { weatherProfile: environment.weather } : {}),
           ...(environment
             ? {
-                world: {
-                  wildlife: environment.wildlife,
-                  radio: environment.radio,
-                  secrets: environment.secrets,
-                  ...(environment.scene.water ? { water: environment.scene.water } : {}),
-                  skyOpenness: environment.scene.skyOpenness,
-                  // Where the firewood is, in the catalogue's own words.
-                  fuel: environment.fuel.sources,
-                  // And the named things that make this campsite this one.
-                  landmarks: environment.scene.landmarks,
-                  trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
-                  occupied: campFurniture(),
-                  // What this site's SM-01 tends to be like. Recognition,
-                  // never difficulty (§3.3).
-                  machine: {
-                    quirkWeights: environment.machine.quirkWeights,
-                    stickerHint: environment.machine.stickerHint,
-                    flavourNote: environment.machine.flavourNote,
-                    frostNote: environment.machine.frostNote,
-                  },
-                  // What this campsite is like, in its own words: the
-                  // weather character, the ambience notes and the ground and
-                  // elevation the scene manifest describes.
-                  place: {
-                    ground: environment.scene.groundNote,
-                    elevation: environment.scene.elevationNote,
-                    temperature: environment.weatherCharacter.temperatureNote,
-                    wind: environment.weatherCharacter.windNote,
-                    exposure: environment.weatherCharacter.exposureNote,
-                    nightRangeC: environment.weatherCharacter.nightRangeC,
-                    insects: environment.ambience.insectNote,
-                    reverb: environment.ambience.reverbNote,
-                    distant: environment.ambience.distantEvents,
-                    // How liminal this place is, 1..5. Decides how often and how
-                    // unpredictably it is heard from a long way off — never
-                    // anything more than that (schema §2.2: nothing stalks).
-                    eeriness: environment.character.eeriness,
-                  },
-                  // What is different about tonight (§5.4). Five per campsite,
-                  // each with a range and a note saying what it should drive,
-                  // and until they were rolled every visit was the same visit.
-                  variations: environment.procedural.variations,
-                  // What there is to do here, and which of it this campsite is
-                  // *for*. `prominence` marks that one, and until the survey read
-                  // it a player who could not see the screen had no way to learn
-                  // it. Notes filtered on the way through: about a fifth of them
-                  // carry a sentence addressed to the team, not to the player.
-                  activities: environment.activities.map((activity) => ({
-                    id: activity.id,
-                    label: activity.label,
-                    prominence: activity.prominence,
-                    note: inWorld(activity.note),
-                  })),
-                },
+                world: worldContentFor(environment),
                 walkableRadiusM: environment.scene.walkableRadiusM,
               }
             : {}),
@@ -664,15 +612,27 @@ export function App({ store }: AppProps): React.ReactElement {
    */
   const arrival = useMemo(() => getEnvironment(state.environmentId)?.arrival ?? null, [state.environmentId]);
 
+  /*
+   * Filtered on the way to the screen, like every other line the catalogue
+   * says out loud.
+   *
+   * Foxglove Fells' first-heard beat used to end "the single most evocative
+   * sound in the catalogue", which is a true and useful sentence to have
+   * written down and not one to read to somebody walking in through fog.
+   */
   const arrivalLines = useMemo(
     () =>
       arrival
-        ? [arrival.firstHeard, arrival.firstSeen, arrival.underfoot, arrival.arrivalBeat].filter(
-            (line): line is string => typeof line === 'string' && line.length > 0,
-          )
+        ? [arrival.firstHeard, arrival.firstSeen, arrival.underfoot, arrival.arrivalBeat]
+            .filter((line): line is string => typeof line === 'string' && line.length > 0)
+            .map((line) => inWorld(line))
+            .filter((line) => line.length > 0)
         : [],
     [arrival],
   );
+
+  /** The path in, shown before the first tap. Filtered the same way. */
+  const approachLine = useMemo(() => (arrival ? inWorld(arrival.approach) : ''), [arrival]);
 
   const [arrivalLine, setArrivalLine] = useState(-1);
 
@@ -2089,7 +2049,7 @@ export function App({ store }: AppProps): React.ReactElement {
                 transition: state.render.reducedMotion ? 'none' : 'opacity 420ms ease',
               }}
             >
-              {arrivingRef.current ? (arrivalLine >= 0 ? arrivalLines[arrivalLine] : '') : (arrival?.approach ?? '')}
+              {arrivingRef.current ? (arrivalLine >= 0 ? arrivalLines[arrivalLine] : '') : approachLine}
             </div>
             <div
               style={{

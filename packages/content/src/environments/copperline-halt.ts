@@ -136,7 +136,7 @@ export const COPPERLINE_HALT: EnvironmentManifest = {
       canPersist: false,
       investigatesObjects: false,
       traces: ['a bird sitting lengthways along the top of the name board, invisible until it moves'],
-      note: 'Work the insects over the warm ballast. Sit lengthways on the rails, which is an unmistakable silhouette and one of the best small sights in the game.',
+      note: 'Work the insects over the warm ballast. Sit lengthways on the rails, which is an unmistakable silhouette. One of the best small sights in the game.',
     },
     {
       id: 'stock_tank_frog',

@@ -8,7 +8,8 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { getEnvironment, inWorld, listEnvironments, selectEnvironment } from '@somemore/content';
+import { getEnvironment, listEnvironments, selectEnvironment } from '@somemore/content';
+import { worldContentFor } from './state/worldContent.js';
 import {
   arrive,
   beginRoasting,
@@ -111,62 +112,7 @@ const store = new Store({
   // handed straight to the world systems with no adapter in between.
   ...(environment
     ? {
-        world: {
-          wildlife: environment.wildlife,
-          radio: environment.radio,
-          secrets: environment.secrets,
-          // Several campsites have no water at all, and `scene.water` is
-          // omitted for those — which every activity that needs water checks.
-          ...(environment.scene.water ? { water: environment.scene.water } : {}),
-          skyOpenness: environment.scene.skyOpenness,
-          // Where the firewood at this campsite is, in the catalogue's own words.
-          fuel: environment.fuel.sources,
-          // And the named things that make this campsite this one.
-          landmarks: environment.scene.landmarks,
-          trailBearing: Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]),
-          occupied: campFurniture(),
-          // What this site's SM-01 tends to be like. Recognition,
-          // never difficulty (§3.3).
-          machine: {
-            quirkWeights: environment.machine.quirkWeights,
-            stickerHint: environment.machine.stickerHint,
-            flavourNote: environment.machine.flavourNote,
-            frostNote: environment.machine.frostNote,
-          },
-          // What this campsite is like, in its own words: the
-          // weather character, the ambience notes and the ground and
-          // elevation the scene manifest describes.
-          place: {
-            ground: environment.scene.groundNote,
-            elevation: environment.scene.elevationNote,
-            temperature: environment.weatherCharacter.temperatureNote,
-            wind: environment.weatherCharacter.windNote,
-            exposure: environment.weatherCharacter.exposureNote,
-            nightRangeC: environment.weatherCharacter.nightRangeC,
-            insects: environment.ambience.insectNote,
-            reverb: environment.ambience.reverbNote,
-            distant: environment.ambience.distantEvents,
-            // How liminal this place is, 1..5. Decides how often and how
-            // unpredictably it is heard from a long way off — never
-            // anything more than that (schema §2.2: nothing stalks).
-            eeriness: environment.character.eeriness,
-          },
-          // What is different about tonight (§5.4). Five per campsite,
-          // each with a range and a note saying what it should drive,
-          // and until they were rolled every visit was the same visit.
-          variations: environment.procedural.variations,
-          // What there is to do here, and which of it this campsite is
-          // *for*. `prominence` marks that one, and until the survey read
-          // it a player who could not see the screen had no way to learn
-          // it. Notes filtered on the way through: about a fifth of them
-          // carry a sentence addressed to the team, not to the player.
-          activities: environment.activities.map((activity) => ({
-            id: activity.id,
-            label: activity.label,
-            prominence: activity.prominence,
-            note: inWorld(activity.note),
-          })),
-        },
+        world: worldContentFor(environment),
         walkableRadiusM: environment.scene.walkableRadiusM,
       }
     : {}),

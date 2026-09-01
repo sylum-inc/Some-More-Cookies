@@ -50,7 +50,7 @@ export const CEDAR_SWITCHBACK: EnvironmentManifest = {
       { id: 'the_two_cedars', label: 'The two cedars', kind: 'natural', handcrafted: true, note: 'The bench sits between them. One is hollow at the base — a burned-out cavity a person can stand inside, dry in any weather.' },
       { id: 'plank_bridge', label: 'The plank bridge', kind: 'built', handcrafted: true, note: 'Two planks and a hand cable across the slot, four metres above the water, with a section of the cable replaced in newer wire.' },
       { id: 'the_slot', label: 'The slot', kind: 'water', handcrafted: true, note: 'The creek in a narrow gorge of water-carved rock, with a pool at the bottom that holds a green light even at night.' },
-      { id: 'trail_sign', label: 'The routed trail sign', kind: 'signage', handcrafted: true, note: 'Cedar, routed lettering, arrows, and distances in miles to places the game never shows you. One arrow has been prised off.' },
+      { id: 'trail_sign', label: 'The routed trail sign', kind: 'signage', handcrafted: true, note: 'Cedar, routed lettering, arrows, and distances in miles to places you will not be going. One arrow has been prised off. The game never shows those places.' },
       { id: 'the_cache_box', label: 'The trail cache', kind: 'built', handcrafted: false, note: 'An ammunition box wired to a stump with a logbook, a pencil stub, three lighters and a small ceramic bird in it.' },
     ],
     elevation: 'steep',
@@ -98,7 +98,7 @@ export const CEDAR_SWITCHBACK: EnvironmentManifest = {
     windNote:
       'You never feel wind at the bench. You hear it in the canopy sixty metres up as a distant sea, entirely disconnected from the still air around the fire.',
     exposureNote:
-      'The most sheltered site in the catalogue after Cicada Bottoms, and the only one where heavy rain reaches the fire as an occasional large drop rather than as rain.',
+      'Heavy rain reaches the fire as an occasional large drop rather than as rain. The most sheltered site in the catalogue after Cicada Bottoms.',
     nightRangeC: { min: 7, max: 15 },
   },
   fuel: {
@@ -123,7 +123,7 @@ export const CEDAR_SWITCHBACK: EnvironmentManifest = {
       canPersist: false,
       investigatesObjects: false,
       traces: ['none'],
-      note: 'A single long buzzing note on one pitch, then a long pause, then the same note a semitone away. Sounds like the forest itself is tuning up, and it is the most unmistakable sound in the game.',
+      note: 'A single long buzzing note on one pitch, then a long pause, then the same note a semitone away. Sounds like the forest itself is tuning up. The most unmistakable sound in the game.',
     },
     {
       id: 'pacific_wren',

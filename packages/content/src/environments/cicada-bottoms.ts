@@ -179,7 +179,7 @@ export const CICADA_BOTTOMS: EnvironmentManifest = {
     wind: { character: 'still', baseLevel: 0.06, gustiness: 0.15, material: 'moss veils, occasionally, and nothing else' },
     insectDensity: 1,
     insectNote:
-      'The maximum. Three distinct layers — a cicada band that pulses about every eleven seconds, a continuous cricket floor, and individual frogs that are clearly individuals. It stops all at once, sometimes, for two seconds, and that silence is the eeriest sound in the game.',
+      'The maximum. Three distinct layers — a cicada band that pulses about every eleven seconds, a continuous cricket floor, and individual frogs that are clearly individuals. It stops all at once, sometimes, for two seconds. That silence is the eeriest sound in the game.',
     waterPresence: 0.3,
     reverb: 'indoorSmall',
     reverbNote:

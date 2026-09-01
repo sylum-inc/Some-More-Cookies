@@ -10,6 +10,7 @@ import {
   WARN_AT_FRACTION,
   ceilingFor,
 } from '../tools/budgets.mjs';
+import { ENVIRONMENTS } from '@somemore/content';
 import { sampleRenderer, type RenderSample } from './instrument.js';
 import { driveRitual, openWorld, type StageId } from './stages.js';
 
@@ -89,10 +90,60 @@ test.describe('performance budgets', () => {
     const worstTextures = worstBy('textureBytes');
     const worstLights = worstBy('dynamicLights');
 
+    /*
+     * What this campsite's own manifest says it costs.
+     *
+     * Every environment declares `midTierDrawCalls`, `midTierTriangles` and
+     * `dynamicLights` for itself, and nothing had ever checked them: the
+     * numbers were authored intent that no measurement could contradict. Pine
+     * Hollow claims 74 draw calls and the renderer produces around 107, which
+     * is the kind of drift that only gets worse in silence.
+     *
+     * Asserted generously rather than exactly, because these are authored
+     * estimates and not contracts, and failing the suite on every one of them
+     * today would make the check something to be switched off. What it catches
+     * is an environment that has become *wildly* heavier than it was written
+     * to be — and the claim is printed beside the measurement either way, so
+     * the drift is visible to whoever next reads the report.
+     */
+    const claimed = await page.evaluate(() => {
+      const env = (window.__someMore!.store.state as unknown as { environmentId: string }).environmentId;
+      const found = window.__someMore!.environments.find((e) => e.id === env);
+      return { id: found?.id ?? env };
+    });
+    const manifest = ENVIRONMENTS.find((environment) => environment.id === claimed.id);
+    if (manifest) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `  ${manifest.id} claims ${manifest.performance.midTierDrawCalls} draw calls / ` +
+          `${manifest.performance.midTierTriangles} triangles / ${manifest.performance.dynamicLights} lights ` +
+          `(cost: ${manifest.performance.cost}); measured ${worstDraws.drawCalls} / ${worstTris.triangles} / ` +
+          `${worstLights.dynamicLights}`,
+      );
+      expect(
+        worstDraws.drawCalls,
+        `${manifest.id} is far heavier than its manifest says it is`,
+      ).toBeLessThan(manifest.performance.midTierDrawCalls * 1.8);
+      expect(
+        worstTris.triangles,
+        `${manifest.id} draws far more than its manifest says it does`,
+      ).toBeLessThan(manifest.performance.midTierTriangles * 1.8);
+    }
+
     const report = {
       tool: 'e2e/perf.spec.ts',
       what: 'Live THREE.WebGLRenderer counters, read at every ritual stage.',
       capturedAt: new Date().toISOString(),
+      claimedByEnvironment: manifest
+        ? {
+            id: manifest.id,
+            cost: manifest.performance.cost,
+            drawCalls: manifest.performance.midTierDrawCalls,
+            triangles: manifest.performance.midTierTriangles,
+            dynamicLights: manifest.performance.dynamicLights,
+            lowTierCuts: manifest.performance.lowTierCuts,
+          }
+        : null,
       budgets: {
         drawCalls: STATIC_BUDGETS.drawCalls,
         triangles: STATIC_BUDGETS.triangles,

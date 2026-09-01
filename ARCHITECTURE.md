@@ -251,6 +251,18 @@ Node 22 + TypeScript on `node:http` with a small typed router (ADR-0005). Domain
 
 **Now:** environments are validated TypeScript data objects in `packages/content`, driving procedural generation.
 
+### 9.1 Every field a manifest carries either reaches a player or is authoring metadata
+
+A manifest field that is neither is prose in a file nobody opens. This project accumulated a lot of it: an audit found **46 of 131 fields unread by the client or the simulation**, including five-beat arrival sequences for all twelve environments, three or four described landmarks per campsite, every campsite's soundscape, its firewood, its own firelight colour, and what its SM-01 tends to be like. The catalogue described twelve distinct places and the game rendered one clearing with a machine in it.
+
+**Seventeen remain unread, and they divide as follows.**
+
+*Authoring and validation metadata, correctly unread by the runtime:* `inspiration`, `biomeTags`, `invariants`, `seedStreams`, `handcrafted`, and the `performance` block (`midTierDrawCalls`, `midTierTriangles`, `dynamicLights`, `performanceCost`, `lowTierCuts`). The performance block is now *checked* by `e2e/perf.spec.ts` against what the renderer actually produces, and the claim is printed beside the measurement — Pine Hollow claims 74 draw calls and measures about 107, which is the kind of drift that only gets worse in silence.
+
+*Still genuinely unwired:* `eeriness`, `treeCover`, `prominence`, `variations`/`procedural`, `rewardCodes`. Each is a real gap and none of them is prose — they are dials and lists whose absence costs a player less than a paragraph nobody reads.
+
+**The rule going forward:** adding a field to `packages/content/src/schema.ts` means wiring it or marking it, in its own docstring, as authoring metadata. `packages/content/test/catalogue.test.ts` guards the other half of it — that no two campsites open on the same line, that no two soundscapes collapse together, that every landmark has something to say. A catalogue whose twelve campsites agree about everything is a catalogue with one campsite in it.
+
 **Designed for:** Blender → glTF/GLB with modular kits, atlases, KTX2/Draco compression, LODs, and versioned metadata schemas. Because scene composition already reads from a manifest, swapping a procedural prop for an authored GLB is a manifest edit.
 
 **Live ops** reads the same schemas, so scheduling, preview, rollback, and audit apply to identical content shapes.

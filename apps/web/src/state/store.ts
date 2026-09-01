@@ -581,11 +581,45 @@ export class Store {
    * Guarded, because this is called from a key and pointer handler: without
    * the early return every keystroke would notify every subscriber.
    */
-  /** A report that is not a transcript. See `AppState.notice`. */
+  /**
+   * A report that is not a transcript. See `AppState.notice`.
+   *
+   * It goes away again, which it did not used to. `setNotice` has always taken
+   * a `string | null` and **nothing ever passed null**: the first notice of a
+   * session went up and stayed up, replaced only by the next one, so a line
+   * about how the ground rises on three sides was still sitting over the SM-01
+   * ten minutes later when the door opened. Almost every screenshot in
+   * `artifacts/` has one of these camped on it.
+   *
+   * That is an over-correction with a traceable history. The notice channel
+   * exists because reports used to go out as subtitles and vanished without
+   * trace for anybody who had subtitles turned off — and the fix for
+   * "it disappeared too fast" became "it never leaves".
+   *
+   * The dwell is a reading speed rather than a constant, because these range
+   * from "Nothing left here worth carrying." to two lines of a campsite
+   * describing its own topography, and a fixed timer is either too short for
+   * the long ones or too long for the short ones.
+   */
   setNotice(line: string | null): void {
+    if (this.noticeTimer !== null) {
+      clearTimeout(this.noticeTimer);
+      this.noticeTimer = null;
+    }
     if (this.state.notice === line) return;
     this.set({ notice: line });
+    if (line === null) return;
+    // Roughly 12 characters a second with a floor of four seconds, capped so
+    // the longest note in the catalogue cannot camp on the screen either.
+    const dwell = Math.min(11_000, Math.max(4_000, line.length * 85));
+    this.noticeTimer = setTimeout(() => {
+      this.noticeTimer = null;
+      if (this.state.notice === line) this.set({ notice: null });
+    }, dwell);
   }
+
+  /** Cleared when the notice's dwell expires, so a report does not camp. */
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** What is around you, on request. Null puts it away. */
   setSurvey(survey: readonly string[] | null): void {

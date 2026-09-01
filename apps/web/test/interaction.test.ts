@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRitual, beginRoasting } from '@somemore/sim';
 import {
   applyRoastPose,
@@ -8,6 +8,7 @@ import {
   screenToTableOffset,
 } from '../src/interaction/roastControl.js';
 import { formatDateStamp } from '../src/interaction/photo.js';
+import { Store } from '../src/state/store.js';
 
 describe('roast control', () => {
   it('starts within the reachable band', () => {
@@ -323,5 +324,73 @@ describe('photo date stamp', () => {
 
   it('pads single digits', () => {
     expect(formatDateStamp(new Date(2003, 0, 5))).toBe("'03 01 05");
+  });
+});
+
+/**
+ * A report that goes away again.
+ *
+ * `setNotice` has always taken `string | null` and nothing ever passed null:
+ * the first notice of a session went up and stayed up, replaced only by the
+ * next one. A line about how the ground rises on three sides was still on
+ * screen over the SM-01 minutes later when the door opened, and almost every
+ * screenshot in `artifacts/` has one camped on it. Found by opening them.
+ */
+describe('the notice channel', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const store = () => new Store({ environmentId: 'pine_hollow', campsiteSeed: 'notice' });
+
+  it('shows a report and then puts it away', () => {
+    const s = store();
+    s.setNotice('Nothing left here worth carrying.');
+    expect(s.state.notice).toBe('Nothing left here worth carrying.');
+    vi.advanceTimersByTime(3_500);
+    expect(s.state.notice, 'gone before it could be read').not.toBeNull();
+    vi.advanceTimersByTime(12_000);
+    expect(s.state.notice).toBeNull();
+  });
+
+  it('holds a longer line on screen for longer', () => {
+    const shortLine = 'Ash over the coals.';
+    const longLine =
+      'A shallow bowl. The ground rises gently on three sides, which is why the smoke pools and why the site is so quiet.';
+    const a = store();
+    a.setNotice(shortLine);
+    vi.advanceTimersByTime(4_100);
+    expect(a.state.notice, 'a short line should be gone by now').toBeNull();
+
+    const b = store();
+    b.setNotice(longLine);
+    vi.advanceTimersByTime(4_100);
+    expect(b.state.notice, 'a long line should still be readable').toBe(longLine);
+  });
+
+  it('never camps, however long the line is', () => {
+    const s = store();
+    s.setNotice('x'.repeat(4000));
+    vi.advanceTimersByTime(11_001);
+    expect(s.state.notice).toBeNull();
+  });
+
+  it('lets a new report replace one still on screen, and restarts its dwell', () => {
+    const s = store();
+    s.setNotice('First.');
+    vi.advanceTimersByTime(3_000);
+    s.setNotice('Second.');
+    expect(s.state.notice).toBe('Second.');
+    // The first one's timer must not now clear the second.
+    vi.advanceTimersByTime(1_500);
+    expect(s.state.notice).toBe('Second.');
+    vi.advanceTimersByTime(4_000);
+    expect(s.state.notice).toBeNull();
+  });
+
+  it('can still be cleared by hand', () => {
+    const s = store();
+    s.setNotice('Something.');
+    s.setNotice(null);
+    expect(s.state.notice).toBeNull();
   });
 });

@@ -229,13 +229,30 @@ export function AssemblyTable({ assembly, settings, position = [0, 0, 0] }: Asse
 
   return (
     <group position={position} name="assembly-table">
-      {/* A camp lantern.
-          Assembly happens away from the fire and, by the time a player gets
-          here, the fire has usually burned down to coals — so without its own
-          light source the whole interaction renders black. A lantern on the
-          stump solves that the way a campsite would, rather than with an
-          invisible fill light. */}
-      <group position={[-0.17, 0.09, 0.13]}>
+      {/*
+        A camp lantern, standing on the stump.
+
+        Assembly happens away from the fire and, by the time a player gets
+        here, the fire has usually burned down to coals — so without its own
+        light source the whole interaction renders black. A lantern on the
+        stump solves that the way a campsite would, rather than with an
+        invisible fill light.
+
+        It was not on the stump. The group sat at y = 0.09 with its base mesh
+        another 0.02 above that, so the bottom of the lantern floated ten
+        centimetres over a table top at y = 0 — and at a radius of 0.214 on a
+        stump whose top radius is 0.2, so it was over the edge as well as above
+        it. In the assembly shot it hangs in the dark beside the table with
+        nothing under it. Found by looking at the picture; the geometry
+        confirms it, and no test could have: nothing in the suite knows what
+        rests on what.
+
+        Now it stands where the comment always said it did — base on the wood,
+        inside the rim, clear of the metal plate. The light rides down with it,
+        because a lantern lights a table from wherever the lantern is; the
+        intensity is up to compensate for the shorter throw.
+      */}
+      <group position={[-0.13, -0.01, 0.075]}>
         <mesh material={materials.plate} position={[0, 0.02, 0]} castShadow>
           <cylinderGeometry args={[0.035, 0.042, 0.02, 8]} />
         </mesh>
@@ -265,7 +282,7 @@ export function AssemblyTable({ assembly, settings, position = [0, 0, 0] }: Asse
           <torusGeometry args={[0.03, 0.003, 4, 10, Math.PI]} />
           <meshStandardMaterial color={0x6c6a66} roughness={0.6} metalness={0.5} />
         </mesh>
-        <pointLight position={[0, 0.07, 0]} distance={1.6} decay={1.5} intensity={2.6} color={0xffce8c} />
+        <pointLight position={[0, 0.07, 0]} distance={1.6} decay={1.5} intensity={3.4} color={0xffce8c} />
       </group>
 
       {/* Stump table */}

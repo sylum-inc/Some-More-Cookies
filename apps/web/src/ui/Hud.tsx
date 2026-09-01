@@ -376,25 +376,103 @@ export function Hud(props: HudProps): React.ReactElement {
         fontFamily: FONT_STACK.sans,
       }}
     >
-      {/* Corner affordances */}
+      {/*
+        The top band: the corner affordances, and the guidance line beneath
+        them.
+
+        One column, laid out by the browser, rather than two absolutely
+        positioned siblings at hand-computed offsets. The guidance line used to
+        sit at `46px * textScale` from the top with a comment saying it was
+        "placed clear of the corner controls so it never collides with them on
+        a narrow viewport" — and on every one of the three phones in the mobile
+        suite it overlapped them by eight pixels. The number could not have been
+        right: the buttons are `7px * textScale` of padding around
+        `12px * textScale` of type inside a container with a *fixed* 12px pad,
+        so their height and the guidance's offset scale at different rates and
+        no single constant clears them at every text size. It was worst for
+        exactly the players who most need the type large.
+
+        A column cannot get this wrong. The corner row takes the height it
+        takes and the line goes under it, at any scale, on any width.
+      */}
       <div
         style={{
           position: 'absolute',
           top: 'env(safe-area-inset-top, 0px)',
+          left: 'env(safe-area-inset-left, 0px)',
           right: 'env(safe-area-inset-right, 0px)',
-          padding: 12,
           display: 'flex',
-          gap: 8,
-          pointerEvents: 'auto',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          pointerEvents: 'none',
         }}
       >
-        <CornerButton label="Passport" onClick={props.onOpenPassport} textScale={textScale} highContrast={highContrast} />
-        <CornerButton label="Settings" onClick={props.onOpenSettings} textScale={textScale} highContrast={highContrast} />
+        <div
+          data-testid="corner-controls"
+          style={{
+            display: 'flex',
+            gap: 8,
+            padding: 12,
+            justifyContent: 'flex-end',
+            pointerEvents: 'auto',
+          }}
+        >
+          <CornerButton label="Passport" onClick={props.onOpenPassport} textScale={textScale} highContrast={highContrast} />
+          <CornerButton label="Settings" onClick={props.onOpenSettings} textScale={textScale} highContrast={highContrast} />
+        </div>
+
+        {/* Guidance, under the controls by construction rather than by arithmetic. */}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            padding: `${scale(4)} ${scale(16)} 0`,
+          }}
+        >
+          <span
+            role="status"
+            aria-live="polite"
+            data-testid="guidance"
+            style={{
+              fontSize: scale(13),
+              letterSpacing: '0.04em',
+              color: highContrast ? '#fff' : 'rgba(240,233,216,0.94)',
+              textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+              /*
+                A scrim, because a shadow is not enough here.
+
+                This line has to sit on whatever the world puts behind it, and
+                at thirteen pixels a drop shadow only works when the background
+                is dark. Over the SM-01's chamber — a pale grey wall filling the
+                frame — "Take it out." was very nearly invisible in the reveal
+                baseline, which is the one moment the whole ritual builds to. A
+                heavier halo was worse, not better: five black offsets around a
+                small glyph fill in its counters and the line reads as dark mush.
+
+                So the same treatment the subtitle already uses, at about half
+                its weight: enough to separate the text from anything, quiet
+                enough that it is still a line in the world rather than a panel.
+              */
+              background: 'rgba(10,9,8,0.42)',
+              padding: `${scale(3)} ${scale(9)}`,
+              borderRadius: 3,
+              textAlign: 'center',
+              // `min`, not a bare `46ch`: at the largest text scale on the
+              // narrowest phone 46ch is wider than the screen, and the line was
+              // one word from running off the side of it.
+              maxWidth: 'min(46ch, 100%)',
+              overflowWrap: 'break-word',
+            }}
+          >
+            {guidanceFor(ritual, stage, props.controls, props.withdraw)}
+          </span>
+        </div>
       </div>
 
       {/* Photo, available once there is something worth photographing */}
       {(stage === 'reveal' || stage === 'eating' || stage === 'after' || stage === 'at-fire') && (
         <div
+          data-testid="photo-control"
           style={{
             position: 'absolute',
             bottom: 'env(safe-area-inset-bottom, 0px)',
@@ -555,58 +633,6 @@ export function Hud(props: HudProps): React.ReactElement {
           <CornerButton label="Take it" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
         </div>
       )}
-
-      {/* Guidance. Placed clear of the corner controls so it never collides
-          with them on a narrow viewport. */}
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          top: `calc(${scale(46)} + env(safe-area-inset-top, 0px))`,
-          display: 'flex',
-          justifyContent: 'center',
-          padding: `0 ${scale(16)}`,
-        }}
-      >
-        <span
-          role="status"
-          aria-live="polite"
-          data-testid="guidance"
-          style={{
-            fontSize: scale(13),
-            letterSpacing: '0.04em',
-            color: highContrast ? '#fff' : 'rgba(240,233,216,0.94)',
-            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-            /*
-              A scrim, because a shadow is not enough here.
-            
-              This line has to sit on whatever the world puts behind it, and at
-              thirteen pixels a drop shadow only works when the background is
-              dark. Over the SM-01's chamber — a pale grey wall filling the
-              frame — "Take it out." was very nearly invisible in the reveal
-              baseline, which is the one moment the whole ritual builds to. A
-              heavier halo was worse, not better: five black offsets around a
-              small glyph fill in its counters and the line reads as dark mush.
-            
-              So the same treatment the subtitle already uses, at about half
-              its weight: enough to separate the text from anything, quiet
-              enough that it is still a line in the world rather than a panel.
-            */
-            background: 'rgba(10,9,8,0.42)',
-            padding: `${scale(3)} ${scale(9)}`,
-            borderRadius: 3,
-            textAlign: 'center',
-            // `min`, not a bare `46ch`: at the largest text scale on the
-            // narrowest phone 46ch is wider than the screen, and the line was
-            // one word from running off the side of it.
-            maxWidth: 'min(46ch, 100%)',
-            overflowWrap: 'break-word',
-          }}
-        >
-          {guidanceFor(ritual, stage, props.controls, props.withdraw)}
-        </span>
-      </div>
 
       {/* What is in hand, and what it is doing. Placed where the roasting
           heat readout goes, because it is the same kind of thing: a

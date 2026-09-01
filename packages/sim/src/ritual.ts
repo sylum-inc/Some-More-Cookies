@@ -1015,6 +1015,26 @@ function splashing(ritual: RitualState): number {
   return strongest;
 }
 
+/**
+ * The two beats the campsite does not talk over.
+ *
+ * `arriving` has its own five written beats, and the elevation remark's
+ * condition — "more than five and a half metres from the fire" — is true of
+ * every frame of the walk in, so the campsite's own description landed on the
+ * title card underneath them.
+ *
+ * `reveal` is the same mistake at the other end of the night. Walking to the
+ * SM-01 is walking away from the fire, so the same remark comes due; it then
+ * arrives while the player is looking into the open chamber at the thing the
+ * whole hour has been building to, and a note about the shape of the ground is
+ * not what that moment is for. Both were found by opening the screenshots.
+ *
+ * Nothing else is gated. Roasting, assembling and working the machine are all
+ * *being at the campsite*, and the wind note landing while you are tending a
+ * fire in that wind is the entire point of the remark system.
+ */
+const SILENT_STAGES: ReadonlySet<RitualStage> = new Set<RitualStage>(['arriving', 'reveal']);
+
 /** The campsite's own voice, conditioned on the night the player is in. */
 function stepThePlace(ritual: RitualState, dt: number): void {
   const presence = ritual.presence;
@@ -1056,7 +1076,7 @@ function stepWorld(ritual: RitualState, dt: number): void {
    * window, the weather and where the player is standing, all of which this
    * function has just settled.
    */
-  if (ritual.stage === 'arriving') {
+  if (SILENT_STAGES.has(ritual.stage)) {
     ritual.place.remark = null;
     ritual.place.heard = null;
   } else {

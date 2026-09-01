@@ -184,8 +184,34 @@ const MACHINE_FRONT: [number, number] = [Math.sin(LAYOUT.machineRotation), Math.
 
 /** Field of view while exploring on foot. */
 const EXPLORE_FOV = 68;
-/** Leaning in over something small. The old anchored roast pose used 44°. */
+/**
+ * Leaning in over something small. The old anchored roast pose used 44°.
+ *
+ * Per stage rather than one number, because the four close-work stages are not
+ * looking at the same thing. Roasting, assembling and loading the machine are
+ * done with your hands, and a hand needs the room around it in shot. The
+ * reveal is not a task at all — it is one small object on a shelf, and it is
+ * the shot the whole ritual builds to.
+ *
+ * That distinction had been lost. `poseFor`'s reveal case still carries the
+ * composed pose that fixed defect #36 — "0.95 m at 28°, aimed down onto the
+ * tray" — and since the camera stopped leaving the player's eyes (#27) that
+ * pose has been dead for this stage, so the sandwich went back to being seen
+ * from wherever the body happened to be standing, through the same 48° lens as
+ * everything else. Measured: **3.4% of the frame's width**, where 8% was the
+ * figure #36 called a defect. Nobody re-measured after removing the cuts, and
+ * the plan still recorded #36 as fixed.
+ *
+ * The lens is the right instrument for it — the comment on the branch below
+ * already says so: it "can do that part on its own while the camera stays
+ * where it belongs, on the player's eyes". A body cannot get closer than the
+ * machine's own collision radius allows, so the distance is fixed at about a
+ * metre and a quarter and the lens has to carry the rest.
+ */
 const CLOSE_WORK_FOV = 48;
+/** The reveal's own lens. See the note above; chosen by looking, not by arithmetic. */
+const REVEAL_FOV = 30;
+const STAGE_FOV: Readonly<Partial<Record<RitualStage, number>>> = { reveal: REVEAL_FOV };
 /**
  * How close to the fire's centre you kneel to roast.
  *
@@ -922,7 +948,9 @@ export function World({
        * camera stays where it belongs — on the player's eyes — so what is left
        * of that composed shot is the part that never needed to cost agency.
        */
-      const fovTarget = CLOSE_WORK_STAGES.has(ritual.stage) ? CLOSE_WORK_FOV : EXPLORE_FOV;
+      const fovTarget = CLOSE_WORK_STAGES.has(ritual.stage)
+        ? (STAGE_FOV[ritual.stage] ?? CLOSE_WORK_FOV)
+        : EXPLORE_FOV;
       if (Math.abs(perspective.fov - fovTarget) > 0.05) {
         perspective.fov += (fovTarget - perspective.fov) * (1 - Math.exp(-4 * delta));
         perspective.updateProjectionMatrix();

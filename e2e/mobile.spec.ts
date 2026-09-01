@@ -19,7 +19,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { SHOTS } from './helpers.js';
+import { SHOTS, hudBoxes, hudCollisions } from './helpers.js';
 import { advanceUntil } from './helpers.js';
 
 interface Device {
@@ -296,6 +296,20 @@ for (const device of DEVICES) {
       await page.waitForTimeout(900);
       await shoot(page, 'roasting', device);
       await assertNoDocumentScroll(page, 'roasting');
+
+      /*
+       * And no two heads-up channels sharing pixels, at a real phone's width.
+       *
+       * The HUD is positioned by percentage, so the narrower the screen the
+       * more of it a wrapped line takes and the likelier two channels are to
+       * meet. The one collision found so far — the notice over the reach
+       * prompt — was found on a desktop screenshot by eye; a phone is where
+       * that class of defect is *most* likely and least likely to be looked
+       * at. The SE is in this list precisely because it is the smallest thing
+       * anyone would run it on.
+       */
+      const stacked = hudCollisions(await hudBoxes(page));
+      expect(stacked, `${device.label} portrait:\n${stacked.join('\n')}`).toEqual([]);
 
       const unsafe = await edgeControlsWithoutInsets(page);
       expect(unsafe, `portrait:\n${unsafe.join('\n')}`).toEqual([]);

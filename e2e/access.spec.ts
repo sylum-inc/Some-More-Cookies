@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { act, advanceUntil, capture, readWorld, waitForWorld } from './helpers.js';
+import { act, advanceUntil, capture, hudBoxes, hudCollisions, readWorld, waitForWorld } from './helpers.js';
 
 /**
  * §12, driven rather than read.
@@ -499,41 +499,6 @@ test.describe('the machine says what it is doing', () => {
  * So: read the boxes, not the text.
  */
 test.describe('the heads-up display does not cover itself', () => {
-  const CHANNELS = ['guidance', 'notice', 'reach', 'subtitle', 'survey', 'machine-state'] as const;
-
-  /**
-   * Every HUD channel currently on screen, with its box.
-   *
-   * Off-screen elements are skipped, and that is not a technicality: the
-   * machine's state caption is `SR_ONLY`, positioned outside the viewport on
-   * purpose so a screen reader has a second channel without a caption
-   * appearing over the panel it describes. It reports a box at y = -1, and
-   * comparing it against anything is meaningless.
-   */
-  async function boxes(page: import('@playwright/test').Page) {
-    const size = page.viewportSize() ?? { width: 1280, height: 720 };
-    const found: { id: string; box: { x: number; y: number; width: number; height: number } }[] = [];
-    for (const id of CHANNELS) {
-      const locator = page.getByTestId(id);
-      if ((await locator.count()) === 0) continue;
-      const box = await locator.first().boundingBox();
-      if (!box || box.width <= 0 || box.height <= 0) continue;
-      const onScreen =
-        box.x + box.width > 0 && box.y + box.height > 0 && box.x < size.width && box.y < size.height;
-      if (onScreen) found.push({ id, box });
-    }
-    return found;
-  }
-
-  function overlaps(
-    a: { x: number; y: number; width: number; height: number },
-    b: { x: number; y: number; width: number; height: number },
-  ): boolean {
-    return (
-      a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
-    );
-  }
-
   test('no two channels share the same pixels while you are out for firewood', async ({ page }) => {
     await page.goto('/?camp=camp-hud&env=pine_hollow');
     await page.waitForFunction(() => Boolean(window.__someMore?.three));
@@ -564,21 +529,13 @@ test.describe('the heads-up display does not cover itself', () => {
     }, patch);
     await page.waitForTimeout(500);
 
-    const onScreen = await boxes(page);
+    const onScreen = await hudBoxes(page);
     // eslint-disable-next-line no-console
     console.log(`  on screen: ${onScreen.map((c) => `${c.id}@${Math.round(c.box.y)}`).join(', ')}`);
     // The two that used to collide had both better be here, or this proves
     // nothing at all.
     expect(onScreen.map((c) => c.id)).toEqual(expect.arrayContaining(['notice', 'reach']));
 
-    const collisions: string[] = [];
-    for (let i = 0; i < onScreen.length; i++) {
-      for (let j = i + 1; j < onScreen.length; j++) {
-        const a = onScreen[i]!;
-        const b = onScreen[j]!;
-        if (overlaps(a.box, b.box)) collisions.push(`${a.id} over ${b.id}`);
-      }
-    }
-    expect(collisions).toEqual([]);
+    expect(hudCollisions(onScreen)).toEqual([]);
   });
 });

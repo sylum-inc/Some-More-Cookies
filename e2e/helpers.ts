@@ -183,3 +183,77 @@ export async function runMachine(page: Page, onStage?: (name: string) => Promise
   await act(page, 'machine', { type: 'open-door' });
   await waitForWorld(page, "r.stage === 'reveal'", 'reveal');
 }
+
+/* -------------------------------------------------------------------------- */
+/* Reading the layout rather than the text                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The heads-up channels, by test id.
+ *
+ * Every one of these is absolutely positioned by percentage, which is a fine
+ * way to lay out a HUD and a bad way to find out that two of them overlap:
+ * both elements are present, both have the right text, every assertion about
+ * them passes, and one is sitting on top of the other. That is exactly how the
+ * notice came to cover the reach prompt — 19% against 18%, on a button five
+ * percent tall — and it was found by opening a screenshot rather than by any
+ * test in the suite.
+ */
+export const HUD_CHANNELS = [
+  'guidance',
+  'notice',
+  'reach',
+  'subtitle',
+  'survey',
+  'corner-controls',
+  'photo-control',
+] as const;
+
+export interface HudBox {
+  id: string;
+  box: { x: number; y: number; width: number; height: number };
+}
+
+/**
+ * Every HUD channel currently visible, with its box.
+ *
+ * Off-screen elements are skipped, and that is not a technicality: the
+ * machine's state caption is positioned outside the viewport on purpose so a
+ * screen reader has a second channel without a caption appearing over the
+ * panel it describes. It reports a box at y = -1, and comparing it against
+ * anything is meaningless.
+ */
+export async function hudBoxes(page: Page): Promise<HudBox[]> {
+  const size = page.viewportSize() ?? { width: 1280, height: 720 };
+  const found: HudBox[] = [];
+  for (const id of HUD_CHANNELS) {
+    const locator = page.getByTestId(id);
+    if ((await locator.count()) === 0) continue;
+    const box = await locator.first().boundingBox();
+    if (!box || box.width <= 0 || box.height <= 0) continue;
+    const onScreen =
+      box.x + box.width > 0 && box.y + box.height > 0 && box.x < size.width && box.y < size.height;
+    if (onScreen) found.push({ id, box });
+  }
+  return found;
+}
+
+/** Every pair of visible channels that shares pixels. */
+export function hudCollisions(boxes: readonly HudBox[]): string[] {
+  const hit = (a: HudBox['box'], b: HudBox['box']): boolean =>
+    a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+  const collisions: string[] = [];
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i] as HudBox;
+      const b = boxes[j] as HudBox;
+      if (hit(a.box, b.box)) {
+        collisions.push(
+          `${a.id} (${Math.round(a.box.x)},${Math.round(a.box.y)} ${Math.round(a.box.width)}x${Math.round(a.box.height)}) ` +
+            `over ${b.id} (${Math.round(b.box.x)},${Math.round(b.box.y)} ${Math.round(b.box.width)}x${Math.round(b.box.height)})`,
+        );
+      }
+    }
+  }
+  return collisions;
+}

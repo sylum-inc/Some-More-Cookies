@@ -329,4 +329,41 @@ describe('arriving', () => {
     expect(said).toContain('ground');
     expect(said).toContain('elevation');
   });
+
+  /*
+   * The same mistake at the other end of the night.
+   *
+   * Walking to the SM-01 is walking away from the fire, so the elevation
+   * remark comes due — and lands while the player is looking into the open
+   * chamber at the thing the whole hour has been building to.
+   */
+  it('says nothing over the reveal either', () => {
+    const ritual = createRitual({ campsiteSeed: 'reveal', environmentId: 'pine_hollow', world: worldOf() });
+    arrive(ritual);
+    // Set directly rather than driven through the machine: this is a test of
+    // the gate, and the whole SM-01 sequence in between would be testing the
+    // machine instead.
+    ritual.stage = 'reveal';
+    const said: string[] = [];
+    for (let i = 0; i < Math.round(240 / SIM_DT); i++) {
+      setPresence(ritual, { position: { x: 9, y: 0, z: 6 }, speed: 0 });
+      stepRitual(ritual, SIM_DT);
+      if (ritual.place.remark) said.push(ritual.place.remark.id);
+      if (ritual.place.heard) said.push(`heard:${ritual.place.heard.id}`);
+    }
+    expect(said).toEqual([]);
+  });
+
+  it('but goes on talking while you are tending the fire', () => {
+    const ritual = createRitual({ campsiteSeed: 'tending', environmentId: 'pine_hollow', world: worldOf() });
+    arrive(ritual);
+    ritual.stage = 'roasting';
+    const said: string[] = [];
+    for (let i = 0; i < Math.round(240 / SIM_DT); i++) {
+      setPresence(ritual, { position: { x: 9, y: 0, z: 6 }, speed: 0 });
+      stepRitual(ritual, SIM_DT);
+      if (ritual.place.remark) said.push(ritual.place.remark.id);
+    }
+    expect(said.length).toBeGreaterThan(0);
+  });
 });

@@ -270,6 +270,18 @@ A manifest field that is neither is prose in a file nobody opens. This project a
 
 Adding a field to `packages/content/src/schema.ts` means wiring it or marking it, in its own docstring, as authoring metadata. And `packages/content/test/catalogue.test.ts` holds the catalogue against the code that consumes it: that `VARIATION_ROLES` is exhaustive over the catalogue in both directions, that no campsite varies fewer than three things, that a campsite's cover and its sky openness agree, that no two campsites open on the same line, that no two soundscapes collapse together, that every landmark has something to say. A catalogue whose twelve campsites agree about everything is a catalogue with one campsite in it.
 
+### 9.1a A HUD laid out by hand-computed offsets will eventually cover itself
+
+Every channel in the heads-up display is absolutely positioned by percentage or by a pixel offset from an edge. That is a reasonable way to lay out a HUD over a 3-D scene, and it has one failure mode that no assertion about *content* can see: both elements render, both carry the right text, every test passes, and one is sitting on top of the other.
+
+It happened twice. The notice sat at 19% and the reach prompt at 18% — one percent apart on a button five percent tall — so the sentence introducing a campsite's firewood covered the control for picking any of it, at exactly the moment both appear. And the guidance line sat at `46px × textScale` with a comment claiming it was clear of the corner controls, while overlapping them on all three phones in the mobile suite.
+
+The second is the instructive one, because **no constant could have been correct**. The corner buttons are `7px × textScale` of padding around `12px × textScale` of type inside a container with a *fixed* 12px pad; their height and the guidance's offset scale at different rates, so any single number fails at some text size — and it failed worst for the players who most need large type. The fix is not a better number, it is not having one: the top band is a flex column, the corner row takes the height it takes, and the line flows beneath it.
+
+**The rule:** where two HUD channels can be on screen together, either lay them out so the browser keeps them apart, or check the boxes. `hudBoxes`/`hudCollisions` in `e2e/helpers.ts` read the bounding boxes of every visible channel; `access.spec.ts` runs it at desktop width at the moment the notice and the reach prompt collide, and `mobile.spec.ts` runs it at all three device sizes, which is where a wrapped line makes a collision likeliest and where nobody is looking.
+
+A visual baseline cannot stand in for this. It compares whole frames at a six-to-twelve per cent tolerance, measured from the fire's own flicker; one panel moving under another is a fraction of one per cent.
+
 ### 9.2 A manifest field can be written in two voices, and only one of them may reach a player
 
 `ActivityEntry.note` turned out to hold both — and it turned out not to be alone. Most of it is prose about the place — "a cane pole, a cork float, and a lantern hung over the rail" — and twenty-two of the hundred and thirteen notes also carry a sentence addressed to the team that built it: "the most patient activity in the game and people love it", "the reference implementation", "this is the reason the audio engine has a canyon impulse response".

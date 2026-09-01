@@ -76,9 +76,27 @@ describe('input intents', () => {
     });
     expect(move).toMatchObject({ blow: 0 });
 
+    // Fuel put on without a grade is a split log, and without a spot lands
+    // wherever the pit has room — which every client works out identically.
     expect(InputIntentSchema.parse({ kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak' } })).toMatchObject({
-      action: { placement: 0.6 },
+      action: { grade: 'log' },
     });
+    expect(
+      InputIntentSchema.parse({
+        kind: 'tend_fire',
+        action: { action: 'add_log', woodId: 'oak', grade: 'kindling', spot: { x: 0.1, z: -0.05 } },
+      }),
+    ).toMatchObject({ action: { grade: 'kindling', spot: { x: 0.1, z: -0.05 } } });
+    expect(InputIntentSchema.parse({ kind: 'tend_fire', action: { action: 'bank' } })).toMatchObject({
+      action: { strength: 1 },
+    });
+    // A log cannot be parked in the next county.
+    expect(
+      InputIntentSchema.safeParse({
+        kind: 'tend_fire',
+        action: { action: 'move_log', logId: 'log-1', spot: { x: 40, z: 0 } },
+      }).success,
+    ).toBe(false);
     expect(InputIntentSchema.parse({ kind: 'hold_component' })).toMatchObject({ component: null });
     expect(InputIntentSchema.parse({ kind: 'gesture', gesture: 'high_five' })).toMatchObject({
       targetAccountId: null,

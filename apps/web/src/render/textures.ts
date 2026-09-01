@@ -30,6 +30,8 @@ export type TextureKey =
   | 'frost'
   | 'ash'
   | 'ember'
+  | 'flame'
+  | 'steam'
   | 'stone'
   | 'canvas'
   | 'noise';
@@ -262,6 +264,64 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
     fill(ctx, size, '#241109');
     blotches(ctx, size, rng, ['#7a2408', '#b53c07', '#e06012', '#f08a1e'], 40, 1, Math.max(2, size / 14));
     speckle(ctx, size, rng, ['#ffb347', '#301508'], 0.2);
+  },
+
+  /**
+   * One tongue of flame, with an alpha channel.
+   *
+   * The fire used to be drawn with the `ember` tile above, which is an opaque
+   * square of coal colours: every flame in the pit was therefore a hard-edged
+   * orange rectangle, and the only reason nobody had noticed is that until the
+   * player could kneel down to the fire it was never more than a dozen pixels
+   * across. Additively blending an opaque texture does not make it a flame; it
+   * makes a lit block. This is a tongue — widest a little above the fuel,
+   * drawn to a point, hottest up its middle, and transparent everywhere else.
+   */
+  flame: (ctx, size, rng) => {
+    const image = ctx.createImageData(size, size);
+    const data = image.data;
+    for (let y = 0; y < size; y++) {
+      // 0 at the base of the tongue, 1 at the tip.
+      const v = 1 - y / (size - 1);
+      const halfWidth = 0.46 * Math.pow(1 - v, 0.7) * (0.55 + 0.45 * Math.min(1, v / 0.18));
+      for (let x = 0; x < size; x++) {
+        const across = halfWidth <= 0 ? 2 : Math.abs(x / (size - 1) - 0.5) / halfWidth;
+        let alpha = across >= 1 ? 0 : Math.pow(1 - across * across, 1.5);
+        // Densest low down, and torn up a little so the edge is not a curve.
+        alpha *= 0.5 + 0.5 * (1 - v);
+        alpha *= 0.78 + rng.range(0, 0.4);
+        const core = Math.max(0, 1 - across * 1.7) * (1 - v * 0.55);
+        const i = (y * size + x) * 4;
+        data[i] = 255;
+        data[i + 1] = Math.round(72 + core * 165);
+        data[i + 2] = Math.round(14 + core * 96);
+        data[i + 3] = Math.round(Math.min(1, alpha) * 255);
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  },
+
+  /** A wisp coming off wet wood. Widens as it rises, and goes nowhere fast. */
+  steam: (ctx, size, rng) => {
+    const image = ctx.createImageData(size, size);
+    const data = image.data;
+    for (let y = 0; y < size; y++) {
+      const v = 1 - y / (size - 1);
+      const halfWidth = 0.1 + 0.36 * v;
+      for (let x = 0; x < size; x++) {
+        const across = Math.abs(x / (size - 1) - 0.5) / halfWidth;
+        let alpha = across >= 1 ? 0 : Math.pow(1 - across * across, 1.1);
+        alpha *= Math.pow(1 - v, 1.1);
+        alpha *= 0.6 + rng.range(0, 0.55);
+        const i = (y * size + x) * 4;
+        const grey = 196 + Math.round(rng.range(0, 34));
+        data[i] = grey;
+        data[i + 1] = grey;
+        data[i + 2] = Math.round(grey * 0.97);
+        data[i + 3] = Math.round(Math.min(1, alpha) * 190);
+      }
+    }
+    ctx.putImageData(image, 0, 0);
   },
 
   stone: (ctx, size, rng) => {

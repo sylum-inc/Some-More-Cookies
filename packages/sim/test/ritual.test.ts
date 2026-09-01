@@ -382,13 +382,22 @@ describe('signals and scripting', () => {
   it('blowing out a lit marshmallow works through the ritual layer', () => {
     const ritual = createRitual({ campsiteSeed: 'blow', environmentId: 'pinewood' });
     // Ignition needs actual flames, so keep the fire fed with resinous pine.
-    tendFire(ritual, { type: 'add-log', woodId: 'pine', placement: 1 });
-    tendFire(ritual, { type: 'add-log', woodId: 'pine', placement: 1 });
+    let laid = 0;
+    const layPine = (): void => {
+      tendFire(ritual, {
+        type: 'add-log',
+        woodId: 'pine',
+        spot: { x: Math.cos(laid * 0.7) * (0.15 - laid * 0.015), z: Math.sin(laid * 0.7) * (0.15 - laid * 0.015) },
+      });
+      laid++;
+    };
+    layPine();
+    layPine();
     seconds(ritual, 20);
     beginRoasting(ritual);
     let rotation = 0;
     for (let i = 0; i < 60 * 300 && !ritual.marshmallow.burning; i++) {
-      if (i % (60 * 40) === 0) tendFire(ritual, { type: 'add-log', woodId: 'pine', placement: 1 });
+      if (i % (60 * 40) === 0) layPine();
       rotation += 0.4 * SIM_DT;
       moveMarshmallow(ritual, vec3(0.02, 0.22, 0), rotation);
       stepRitual(ritual, SIM_DT);

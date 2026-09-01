@@ -35,6 +35,8 @@ import {
   takeStone,
   takeTorchFromLog,
   tendFire,
+  describeArrangement,
+  type FuelGrade,
   toggleTorch,
   vec3,
 } from '@somemore/sim';
@@ -154,9 +156,42 @@ if (typeof window !== 'undefined') {
     actions: {
       arrive: wrap(() => arrive(store.state.ritual)),
       addLog: wrap((woodId = 'oak') =>
-        tendFire(store.state.ritual, { type: 'add-log', woodId: woodId as string, placement: 0.8 }),
+        tendFire(store.state.ritual, { type: 'add-log', woodId: woodId as string }),
       ),
       rake: wrap(() => tendFire(store.state.ritual, { type: 'rake' })),
+      bank: wrap((strength = 1) =>
+        tendFire(store.state.ritual, { type: 'bank', strength: strength as number }),
+      ),
+      fan: wrap((strength = 1) =>
+        tendFire(store.state.ritual, { type: 'fan', strength: strength as number }),
+      ),
+      /**
+       * Lays a named piece of fuel at a named place in the pit.
+       *
+       * Exists so a test can set a pit up before exercising the part that
+       * matters — dragging the wood around with a finger, which no bridge can
+       * stand in for. It is deliberately not how anything in the interface
+       * puts wood on a fire.
+       */
+      layFuel: wrap((woodId = 'oak', grade = 'log', radius = 0.12, bearing = 0) =>
+        tendFire(store.state.ritual, {
+          type: 'add-log',
+          woodId: woodId as string,
+          grade: grade as FuelGrade,
+          spot: {
+            x: Math.cos(bearing as number) * (radius as number),
+            z: Math.sin(bearing as number) * (radius as number),
+          },
+        }),
+      ),
+      moveFuel: wrap((logId: unknown, x = 0, z = 0) =>
+        tendFire(store.state.ritual, {
+          type: 'move-log',
+          logId: logId as string,
+          spot: { x: x as number, z: z as number },
+        }),
+      ),
+      arrangement: () => describeArrangement(store.state.ritual.fire),
       // --- Secondary activities (spec §5.2) --------------------------------
       // The same entry points the interface calls when a player walks up to
       // the log, the shore or the water and touches something.

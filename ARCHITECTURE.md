@@ -60,7 +60,7 @@ Pure, deterministic, framework-free. Fixed-timestep, explicitly advanced by the 
 | `rng` | Seeded, splittable PRNG (SplitMix64-derived) + derived streams so subsystems cannot desynchronise each other |
 | `math` | Clamp, lerp, smoothstep, exponential approach, damping, angle helpers |
 | `time` | Fixed-timestep accumulator, deterministic clock |
-| `fire` | Fuel/ember/oxygen/wind model, produces a heat field and visual drive signals |
+| `fire` | Fuel/ember/oxygen/wind/ash model. Fuel is positioned in the pit and its airflow, ignition heat and drying rate are derived from where it lies; produces a heat field and visual drive signals |
 | `heatfield` | Spatial radiant + convective query used by roasting |
 | `roasting` | Per-patch thermal marshmallow model (moisture → browning → char → ignition → melt/sag) |
 | `assembly` | Freeform placement with magnetic assist, alignment/squish/crumb/smear record |

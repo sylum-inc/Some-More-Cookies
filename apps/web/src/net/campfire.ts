@@ -41,6 +41,9 @@ import {
   type RitualState,
   type SandwichRecord,
   type Vec3,
+  type FuelGrade,
+  type LogSpot,
+  type LogPlacement,
 } from '@somemore/sim';
 import {
   type AuthorityObjectKind,
@@ -67,8 +70,10 @@ export const SM01_OBJECT_ID = 'obj_sm01_1';
  * Written down here so the wire mapping has something to be a function of.
  */
 export type FireAction =
-  | { type: 'add-log'; woodId: string; placement?: number }
+  | { type: 'add-log'; woodId: string; grade?: FuelGrade; spot?: LogPlacement; moisture?: number }
+  | { type: 'move-log'; logId: string; spot: Partial<LogSpot> }
   | { type: 'rake' }
+  | { type: 'bank'; strength?: number }
   | { type: 'fan'; strength?: number };
 
 /**
@@ -1034,9 +1039,18 @@ export class Campfire {
 function toTendFireAction(action: FireAction): TendFireAction | null {
   switch (action.type) {
     case 'add-log':
-      return { action: 'add_log', woodId: action.woodId, placement: action.placement ?? 0.6 };
+      return {
+        action: 'add_log',
+        woodId: action.woodId,
+        grade: action.grade ?? 'log',
+        ...(action.spot ? { spot: action.spot } : {}),
+      };
+    case 'move-log':
+      return { action: 'move_log', logId: action.logId, spot: action.spot };
     case 'rake':
       return { action: 'rake' };
+    case 'bank':
+      return { action: 'bank', strength: action.strength ?? 1 };
     case 'fan':
       return { action: 'fan', strength: action.strength ?? 1 };
     default:

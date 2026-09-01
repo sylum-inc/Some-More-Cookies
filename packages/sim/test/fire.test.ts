@@ -10,6 +10,12 @@ import {
   isEmberBed,
   rakeEmbers,
   repositionLog,
+  bankFire,
+  createBankedFire,
+  describeArrangement,
+  isBanked,
+  spotFrom,
+  PIT,
   stepFire,
   WOOD_TYPES,
   woodType,
@@ -131,20 +137,23 @@ describe('fire simulation', () => {
   });
 
   describe('oxygen', () => {
-    it('good placement raises oxygen over smothered placement', () => {
+    it('wood leaned into a tepee breathes better than wood heaped flat', () => {
       const airy = createEstablishedFire();
-      for (const l of airy.logs) l.placement = 1;
+      airy.logs.forEach((l, i) => (l.spot = spotFrom(0.14, i * 2.1, 1)));
       const smothered = createEstablishedFire();
-      for (const l of smothered.logs) l.placement = 0;
+      // Same logs, same place, lying on top of each other.
+      smothered.logs.forEach((l) => (l.spot = spotFrom(0.03, 0, 0)));
       run(airy, 20);
       run(smothered, 20);
       expect(airy.oxygen).toBeGreaterThan(smothered.oxygen);
+      expect(describeArrangement(airy)).toBe('tepee');
+      expect(describeArrangement(smothered)).toBe('heaped');
     });
 
     it('piling on too much fuel chokes the fire', () => {
       const normal = createEstablishedFire();
       const crowded = createEstablishedFire();
-      for (let i = 0; i < 6; i++) addLog(crowded, 'oak', 0.6);
+      for (let i = 0; i < 6; i++) addLog(crowded, 'oak');
       run(normal, 25);
       run(crowded, 25);
       expect(crowded.oxygen).toBeLessThan(normal.oxygen);
@@ -161,25 +170,32 @@ describe('fire simulation', () => {
       expect(fire.oxygen).toBeLessThan(base + 0.15);
     });
 
-    it('raking improves log placement', () => {
+    it('raking knocks the stack flat and pulls the ash back', () => {
       const fire = createEstablishedFire();
-      for (const l of fire.logs) l.placement = 0.2;
+      fire.logs.forEach((l) => (l.spot = spotFrom(0.1, 0.3, 0.9)));
+      fire.ashCover = 0.6;
       rakeEmbers(fire, 1);
-      expect(fire.logs.every((l) => l.placement > 0.2)).toBe(true);
+      expect(fire.ashCover).toBeCloseTo(0.05, 5);
+      expect(fire.logs.every((l) => l.spot.lean < 0.9)).toBe(true);
+      // And spreads the pile outward rather than leaving it in a heap.
+      expect(fire.logs.every((l) => Math.hypot(l.spot.x, l.spot.z) > 0.1)).toBe(true);
     });
 
-    it('repositionLog clamps to a valid range', () => {
+    it('repositionLog keeps wood inside the stone ring', () => {
       const fire = createEstablishedFire();
       const id = fire.logs[0]!.id;
-      repositionLog(fire, id, 5);
-      expect(fire.logs[0]!.placement).toBe(1);
-      repositionLog(fire, id, -3);
-      expect(fire.logs[0]!.placement).toBe(0);
+      repositionLog(fire, id, { x: 9, z: 0, lean: 5 });
+      expect(Math.hypot(fire.logs[0]!.spot.x, fire.logs[0]!.spot.z)).toBeCloseTo(PIT.ringRadius, 6);
+      expect(fire.logs[0]!.spot.lean).toBe(1);
+      repositionLog(fire, id, { lean: -3 });
+      expect(fire.logs[0]!.spot.lean).toBe(0);
+      // A partial spot moves only what it names.
+      expect(Math.hypot(fire.logs[0]!.spot.x, fire.logs[0]!.spot.z)).toBeCloseTo(PIT.ringRadius, 6);
     });
 
     it('ignores an unknown log id', () => {
       const fire = createEstablishedFire();
-      expect(() => repositionLog(fire, 'nope', 0.5)).not.toThrow();
+      expect(() => repositionLog(fire, 'nope', { lean: 0.5 })).not.toThrow();
     });
   });
 
@@ -282,13 +298,219 @@ describe('the arrival fire', () => {
     expect(fire.emberTemp).toBeGreaterThan(500);
   });
 
-  it('a fresh log brings the flames straight back', () => {
-    const fire = createEstablishedFire();
+  it('a fresh log brings the flames straight back — sooner if you rake first', () => {
+    const neglected = createEstablishedFire();
+    const tended = createEstablishedFire();
     const rng = new Rng(1);
-    for (let i = 0; i < 60 * 300; i++) stepFire(fire, SIM_DT, rng);
-    expect(fire.flame).toBeLessThan(0.25);
-    addLog(fire, 'pine', 0.85);
-    for (let i = 0; i < 60 * 45; i++) stepFire(fire, SIM_DT, rng);
-    expect(fire.flame).toBeGreaterThan(0.6);
+    for (const fire of [neglected, tended]) {
+      const own = new Rng(1);
+      for (let i = 0; i < 60 * 300; i++) stepFire(fire, SIM_DT, own);
+      expect(fire.flame).toBeLessThan(0.25);
+      // Five minutes alone and there is ash over it, which is the fire asking
+      // for a rake rather than the fire being in trouble.
+      expect(fire.ashCover).toBeGreaterThan(0.25);
+    }
+
+    rakeEmbers(tended, 1);
+    for (const fire of [neglected, tended]) {
+      addLog(fire, 'pine', { spot: spotFrom(0.1, 1.2, 0.6) });
+    }
+    for (let i = 0; i < 60 * 45; i++) stepFire(neglected, SIM_DT, rng);
+    const own = new Rng(1);
+    for (let i = 0; i < 60 * 45; i++) stepFire(tended, SIM_DT, own);
+
+    // Either way you get your fire back. Skipping the rake costs you the time
+    // it takes the new log to burn its way out from under the ash, which is
+    // the only thing neglect ever costs (spec §4.1).
+    expect(neglected.flame).toBeGreaterThan(0.45);
+    expect(tended.flame).toBeGreaterThan(neglected.flame);
+    expect(tended.flame).toBeGreaterThan(0.75);
+  });
+});
+
+describe('where you put the wood', () => {
+  it('wood on the stones dries without ever catching', () => {
+    const fire = createEstablishedFire();
+    const rack = addLog(fire, 'birch', { spot: spotFrom(PIT.ringRadius * 0.95, 1.4, 0) });
+    rack.moisture = 0.85;
+    run(fire, 240);
+    expect(rack.moisture).toBeLessThan(0.6);
+    expect(rack.ignition).toBeLessThan(0.1);
+    expect(rack.mass).toBeGreaterThan(0.98);
+  });
+
+  it('the same wet log in the middle of the bed catches once it has dried', () => {
+    const fire = createEstablishedFire();
+    const inside = addLog(fire, 'birch', { spot: spotFrom(0.05, 1.4, 0.5) });
+    inside.moisture = 0.85;
+    run(fire, 240);
+    expect(inside.ignition).toBeGreaterThan(0.25);
+  });
+
+  it('steams while it dries and stops when it is dry', () => {
+    const fire = createEstablishedFire();
+    const log = addLog(fire, 'birch', { spot: spotFrom(0.06, 0.2, 0.3) });
+    log.moisture = 0.7;
+    run(fire, 20);
+    expect(log.steam).toBeGreaterThan(0.05);
+    log.moisture = 0;
+    run(fire, 20);
+    expect(log.steam).toBeLessThan(0.02);
+  });
+
+  it('a tepee draws hard and eats wood; flat wood burns slow and banks it', () => {
+    const tepee = createEstablishedFire();
+    const flat = createEstablishedFire();
+    for (const f of [tepee, flat]) {
+      f.logs = [];
+      f.emberMass = 0.5;
+      f.emberTemp = 680;
+    }
+    const laid = 3;
+    for (let i = 0; i < laid; i++) {
+      addLog(tepee, 'oak', { spot: spotFrom(0.13, i * 2.1, 1) }).moisture = 0.02;
+      addLog(flat, 'oak', { spot: spotFrom(0.15, i * 2.1, 0) }).moisture = 0.02;
+    }
+    const tepeeEmbers = tepee.emberMass;
+    const flatEmbers = flat.emberMass;
+    // Three minutes in, while both still have wood: the chimney is a column,
+    // the flat bed is a glow.
+    run(tepee, 200);
+    run(flat, 200);
+    expect(tepee.draught).toBeGreaterThan(0.8);
+    expect(flat.draught).toBeLessThan(0.2);
+    expect(tepee.flameHeight).toBeGreaterThan(flat.flameHeight * 1.5);
+
+    // A quarter of an hour in, the tepee has eaten all three logs and the flat
+    // fire is still working through its first.
+    run(tepee, 700);
+    run(flat, 700);
+    const left = (f: FireState) => f.logs.reduce((sum, l) => sum + l.mass, 0);
+    expect(left(tepee)).toBeLessThan(0.1);
+    expect(left(flat)).toBeGreaterThan(1);
+
+    // And the trade for it: per log actually spent, the flat fire keeps far
+    // more of the wood as coals instead of sending it up the column. Build a
+    // tepee to get heat now; lay it flat to make the wood last the night.
+    const yieldOf = (f: FireState, before: number) => (f.emberMass - before) / (laid - left(f));
+    expect(yieldOf(flat, flatEmbers)).toBeGreaterThan(yieldOf(tepee, tepeeEmbers) * 1.3);
+  });
+});
+
+describe('ash, banking, and waking a fire up', () => {
+  it('ash builds on its own but never far enough to spoil the coals', () => {
+    const fire = createEstablishedFire();
+    fire.logs = [];
+    run(fire, 900);
+    expect(fire.ashCover).toBeGreaterThan(0.2);
+    expect(fire.ashCover).toBeLessThan(0.45);
+    // Which is to say: still roastable, just asking for a rake.
+    expect(isEmberBed(fire)).toBe(true);
+  });
+
+  it('banking puts the flames out and keeps the heat', () => {
+    const open = createEstablishedFire();
+    const banked = createEstablishedFire();
+    bankFire(banked, 1);
+    bankFire(banked, 1);
+    run(open, 400);
+    run(banked, 400);
+    expect(banked.flame).toBeLessThan(0.05);
+    expect(isBanked(banked)).toBe(true);
+    // Kept, not spent: the banked bed still has more coals than the open one.
+    expect(banked.emberMass).toBeGreaterThan(open.emberMass);
+    expect(banked.emberTemp).toBeGreaterThan(300);
+  });
+
+  it('a banked bed sheds rain that would knock an open one down', () => {
+    // Two beds of coals, no fuel: the state a fire is actually left in when a
+    // shower comes through, and the state it is left in overnight.
+    const open = createEstablishedFire();
+    const banked = createEstablishedFire();
+    for (const fire of [open, banked]) fire.logs = [];
+    bankFire(banked, 1);
+    bankFire(banked, 1);
+    run(open, 60);
+    run(banked, 60);
+    const openBefore = open.emberTemp;
+
+    open.rain = 1;
+    banked.rain = 1;
+    run(open, 150);
+    run(banked, 150);
+
+    expect(open.emberTemp).toBeLessThan(openBefore);
+    expect(banked.emberTemp).toBeGreaterThan(open.emberTemp + 40);
+    // And there is still a fire under there when the rain stops.
+    expect(isBanked(banked)).toBe(true);
+  });
+
+  it('rain wets wood parked at the edge but not wood standing in the fire', () => {
+    const fire = createEstablishedFire();
+    const edge = addLog(fire, 'oak', { spot: spotFrom(PIT.ringRadius * 0.95, 0.5, 0) });
+    const middle = addLog(fire, 'oak', { spot: spotFrom(0.04, 3.4, 0.6) });
+    edge.moisture = 0.1;
+    middle.moisture = 0.1;
+    fire.rain = 1;
+    run(fire, 120);
+    expect(edge.moisture).toBeGreaterThan(middle.moisture);
+  });
+
+  it('last night\u2019s coals can be woken, and a split log alone will not do it', () => {
+    // A banked pit reads dead. It is not.
+    const fire = createBankedFire();
+    expect(isBanked(fire)).toBe(true);
+    expect(fire.flame).toBe(0);
+    expect(fire.emberTemp).toBeGreaterThan(200);
+
+    // Dropping a split log on it achieves nothing, which is the lesson oak's
+    // own description is trying to teach.
+    const stubborn = createBankedFire();
+    rakeEmbers(stubborn, 1);
+    rakeEmbers(stubborn, 1);
+    addLog(stubborn, 'oak', { moisture: 0.05 });
+    run(stubborn, 240);
+    expect(stubborn.flame).toBeLessThan(0.2);
+
+    // Rake the ash back, lay an armful of fine fuel on the coals, blow on it.
+    rakeEmbers(fire, 1);
+    rakeEmbers(fire, 1);
+    fanFire(fire, 1);
+    addLog(fire, 'pine', { grade: 'tinder', moisture: 0.02 });
+    addLog(fire, 'pine', { grade: 'tinder', moisture: 0.02 });
+    for (let i = 0; i < 3; i++) addLog(fire, 'birch', { grade: 'kindling', moisture: 0.04 });
+    run(fire, 3);
+    fanFire(fire, 1);
+    run(fire, 3);
+    fanFire(fire, 1);
+    run(fire, 4);
+    // Ten seconds in it is properly alight, and the bed is already hotter.
+    expect(fire.flame).toBeGreaterThan(0.8);
+    expect(fire.emberTemp).toBeGreaterThan(450);
+
+    // Kindling does not last. What it leaves behind is a bed twice the size,
+    // and that is the bed a real log will take from.
+    run(fire, 50);
+    expect(fire.emberMass).toBeGreaterThan(0.24);
+    addLog(fire, 'pine', { moisture: 0.12, spot: spotFrom(0.11, 1.1, 0.7) });
+    run(fire, 90);
+    expect(fire.flame).toBeGreaterThan(0.8);
+    addLog(fire, 'oak', { moisture: 0.06, spot: spotFrom(0.12, 4.2, 0.7) });
+    run(fire, 240);
+    // Five minutes of tending and you have a fire worth cooking on.
+    expect(fire.emberMass).toBeGreaterThan(0.38);
+    expect(fire.emberTemp).toBeGreaterThan(560);
+  });
+
+  it('blowing on open coals makes them hotter; blowing through ash does not', () => {
+    const open = createBankedFire();
+    rakeEmbers(open, 1);
+    rakeEmbers(open, 1);
+    const buried = createBankedFire();
+    const openBefore = open.emberTemp;
+    const buriedBefore = buried.emberTemp;
+    fanFire(open, 1);
+    fanFire(buried, 1);
+    expect(open.emberTemp - openBefore).toBeGreaterThan(3 * (buried.emberTemp - buriedBefore));
   });
 });

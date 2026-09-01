@@ -18,6 +18,11 @@ import {
   fanFire,
   fireSignals,
   rakeEmbers,
+  bankFire,
+  repositionLog,
+  type FuelGrade,
+  type LogSpot,
+  type LogPlacement,
   stepFire,
   addLog,
   type FireSignals,
@@ -567,10 +572,11 @@ export function stepRitual(ritual: RitualState, dt: number = SIM_DT): void {
   stepWeather(ritual.weather, dt, stream(ritual, 'weather-step'));
   const effect = weatherFireEffect(ritual.weather);
   ritual.fire.config.ambientC = effect.ambientC;
-  // Precipitation suppresses flame gently — mood, not jeopardy.
-  if (effect.suppression > 0) {
-    ritual.fire.flame = clamp01(ritual.fire.flame - effect.suppression * 0.06 * dt);
-  }
+  // The fire is the only thing that knows what rain does to a fire, so the
+  // weather hands it the number and stays out of it. Ash sheds most of it,
+  // which is why banking is the answer to a shower rather than standing there
+  // watching it go out.
+  ritual.fire.rain = clamp01(ritual.weather.precipitation);
 
   stepFire(ritual.fire, dt, stream(ritual, 'fire'));
 
@@ -976,17 +982,34 @@ export function arrive(ritual: RitualState): void {
   setStage(ritual, 'at-fire');
 }
 
-export function tendFire(
-  ritual: RitualState,
-  action: { type: 'add-log'; woodId: string; placement?: number } | { type: 'rake' } | { type: 'fan'; strength?: number },
-): void {
+/** Everything a player can do to a fire with their hands. */
+export type FireAction =
+  | { type: 'add-log'; woodId: string; grade?: FuelGrade; spot?: LogPlacement; moisture?: number }
+  /** Arranging: the drag that moves one piece of fuel, or tips it up. */
+  | { type: 'move-log'; logId: string; spot: Partial<LogSpot> }
+  | { type: 'rake' }
+  /** Raking ash up over the coals, against rain or against tomorrow. */
+  | { type: 'bank'; strength?: number }
+  | { type: 'fan'; strength?: number };
+
+export function tendFire(ritual: RitualState, action: FireAction): void {
   if (action.type === 'add-log') {
-    const log = addLog(ritual.fire, action.woodId, action.placement ?? 0.6);
-    // Wet weather means the wood you find is damp.
-    const effect = weatherFireEffect(ritual.weather);
-    log.moisture = clamp01(log.moisture + effect.fuelMoisture * 0.4);
+    const log = addLog(ritual.fire, action.woodId, {
+      ...(action.grade === undefined ? {} : { grade: action.grade }),
+      ...(action.spot === undefined ? {} : { spot: action.spot }),
+      ...(action.moisture === undefined ? {} : { moisture: action.moisture }),
+    });
+    if (action.moisture === undefined) {
+      // Wet weather means the wood you find is damp.
+      const effect = weatherFireEffect(ritual.weather);
+      log.moisture = clamp01(log.moisture + effect.fuelMoisture * 0.4);
+    }
+  } else if (action.type === 'move-log') {
+    repositionLog(ritual.fire, action.logId, action.spot);
   } else if (action.type === 'rake') {
     rakeEmbers(ritual.fire, 1);
+  } else if (action.type === 'bank') {
+    bankFire(ritual.fire, action.strength ?? 1);
   } else {
     fanFire(ritual.fire, action.strength ?? 1);
   }

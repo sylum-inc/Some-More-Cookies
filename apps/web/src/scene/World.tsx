@@ -74,9 +74,9 @@ export const LAYOUT = {
   assemblyTable: [1.42, 0.34, 1.32] as [number, number, number],
   /** The log people sit on, and where the radio has been left. */
   logSeat: [-1.5, 0, 0.9] as [number, number, number],
-  radio: [-1.72, 0.36, 1.14] as [number, number, number],
+  radio: [-1.72, 0.36, 0.54] as [number, number, number],
   /** The torch, lying on the same log. */
-  torch: [-1.34, 0.4, 1.42] as [number, number, number],
+  torch: [-1.24, 0.4, 1.33] as [number, number, number],
   machine: [-2.75, 0, 1.75] as [number, number, number],
   /** Yaw so the machine's face (+Z in its local frame) looks into the clearing. */
   machineRotation: 1.03,
@@ -93,6 +93,29 @@ export function machineToWorld(local: [number, number, number]): [number, number
     LAYOUT.machine[1] + local[1],
     LAYOUT.machine[2] - local[0] * sin + local[2] * cos,
   ];
+}
+
+/**
+ * How close you have to come to the pit before you get down to it.
+ *
+ * Proximity rather than whatever the reach prompt currently offers: the stump
+ * of marshmallows sits nearer the landing spot than the fire does, so a player
+ * standing right over the coals was being told they were at the marshmallows
+ * and left standing up straight over them.
+ */
+const CROUCH_AT_THE_FIRE = 1.4;
+
+/**
+ * True when the player is close enough to put a hand in the pit.
+ *
+ * The same distance decides whether you are crouched over the fire and whether
+ * you can touch it, because they are the same fact. Tapping the fire from
+ * across the clearing is a *walk* — it is how you come to it — and until this
+ * was checked that same tap also raked the coals, from two and a half metres
+ * away, before the player had taken a step.
+ */
+function atThePit(player: PlayerState): boolean {
+  return Math.hypot(player.position.x, player.position.z) < CROUCH_AT_THE_FIRE;
 }
 
 /**
@@ -486,6 +509,17 @@ export interface WorldProps {
    * button the product exists to not have (spec §1.3).
    */
   onLiftSandwich?: () => void;
+  /**
+   * The piece of fuel currently under a finger, or null.
+   *
+   * Written here, read by the input layer. Arranging the fire is a drag on a
+   * five-centimetre object inside a scene where a drag otherwise turns your
+   * head, and the two would fight over every gesture: r3f's `stopPropagation`
+   * settles arguments between three.js objects, not between a canvas listener
+   * and a React handler on the element around it. So the pit says out loud
+   * when it has hold of something.
+   */
+  grabbedFuelRef?: React.MutableRefObject<string | null>;
 }
 
 export function World({
@@ -500,6 +534,7 @@ export function World({
   intentRef,
   walkable,
   onReachChange,
+  grabbedFuelRef,
 }: WorldProps): React.ReactElement {
   const { camera, gl } = useThree();
   const clock = useMemo(() => createClock(), []);
@@ -598,10 +633,22 @@ export function World({
        * the resting intent carries posture and nothing else.
        */
       const stance = STAGE_STANCE[ritual.stage];
+      /*
+       * And squatting down at the fire, which is not a stage but a place you
+       * are standing.
+       *
+       * The pit is eighty centimetres across and the eye is at one metre six.
+       * From up there the whole of the fire — how the wood is stacked, what is
+       * steaming, whether the coals are under ash — is a smudge at the bottom
+       * of the frame, and every one of those is now something the player is
+       * meant to read and act on. Nobody tends a fire standing over it. This
+       * gets them down to it, and eases back up the moment they step away.
+       */
+      const atTheFire = (ritual.stage === 'at-fire' || ritual.stage === 'after') && atThePit(player);
       intentRef.current.kneel = stance === 'kneel';
-      intentRef.current.crouch = stance === 'crouch';
+      intentRef.current.crouch = stance === 'crouch' || atTheFire;
       restingIntent.kneel = stance === 'kneel';
-      restingIntent.crouch = stance === 'crouch';
+      restingIntent.crouch = stance === 'crouch' || atTheFire;
       stepPlayer(player, walkable, anchored ? restingIntent : intentRef.current, dt);
 
       /*
@@ -700,7 +747,17 @@ export function World({
         player.position.z = Math.sin(bearing) * 2.4;
         player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
         player.facing = Math.atan2(-player.position.z, -player.position.x);
-        player.pitch = -0.1;
+        /*
+         * Looking at the fire, not over it.
+         *
+         * At a level pitch the pit sits on the very bottom edge of the frame
+         * from the landing spot — the opening image was trees and sky with the
+         * one thing you came for cut off at the chin, and the ground between
+         * you and it was off screen entirely, so a tap could not even walk you
+         * in. The eye is at one metre and a half and the fire is two and a
+         * half metres out; this is roughly where a person would be looking.
+         */
+        player.pitch = -0.32;
         player.velocity.x = 0;
         player.velocity.z = 0;
         player.moveTarget = null;
@@ -833,7 +890,7 @@ export function World({
         // a generous site cannot blow the budget on a weak device.
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
         onTakeWood={(woodId) => {
-          tendFire(ritual, { type: 'add-log', woodId, placement: 0.78 });
+          tendFire(ritual, { type: 'add-log', woodId });
           /*
            * The wood introduces itself, once, as you put it on.
            *
@@ -930,9 +987,17 @@ export function World({
         settings={settings}
         maxParticles={qualitySettings.maxParticles}
         onRake={() => {
+          if (!atThePit(player)) return;
           tendFire(ritual, { type: 'rake' });
           store.touch();
         }}
+        onMoveLog={(logId, x, z) => {
+          if (!atThePit(player)) return;
+          tendFire(ritual, { type: 'move-log', logId, spot: { x, z } });
+          store.touch();
+        }}
+        canTouch={() => atThePit(player)}
+        {...(grabbedFuelRef ? { grabbedRef: grabbedFuelRef } : {})}
       />
 
       <group position={LAYOUT.machine} rotation={[0, LAYOUT.machineRotation, 0]}>

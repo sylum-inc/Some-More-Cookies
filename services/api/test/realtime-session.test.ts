@@ -207,7 +207,7 @@ describe('a late joiner reconstructs the world exactly', () => {
       mine.push({ ...stamped, accountId: host.accountId });
     };
 
-    await record({ kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak', placement: 0.75 } } as InputIntent);
+    await record({ kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak', grade: 'log' } } as InputIntent);
     await record({ kind: 'begin_roast', objectId: MARSHMALLOW } as InputIntent);
 
     for (let i = 0; i < 45; i += 1) {

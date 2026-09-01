@@ -137,13 +137,17 @@ The SM-01 is explicitly Some More technology. It is documented, serialized, main
 
 The fire looks crunchy and PS1 but behaves systemically underneath.
 
-**Modelled:** fuel mass · wood type · moisture · ember bed temperature · oxygen/airflow · fuel placement · wind · smoke · radiant heat zones.
+**Modelled:** fuel mass · wood type · fuel grade (tinder, kindling, split log) · moisture · ember bed mass and temperature · oxygen/airflow · **where every piece of fuel lies in the pit** · ash cover · wind · rain · smoke · steam · radiant heat zones.
 
-**Behaviour:** wet wood smokes and steals heat before it burns. A stacked fire with airflow flares. A smothered fire drops to embers. Embers hold heat long after flames die and are the *better* roasting surface — not because they are gentler on any one moment, but because the window between golden and charred is wide enough to actually work in. Discovering this is a real skill expression.
+**The pit is a place, not a number.** Every piece of fuel has a position and a lean, and everything else about it is read off those: how freely air reaches it, whether the bed's heat is fierce enough to light it, and whether it merely dries. Nobody sets a lean — you choose where to put the wood, and wood laid across the pile rides up on it while wood laid on bare ash lies flat. Building a tepee is therefore the same action as leaning three logs against each other, and raking the fire is the same action as knocking that tepee down.
 
-**Forgiving.** The fire never goes out irrecoverably during a session; embers always allow recovery. There is no fuel scarcity pressure. This is not survival.
+**Behaviour:** wet wood smokes, steams and steals heat before it burns. A tepee draws like a chimney: tall flame, fast heat, and it eats your wood. The same logs knocked flat burn slowly and keep far more of themselves as coals. Radiant heat carries further than the heat that will light a log, so the stones at the edge of the pit are a drying rack — wood parked there dries for as long as you leave it and never catches. Embers hold heat long after flames die and are the *better* roasting surface, because the window between golden and charred is wide enough to actually work in. Discovering all of this is real skill expression.
 
-**Interactions:** add fuel · reposition logs · poke/rake embers · blow/fan air · adjust a windbreak.
+**Ash and banking.** Ash builds under a fire that has been burning a while and quietly chokes it — a fire left alone for ten minutes wants raking. Raked *up* over the coals instead, it becomes the technique the whole system turns on: banking starves the flame, holds the heat down in the bed, buries the fuel, and sheds rain. It is how a fire survives a shower without anyone standing over it, and how it survives the night. A campsite you have used before is found banked: grey, cold-looking, nothing moving, and two hundred degrees under the surface.
+
+**Forgiving.** The fire never goes out irrecoverably during a session; embers always allow recovery. Ash never accumulates on its own past the point where the coals stop being roastable. Rain knocks an open bed a couple of hundred degrees down and it comes straight back. There is no fuel scarcity pressure. **Neglect, weather and a badly built fire all cost you the pace of your evening and never the evening.** This is not survival.
+
+**Interactions:** lay fuel of any grade anywhere in the pit · **drag any piece of it somewhere else** · poke/rake the coals · bank the fire under ash · blow/fan air.
 
 ### 4.2 Roasting
 

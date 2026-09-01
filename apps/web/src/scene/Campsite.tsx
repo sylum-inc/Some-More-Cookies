@@ -584,12 +584,21 @@ export function Campsite({
         />
       ))}
 
-      {/* Sitting log by the fire */}
+      {/*
+        Sitting log by the fire.
+
+        Laid across the radius rather than along it, which is both how anybody
+        would put down something they meant to sit on facing a fire, and the
+        fix for the two-metre log that used to run straight out of the pit and
+        a foot into the side of the SM-01. Keep this rotation in step with
+        `LAYOUT.logSeat`, `LAYOUT.radio` and `LAYOUT.torch` in `World.tsx`,
+        which is where everything that sits on it is placed.
+      */}
       <mesh
         geometry={logGeometry}
         material={woodMaterial}
         position={[-1.5, 0.19, 0.9]}
-        rotation={[0, 0.6, 0]}
+        rotation={[0, 2.114, 0]}
         castShadow
         receiveShadow
       />

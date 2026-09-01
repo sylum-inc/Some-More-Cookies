@@ -165,7 +165,7 @@ export function App({ store }: AppProps): React.ReactElement {
         // reaching for it, the same as everything else here.
         // A little more reach than the radio: the torch lies low on the log,
         // and at 0.9 m you are standing over it and looking past it.
-        { id: 'torch', x: -1.34, z: 1.42, reach: 1.35 },
+        { id: 'torch', x: LAYOUT.torch[0], z: LAYOUT.torch[2], reach: 1.35 },
         // Everything at the water only exists where there is water.
         ...(shore && spec
           ? ([
@@ -598,7 +598,7 @@ export function App({ store }: AppProps): React.ReactElement {
       case 'woodpile': {
         const environment = getEnvironment(state.environmentId);
         const woodId = environment?.fuel.sources[0]?.woodId ?? 'oak';
-        tendFire(ritual, { type: 'add-log', woodId, placement: 0.78 });
+        tendFire(ritual, { type: 'add-log', woodId });
         audioRef.current?.playFoley('stick');
         break;
       }
@@ -701,6 +701,16 @@ export function App({ store }: AppProps): React.ReactElement {
     store.touch();
   }, [ritual, store, reportWithdraw]);
 
+  /**
+   * Set by the fire pit while a piece of fuel is being dragged.
+   *
+   * The pit's own handlers run first — they are native listeners on the canvas
+   * and these are React handlers on the element around it — so by the time a
+   * pointer event reaches here, this already says whether the gesture belongs
+   * to the wood.
+   */
+  const grabbedFuel = useRef<string | null>(null);
+
   const onPointerDown = useCallback(
     (event: React.PointerEvent) => {
       unlockAudio();
@@ -711,6 +721,9 @@ export function App({ store }: AppProps): React.ReactElement {
         beginArrival();
         return;
       }
+
+      // A piece of wood in hand. The drag belongs to the fire.
+      if (grabbedFuel.current !== null) return;
 
       // A stone in hand at the water's edge: the drag *is* the throw. It
       // takes priority over looking and walking, the same way the roasting
@@ -757,6 +770,7 @@ export function App({ store }: AppProps): React.ReactElement {
 
   const onPointerMove = useCallback(
     (event: React.PointerEvent) => {
+      if (grabbedFuel.current !== null) return;
       const gesture = throwGesture.current;
       if (gesture) {
         // Pull back for power, across for how the stone is cocked in the hand.
@@ -1283,7 +1297,7 @@ export function App({ store }: AppProps): React.ReactElement {
   const fireWantsRaking = ritual.fire.oxygen < 0.55 && ritual.fire.emberMass > 0.2;
 
   const handleAddLog = useCallback(() => {
-    tendFire(ritual, { type: 'add-log', woodId: 'oak', placement: 0.75 });
+    tendFire(ritual, { type: 'add-log', woodId: 'oak' });
     store.touch();
   }, [ritual, store]);
 
@@ -1409,6 +1423,7 @@ export function App({ store }: AppProps): React.ReactElement {
           intentRef={intentRef}
           walkable={walkable}
           onReachChange={setReach}
+          grabbedFuelRef={grabbedFuel}
         />
 
         {/* The other people, when there are any. Nothing is constructed and

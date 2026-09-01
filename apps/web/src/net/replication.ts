@@ -85,9 +85,18 @@ export function applyIntent(ritual: RitualState, intent: InputIntent): void {
       return;
     case 'tend_fire':
       if (intent.action.action === 'add_log') {
-        tendFire(ritual, { type: 'add-log', woodId: intent.action.woodId, placement: intent.action.placement });
+        tendFire(ritual, {
+          type: 'add-log',
+          woodId: intent.action.woodId,
+          grade: intent.action.grade,
+          ...(intent.action.spot ? { spot: intent.action.spot } : {}),
+        });
+      } else if (intent.action.action === 'move_log') {
+        tendFire(ritual, { type: 'move-log', logId: intent.action.logId, spot: intent.action.spot });
       } else if (intent.action.action === 'rake') {
         tendFire(ritual, { type: 'rake' });
+      } else if (intent.action.action === 'bank') {
+        tendFire(ritual, { type: 'bank', strength: intent.action.strength });
       } else {
         tendFire(ritual, { type: 'fan', strength: intent.action.strength });
       }

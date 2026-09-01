@@ -96,6 +96,16 @@ export default defineConfig({
      * exactly why it can see what `acceptance` cannot.
      */
     { name: 'access', testMatch: /access\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
+     * The fire, driven by a finger rather than by the bridge.
+     *
+     * Its own project because it fails on its own thing: not "the ritual
+     * stopped working" but "the wood in the pit is scenery again". Everything
+     * in it that matters is a real drag on a real canvas, because the whole
+     * defect it exists to catch — a verb that is modelled, tested and
+     * unperformable — is invisible to a test that calls the model directly.
+     */
+    { name: 'fire', testMatch: /[/\\]fire\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'perf', testMatch: /perf\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'visual', testMatch: /visual\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*

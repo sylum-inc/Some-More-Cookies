@@ -206,14 +206,51 @@ export const GestureValues = [
 export const GestureSchema = z.enum(GestureValues);
 export type Gesture = z.infer<typeof GestureSchema>;
 
-/** Fire tending. Note what is *absent*: there is no way to put a fire out. */
+/**
+ * Where a piece of fuel is put, on the wire.
+ *
+ * Metres from the centre of the pit, clamped to a little outside the stone
+ * ring so a hostile client cannot park a log in the next county and have every
+ * other client draw it there. The simulation clamps again on receipt.
+ */
+export const LogSpotSchema = z.object({
+  x: z.number().min(-1).max(1),
+  z: z.number().min(-1).max(1),
+  angle: z.number().min(-Math.PI * 4).max(Math.PI * 4),
+  lean: UnitIntervalSchema,
+});
+export type LogSpotWire = z.infer<typeof LogSpotSchema>;
+
+/**
+ * A place to put wood. Angle and lean are omitted on purpose: they are what
+ * the wood does when it lands, which every client works out identically from
+ * the pit it already has.
+ */
+export const LogPlacementSchema = LogSpotSchema.partial({ angle: true, lean: true });
+
+export const FuelGradeSchema = z.enum(['tinder', 'kindling', 'log']);
+
+/**
+ * Fire tending. Note what is *absent*: there is no way to put a fire out.
+ *
+ * Banking comes close and is deliberately not that — a banked fire is a fire
+ * you have put away for later, and it stays hot underneath.
+ */
 export const TendFireActionSchema = z.discriminatedUnion('action', [
   z.object({
     action: z.literal('add_log'),
     woodId: z.string().min(1).max(32).regex(/^[a-z0-9_]+$/),
-    placement: UnitIntervalSchema.default(0.6),
+    grade: FuelGradeSchema.default('log'),
+    spot: LogPlacementSchema.optional(),
+  }),
+  /** Arranging: dragging one piece of fuel to a new spot, or tipping it up. */
+  z.object({
+    action: z.literal('move_log'),
+    logId: z.string().min(1).max(48).regex(/^[a-z0-9_-]+$/i),
+    spot: LogSpotSchema.partial(),
   }),
   z.object({ action: z.literal('rake') }),
+  z.object({ action: z.literal('bank'), strength: UnitIntervalSchema.default(1) }),
   z.object({ action: z.literal('fan'), strength: UnitIntervalSchema.default(1) }),
 ]);
 export type TendFireAction = z.infer<typeof TendFireActionSchema>;

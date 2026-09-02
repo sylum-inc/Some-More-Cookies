@@ -1,0 +1,24 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist-types",
+    "rootDir": "..",
+    "types": ["node"],
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "allowJs": true,
+    "paths": {
+      "@somemore/sim": ["../packages/sim/src/index.ts"],
+      "@somemore/content": ["../packages/content/src/index.ts"],
+      "@somemore/protocol": ["../packages/protocol/src/index.ts"]
+    }
+  },
+  "include": ["**/*.ts", "../tools/**/*.mjs"],
+  "exclude": ["dist-types"],
+  "references": [
+    { "path": "../apps/web" },
+    { "path": "../packages/sim" },
+    { "path": "../packages/content" },
+    { "path": "../packages/protocol" }
+  ]
+}

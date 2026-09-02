@@ -525,7 +525,7 @@ export function App({ store }: AppProps): React.ReactElement {
     setCampfire(fire);
     fire.connect();
     const handle = window.__someMore;
-    if (handle) (handle as { campfire?: Campfire }).campfire = fire;
+    if (handle) handle.campfire = fire;
 
     return () => {
       if (subtitleTimer !== null) clearTimeout(subtitleTimer);

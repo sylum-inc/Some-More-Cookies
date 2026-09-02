@@ -29,6 +29,8 @@ export interface HudProps {
   grip?: ThrowGrip;
   /** Whether the player is sitting down, so the log can offer the opposite. */
   seated?: boolean;
+  /** Who has the roasting stick at a shared fire, when it is not you. */
+  stickHolder?: string | null;
   onUse: () => void;
   exploring: boolean;
   stage: RitualStage;
@@ -238,11 +240,15 @@ function guidanceFor(
   stage: RitualStage,
   controls: 'pointer' | 'keyboard' = 'pointer',
   withdraw = 0,
+  stickHolder: string | null = null,
 ): string {
   const keys = controls === 'keyboard';
   switch (stage) {
     case 'arriving':
-      return 'Walk toward the fire.';
+      // Not an instruction: the title card carries the one that can be
+      // followed. "Walk toward the fire." sat above "TAP TO WALK IN" and
+      // nothing moved when anybody tried to walk.
+      return 'The fire is ahead.';
     case 'at-fire':
       /*
        * A pit you left banked reads as a dead one, and it is not.
@@ -263,10 +269,34 @@ function guidanceFor(
         return 'Those coals are alive but low. They want something finer than a log to catch on.';
       }
       if (isEmberBed(ritual.fire)) return 'The fire has burned down to coals.';
+      /*
+       * What is in hand changes what the controls do, and the line has to say
+       * so. With a stone in hand a drag is the throw and the arrows wind it;
+       * "drag to look" was still at the top of the screen through the whole
+       * of it.
+       */
+      if (ritual.skipping.held) {
+        return keys
+          ? 'Up and down wind it, left and right tilt it, [ and ] spin it. T throws.'
+          : 'Pull back to wind it up, sideways for spin. Let go to throw.';
+      }
+      if (ritual.fishing.phase === 'nibble') return keys ? 'The float is under. R strikes.' : 'The float is under. Strike, now.';
+      if (ritual.fishing.phase === 'soaking' || ritual.fishing.phase === 'playing') {
+        return keys ? 'Watch the float. R strikes when it goes under.' : 'Watch the float.';
+      }
+      if (ritual.stargazing.posture === 'reclined') {
+        return keys ? 'Look up. V raises the binoculars; C sits you up.' : 'Look up, and hold something in view.';
+      }
+      if (ritual.torch.held) {
+        return keys ? 'Look around to sweep the beam. G twists the head, F puts it out.' : 'Look around to sweep the beam.';
+      }
       return keys
         ? 'Look around. WASD walks, the arrow keys look.'
         : 'Look around. Tap to walk, drag to look.';
     case 'roasting':
+      // Somebody else has the stick: there is nothing to drag and nothing
+      // to take off, and the line saying otherwise was the defect.
+      if (stickHolder) return `${stickHolder} has the stick.`;
       if (ritual.marshmallow.burning) {
         return keys
           ? 'It has caught. Press B to blow it out, or let it burn.'
@@ -366,6 +396,77 @@ export function Hud(props: HudProps): React.ReactElement {
 
   const panelBg = highContrast ? 'rgba(0,0,0,0.85)' : 'rgba(8,10,14,0.55)';
 
+  /*
+   * What is offered, filtered by the stage.
+   *
+   * The world reports whatever is within reach, and during assembly and the
+   * machine run that was a live button for the wrong thing: "Take a
+   * marshmallow" while setting a cracker down, "Poke the coals" while walking
+   * to the SM-01 under "Put it in.", and "The SM-01" for the whole of a run
+   * that takes nothing from you. Nothing is offered while assembling; at the
+   * machine, only the machine, and only while its tray is still waiting.
+   */
+  const reach = (() => {
+    const offered = props.reach;
+    if (offered === null) return null;
+    if (stage === 'assembling') return null;
+    if (stage === 'machine') return offered.id === 'machine' && ritual.machine.stage === 'idle' ? offered : null;
+    return offered;
+  })();
+
+  /*
+   * Kneeling at the pit, the bottom of the frame *is* the fire.
+   *
+   * The notice and the reach prompt both lived in the lower middle, which is
+   * fine from standing height and lands across the flame base and the log
+   * ends from a crouch — over the wood being arranged, in the one view built
+   * for arranging it. When the pit itself is what is in reach, both move up
+   * into the top band, under the guidance line, where the sky is.
+   */
+  const atThePit = reach?.id === 'fire';
+
+  const reachButton =
+    props.exploring && reach !== null ? (
+      <button
+        className="sm-focus"
+        data-testid="reach"
+        onClick={props.onUse}
+        style={{
+          background: 'rgba(8,10,14,0.66)',
+          color: 'rgba(240,232,214,0.95)',
+          border: `1px solid ${TOKENS.amber}`,
+          padding: `${9 * textScale}px ${16 * textScale}px`,
+          fontSize: scale(13),
+          letterSpacing: '0.08em',
+          borderRadius: 2,
+        }}
+      >
+        {reachLabel(reach.id, ritual, props.seated ?? false)}
+      </button>
+    ) : null;
+
+  const noticeBox =
+    props.notice !== null ? (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid="notice"
+        style={{
+          background: 'rgba(28,18,10,0.88)',
+          border: `1px solid ${TOKENS.amber}`,
+          color: '#f3e9d8',
+          padding: `${scale(7)} ${scale(14)}`,
+          fontSize: scale(12),
+          borderRadius: 3,
+          maxWidth: '76vw',
+          textAlign: 'center',
+        }}
+      >
+        {props.notice}
+      </div>
+    ) : null;
+
   return (
     <div
       style={{
@@ -464,9 +565,17 @@ export function Hud(props: HudProps): React.ReactElement {
               overflowWrap: 'break-word',
             }}
           >
-            {guidanceFor(ritual, stage, props.controls, props.withdraw)}
+            {guidanceFor(ritual, stage, props.controls, props.withdraw, props.stickHolder ?? null)}
           </span>
         </div>
+        {atThePit && noticeBox !== null && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: `${scale(6)} ${scale(16)} 0` }}>{noticeBox}</div>
+        )}
+        {atThePit && reachButton !== null && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: `${scale(8)} 0 0`, pointerEvents: 'auto' }}>
+            {reachButton}
+          </div>
+        )}
       </div>
 
       {/* Photo, available once there is something worth photographing */}
@@ -495,7 +604,7 @@ export function Hud(props: HudProps): React.ReactElement {
       {/* What is within reach. The world offers rather than presenting a menu
           (spec: contextual direct manipulation), so this appears only when
           the player has actually walked up to something. */}
-      {props.exploring && props.reach && (
+      {!atThePit && reachButton !== null && (
         <div
           style={{
             position: 'absolute',
@@ -505,22 +614,7 @@ export function Hud(props: HudProps): React.ReactElement {
             pointerEvents: 'auto',
           }}
         >
-          <button
-            className="sm-focus"
-            data-testid="reach"
-            onClick={props.onUse}
-            style={{
-              background: 'rgba(8,10,14,0.66)',
-              color: 'rgba(240,232,214,0.95)',
-              border: `1px solid ${TOKENS.amber}`,
-              padding: `${9 * textScale}px ${16 * textScale}px`,
-              fontSize: scale(13),
-              letterSpacing: '0.08em',
-              borderRadius: 2,
-            }}
-          >
-            {reachLabel(props.reach.id, ritual, props.seated ?? false)}
-          </button>
+          {reachButton}
         </div>
       )}
 
@@ -539,86 +633,76 @@ export function Hud(props: HudProps): React.ReactElement {
         this is the redundant channel, and redundant channels should not occlude
         the thing they are backing up.
       */}
-      {stage === 'roasting' && (
+      {/*
+        The roasting corner: the heat readout, and under it the keyboard path's
+        "Take it to the plate".
+
+        One column, because the two were absolutely positioned into the same
+        corner and the button sat on top of the reading — SCORCHING half buried
+        under TAKE IT TO THE PLATE, with the heat bar poking out beneath. The
+        readout is the one non-colour channel for heat (spec §12), which is
+        precisely the thing it must never lose. Hidden while somebody else has
+        the stick: there is no heat to read on a marshmallow you are not
+        holding.
+
+        The readout carries `role="status"` so a screen-reader player roasting
+        on the arrow keys hears the band change; it only changes on a band
+        change, so it does not chatter.
+      */}
+      {stage === 'roasting' && !props.stickHolder && (
         <div
           style={{
             position: 'absolute',
             left: `calc(env(safe-area-inset-left, 0px) + ${scale(14)})`,
             bottom: `calc(env(safe-area-inset-bottom, 0px) + ${scale(14)})`,
-            background: panelBg,
-            padding: `${scale(8)} ${scale(14)}`,
-            borderRadius: 2,
-            textAlign: 'left',
-            minWidth: 160,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: scale(8),
           }}
         >
-          <div style={{ fontSize: scale(11), letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.75 }}>
-            {heatLabel}
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            data-testid="heat"
+            style={{
+              background: panelBg,
+              padding: `${scale(8)} ${scale(14)}`,
+              borderRadius: 2,
+              textAlign: 'left',
+              minWidth: 160,
+            }}
+          >
+            <div style={{ fontSize: scale(11), letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.75 }}>
+              {heatLabel}
+            </div>
+            <div style={{ height: 4, background: 'rgba(255,255,255,0.16)', marginTop: 6, borderRadius: 2, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${heatFill * 100}%`,
+                  background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
+                  transition: 'width 120ms linear',
+                }}
+              />
+            </div>
+            {ritual.marshmallow.burning && (
+              <div style={{ fontSize: scale(11), marginTop: 6, color: TOKENS.ember, fontWeight: 600 }}>on fire</div>
+            )}
           </div>
-          <div style={{ height: 4, background: 'rgba(255,255,255,0.16)', marginTop: 6, borderRadius: 2, overflow: 'hidden' }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${heatFill * 100}%`,
-                background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
-                transition: 'width 120ms linear',
-              }}
+          {/* Kept mounted rather than conditionally rendered on `controls`,
+              because a virtual cursor that never fires a keydown would
+              otherwise be looking at a document where the button does not
+              exist. */}
+          <div style={props.controls === 'keyboard' ? { pointerEvents: 'auto' } : SR_ONLY}>
+            <CornerButton
+              label={ritual.marshmallow.fallen ? 'Take another' : 'Take it to the plate'}
+              onClick={props.onFinishRoasting}
+              textScale={textScale}
+              highContrast={highContrast}
             />
           </div>
-          {ritual.marshmallow.burning && (
-            <div style={{ fontSize: scale(11), marginTop: 6, color: TOKENS.ember, fontWeight: 600 }}>on fire</div>
-          )}
-        </div>
-      )}
-
-      {/* Taking the marshmallow to the plate — a physical act, not a button
-          that skips the stage.
-
-          The insets matter here more than anywhere else in the HUD: without
-          them this sits fourteen pixels above the home indicator in portrait
-          and under the notch in landscape. The other two corners already read
-          them; this one did not. */}
-      {/*
-        The last two buttons, and where they went.
-
-        Taking the marshmallow to the plate and taking the sandwich out were
-        the last two acts in the ritual that were a control rather than a thing
-        you do — the same species as the "Roast" and "Build" buttons the
-        product exists to not have (spec §1.3). They are gestures now: the
-        stick is pulled back off the fire past the edge of the coals, and the
-        sandwich is taken hold of and lifted off the tray.
-
-        The buttons are still here, and still reachable, because a gesture is
-        not a control scheme (spec §12) — but they are in the accessibility
-        tree rather than on the screen unless the player is actually using a
-        keyboard. That way a pointer or a thumb gets the ritual with nothing
-        in front of it, a Tab or a screen reader finds a real named button in
-        the ordinary place, and neither is a degraded version of the other.
-
-        Kept mounted rather than conditionally rendered on `controls`, because
-        a virtual cursor that never fires a keydown would otherwise be looking
-        at a document where the button does not exist.
-      */}
-      {stage === 'roasting' && (
-        <div
-          style={
-            props.controls === 'keyboard'
-              ? {
-                  position: 'absolute',
-                  left: 'env(safe-area-inset-left, 0px)',
-                  bottom: 'env(safe-area-inset-bottom, 0px)',
-                  padding: 14,
-                  pointerEvents: 'auto',
-                }
-              : SR_ONLY
-          }
-        >
-          <CornerButton
-            label={ritual.marshmallow.fallen ? 'Take another' : 'Take it to the plate'}
-            onClick={props.onFinishRoasting}
-            textScale={textScale}
-            highContrast={highContrast}
-          />
         </div>
       )}
 
@@ -742,42 +826,18 @@ export function Hud(props: HudProps): React.ReactElement {
         — the §12 rule about single channels, applied to the product's own
         error reporting.
       */}
-      {props.notice !== null && (
+      {!atThePit && noticeBox !== null && (
         <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          data-testid="notice"
           style={{
             position: 'absolute',
             left: '50%',
-            /*
-             * Clear of the reach prompt, which sits at 18%.
-             *
-             * This was at 19%, one percent above a button about five percent
-             * tall, so the two occupied the same band and the notice — later in
-             * the DOM — covered it. The moment it mattered most was the one it
-             * broke: walking up to a fuel patch fires the notice that
-             * introduces the wood, exactly when the "Gather tinder" prompt
-             * appears, so the line telling you what this place is sat on top of
-             * the control for taking any of it.
-             *
-             * Found by looking at the screenshot. Both elements were present,
-             * both had the right text, and every assertion about them passed.
-             */
+            // Clear of the reach prompt at 18%: the two shared a band once, and
+            // the notice introducing the wood covered the control for taking it.
             bottom: '26%',
             transform: 'translateX(-50%)',
-            background: 'rgba(28,18,10,0.88)',
-            border: `1px solid ${TOKENS.amber}`,
-            color: '#f3e9d8',
-            padding: `${scale(7)} ${scale(14)}`,
-            fontSize: scale(12),
-            borderRadius: 3,
-            maxWidth: '76vw',
-            textAlign: 'center',
           }}
         >
-          {props.notice}
+          {noticeBox}
         </div>
       )}
 

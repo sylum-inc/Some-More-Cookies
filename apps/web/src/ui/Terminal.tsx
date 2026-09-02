@@ -86,7 +86,6 @@ export function Terminal({ sandwich, onClose, textScale, sync }: TerminalProps):
     const source = [
       'SOME MORE · ORDER TERMINAL',
       '',
-      `UNIT ${sandwich.machine.serial}`,
       `ITEM SM-CLASSIC · ROASTED MARSHMALLOW ICE CREAM SANDWICH`,
       '',
       'GRAHAM CRACKER COOKIE',
@@ -282,15 +281,18 @@ export function Terminal({ sandwich, onClose, textScale, sync }: TerminalProps):
                     {order.stage === 'unavailable' ? 'PAYMENT UNAVAILABLE' : 'ORDER NOT COMPLETED'}
                   </div>
                   <p style={{ margin: 0, lineHeight: 1.7, color: '#6fa9c9' }}>{order.reason}</p>
-                  {order.stage === 'unavailable' && (
+                  {/* In the terminal's own voice. The engineering note that
+                      used to print here belongs in the README, not on a
+                      readout the player is looking at. */}
+                  {order.stage === 'unavailable' ? (
                     <p style={{ marginTop: px(12), marginBottom: 0, color: '#6fa9c9', lineHeight: 1.7 }}>
-                      The order domain, the payment abstraction, idempotency and the fulfilment state machine are
-                      implemented and tested. They are waiting on live credentials, not on code.
+                      THE DEPOT CANNOT TAKE PAYMENT TONIGHT. THE ONE YOU MADE IS YOURS.
+                    </p>
+                  ) : (
+                    <p style={{ marginTop: px(12), marginBottom: 0, color: '#3c8f74' }}>
+                      Apple Pay · Google Pay · Card
                     </p>
                   )}
-                  <p style={{ marginTop: px(12), marginBottom: 0, color: '#3c8f74' }}>
-                    Apple Pay · Google Pay · Card
-                  </p>
                 </div>
               )}
 

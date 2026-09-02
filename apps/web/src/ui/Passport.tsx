@@ -207,7 +207,7 @@ export function Passport({
                 >
                   <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(14) }}>{stub.awarded}</div>
                   <div style={{ color: TOKENS.inkSoft }}>
-                    {stub.batchId} · {new Date(stub.redeemedAt).toLocaleDateString()}
+                    {new Date(stub.redeemedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
                   </div>
                 </div>
               ))}
@@ -365,7 +365,9 @@ function SandwichReceipt({
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: px(10), flexWrap: 'wrap' }}>
         <strong style={{ letterSpacing: '0.14em' }}>{sandwich.class.toUpperCase()}</strong>
-        <span style={{ color: TOKENS.inkSoft }}>{new Date(savedAt).toLocaleString()}</span>
+        <span style={{ color: TOKENS.inkSoft }}>
+          {new Date(savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+        </span>
       </div>
       <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(14), margin: `${px(4)} 0 ${px(6)}` }}>
         {sandwich.caption}

@@ -686,11 +686,51 @@ export function World({
     [settings],
   );
 
+  /**
+   * Arriving puts the player at the fireside wherever they were before, so
+   * every route into the campsite lands the same way — including tests and
+   * links that skip the walk.
+   *
+   * Called from inside the step, *before* the world is asked where the player
+   * is. It used to run after the step, so the first step at the fire ran with
+   * the player still at the trail head: the place model read a position
+   * twenty metres out, decided you had just walked somewhere new, and put its
+   * remark about the lie of the land across the fire on the very first
+   * frame — every session.
+   */
+  const landed = useRef(false);
+  const landAtTheFire = (): void => {
+    const bearing = LAYOUT.playerBearing;
+    player.position.x = Math.cos(bearing) * 2.4;
+    player.position.z = Math.sin(bearing) * 2.4;
+    player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
+    player.facing = Math.atan2(-player.position.z, -player.position.x);
+    /*
+     * Looking at the fire, not over it.
+     *
+     * At a level pitch the pit sits on the very bottom edge of the frame
+     * from the landing spot — the opening image was trees and sky with the
+     * one thing you came for cut off at the chin, and the ground between
+     * you and it was off screen entirely, so a tap could not even walk you
+     * in. The eye is at one metre and a half and the fire is two and a
+     * half metres out; this is roughly where a person would be looking.
+     */
+    player.pitch = -0.32;
+    player.velocity.x = 0;
+    player.velocity.z = 0;
+    player.moveTarget = null;
+  };
+
   useFrame((_, delta) => {
     const frameStart = typeof performance !== 'undefined' ? performance.now() : 0;
 
     // --- Simulation ------------------------------------------------------
     advance(clock, delta, (dt) => {
+      if (ritual.stage === 'arriving') landed.current = false;
+      else if (!landed.current) {
+        landed.current = true;
+        landAtTheFire();
+      }
       // The player moves in every stage; the anchored stages simply stop
       // taking movement input, so the world keeps simulating around them.
       /*
@@ -833,27 +873,6 @@ export function World({
       // Done here rather than at the end of the walk-in animation so that
       // every route into the campsite lands the same way — including tests
       // and links that skip the walk.
-      if (lastStage.current === 'arriving' && ritual.stage !== 'arriving') {
-        const bearing = LAYOUT.playerBearing;
-        player.position.x = Math.cos(bearing) * 2.4;
-        player.position.z = Math.sin(bearing) * 2.4;
-        player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
-        player.facing = Math.atan2(-player.position.z, -player.position.x);
-        /*
-         * Looking at the fire, not over it.
-         *
-         * At a level pitch the pit sits on the very bottom edge of the frame
-         * from the landing spot — the opening image was trees and sky with the
-         * one thing you came for cut off at the chin, and the ground between
-         * you and it was off screen entirely, so a tap could not even walk you
-         * in. The eye is at one metre and a half and the fire is two and a
-         * half metres out; this is roughly where a person would be looking.
-         */
-        player.pitch = -0.32;
-        player.velocity.x = 0;
-        player.velocity.z = 0;
-        player.moveTarget = null;
-      }
       // Capture where the player was standing as the interaction begins.
       if (isAnchored(ritual.stage) && !isAnchored(lastStage.current)) {
         anchorBearing.current = bearingFromFire(player);

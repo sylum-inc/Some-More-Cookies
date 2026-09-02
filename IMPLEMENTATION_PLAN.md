@@ -673,8 +673,13 @@ Three tests were right for the wrong reasons, and one fix was.
 - The two-browser suite's guest sometimes reached its own campsite alone
   with "no join message arrived". Its first frame took eleven seconds on this
   machine and the service closes an unjoined socket at ten; the socket had
-  been opened before the draw that stalled the thread. It now opens two
-  frames after mount, which is after that draw.
+  been opened before the draw that stalled the thread. The first fix opened it
+  two animation frames after mount, on the theory that the stall was in the
+  commit before them. CI then measured a guest first frame of 13.4 s with the
+  two frames already gone by, and failed the same way on one of two runs of
+  the same commit. The gate is now the render loop's own second frame, and
+  the transport treats "Join timed out" as a reason to ask again rather than
+  as a refusal, since a slow phone will meet the same ten-second window.
 - The same suite waited on a page it had put in the background, where
   Chromium throttles the frame loop the shared tick rides on. Its own comment
   said "one page at a time, each in front while it waits"; now every

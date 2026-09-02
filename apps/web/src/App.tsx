@@ -287,6 +287,9 @@ export function App({ store }: AppProps): React.ReactElement {
     camera: THREE.Camera;
   } | null>(null);
   const audioRef = useRef<AudioBridge | null>(null);
+  /** Frames the render loop has reported, and who is waiting on the second. */
+  const framesDrawn = useRef(0);
+  const onDrawn = useRef<(() => void) | null>(null);
   const syncRef = useRef<SyncEngine | null>(null);
   const campsiteIdRef = useRef<string | null>(null);
   /**
@@ -552,7 +555,7 @@ export function App({ store }: AppProps): React.ReactElement {
     store.campfire = fire;
     setCampfire(fire);
     /*
-     * The socket opens after the first frame, not before it.
+     * The socket opens after the world has drawn, not before it.
      *
      * The first draw compiles every material in the scene, and on a slow
      * device that is a stall of several seconds during which nothing else on
@@ -560,24 +563,26 @@ export function App({ store }: AppProps): React.ReactElement {
      * opening with the join message. The service closes a socket that has
      * not joined within ten seconds, reasonably, so a page whose first frame
      * took eleven was told "no join message arrived" and reached its own
-     * campsite alone. Two animation frames after mount is after that draw.
+     * campsite alone.
+     *
+     * This waited two animation frames after mount, on the theory that the
+     * stall was in the commit before them. It was not, or not all of it: on a
+     * runner with two browsers the guest's first frame took thirteen seconds
+     * and the two frames had already gone by. So the gate is now the fact
+     * itself — the render loop reporting its second frame, which is after the
+     * first one has been drawn — and the transport also asks again if the
+     * service gave up waiting (see `joinCameTooLate`).
      */
     let cancelled = false;
-    const connectAfterFirstFrame = (): void => {
-      if (typeof requestAnimationFrame !== 'function') {
-        fire.connect();
-        return;
-      }
-      let frames = 0;
-      const tick = (): void => {
+    if (framesDrawn.current >= 2) {
+      fire.connect();
+    } else {
+      onDrawn.current = () => {
         if (cancelled) return;
-        frames += 1;
-        if (frames >= 2) fire.connect();
-        else requestAnimationFrame(tick);
+        onDrawn.current = null;
+        fire.connect();
       };
-      requestAnimationFrame(tick);
-    };
-    connectAfterFirstFrame();
+    }
     const handle = window.__someMore;
     if (handle) handle.campfire = fire;
 
@@ -1723,9 +1728,12 @@ export function App({ store }: AppProps): React.ReactElement {
     store.touch();
   }, [ritual, store]);
 
-  // Adaptive quality from measured frame time.
+  // Adaptive quality from measured frame time, and the count of frames the
+  // loop has reported, which is what the socket waits on above.
   const onFrame = useCallback(
     (frameMs: number) => {
+      framesDrawn.current += 1;
+      if (framesDrawn.current === 2) onDrawn.current?.();
       const next = adaptive.sample(frameMs);
       if (next !== quality) setQuality(next);
     },

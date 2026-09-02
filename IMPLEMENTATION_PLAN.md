@@ -34,10 +34,10 @@ containing one line). Everything below was built from zero.
 | Media storage · photo upload · campsite memory sync | ✅ |
 | Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**1,569 unit, integration and seam tests across 89 files**, plus Playwright
+**1,755 unit, integration and seam tests across 99 files**, plus Playwright
 projects for acceptance, activities, accessibility, multiplayer, offline boot,
 service-worker update, mobile layout, night legibility, code redemption, the
-live-ops console, performance budgets and visual regression. 23 further tests
+live-ops console, performance budgets and visual regression. 26 further tests
 run only against Postgres. Every one of those thirteen projects runs in CI —
 five as their own job, the rest as a named matrix entry — because eight of them
 were green and enforced by nobody until this was checked.
@@ -612,6 +612,88 @@ That is the reason the fix prints the number.
 
 ---
 
+### Session 8: seven readers, and thirty-seven things they found
+
+The first structured review of the product as a player meets it: five
+readers, one per surface (the ritual; the fire and the campsite; the
+activities and the night; everything that is not the world; two people at
+one fire), each made to open every screenshot in its surface and cite the
+picture or the line, and two skeptics whose only job was to refute what the
+readers said. The skeptics confirmed thirty, downgraded seven and refuted
+none, which says less about the readers than about how much there was to
+find by looking. All thirty-seven are landed. The table records what a
+player saw and what changed; the pictures are in `artifacts/screenshots/`.
+
+| # | A player saw | Now |
+| --- | --- | --- |
+| F1, F23 | SCORCHING half buried under TAKE IT TO THE PLATE in the bottom-left corner — the one non-colour channel for heat, covered | One bottom-left column: readout above, keyboard button below, and the readout is a live region (F29) |
+| F2 | The s'more vanished when the top cracker went on; "Put it in." over an empty lit tray; a run happened to nothing | `PlacedStack` draws the layers as built, on the plate and then on the SM-01's tray from the moment it is loaded, visible through the smoked window |
+| F3 | On two of three phones the reveal opened on the chamber wall with the sandwich out of shot | A 44° lens on a portrait frame, and a look goal that is not abandoned while the eye is still settling |
+| F4 | "Take a marshmallow" while setting a cracker down; "Poke the coals" on the way to the machine; "The SM-01" for a whole run | Nothing offered while assembling; at the machine only the machine, and only while the tray is waiting |
+| F5 | The frost note across the machine ten seconds later, over the first bite, doubled with the vapour subtitle | Cleared when the sandwich is in hand |
+| F6 | "Walk toward the fire." above "TAP TO WALK IN", and nothing moved when they tried | "The fire is ahead." |
+| F7 | Complete looked like freezing with a different word on the readout | Rime on the window, where frost is legible, growing with the run |
+| F8 | Ten bright coals sitting on top of grey ash under "heat still under it" | The coals' emissive light follows the ash |
+| F9 | The notice and the reach prompt across the flame base and the log ends in the crouched view | Both move up into the top band while the pit is what is in reach |
+| F10 | The lie-of-the-land remark boxed over the fire on the first frame of every session | The landing happens inside the step, before the world is asked where you are |
+| F11 | A tepee and the same logs raked flat looked alike; the fire's own vocabulary for it reached nobody | Moving a log says what the arrangement has become, when it changes |
+| F12 | A frame ninety-five per cent black at the tinder patch; a torch disc with no sticks in it | Thicker, paler dead wood on a low heap of litter |
+| F13 | BANK THE COALS floating at mid-left over a healthy fire whenever rain was a minute out | The assist column is an assist: only under simplified gestures. The weather speaks for itself |
+| F14 | "Take a log" with the pile behind you and out of frame | An arc on the woodpile and the patches, from a step away; standing on a thing, it is in reach whichever way you face |
+| F15 | No plume over the soaked log the frame exists to show drying | The wisp has a floor under the quantiser and a little firelight in it |
+| F16 | Lying back, the binoculars, the beam's width and "what is around me?" existed on four keys and nowhere else | An acts row in the top band, only while each applies |
+| F17 | "Drag to look" with a stone in hand, when a drag was the throw | The guidance says what the thing in hand makes the controls do |
+| F18 | "[you pick the torch up off the log]" still on screen through the sweep and the refocus | Any subtitle expires |
+| F19 | "Pick up a stone" under "The float goes under." | With the line out, the rod is what is offered |
+| F20 | "Saw-whet owl" as a subtitle over an empty picture, the moment it spawned twenty metres out | "[something, out past the firelight]" when it appears; its name once it has settled in |
+| F21 | Binoculars darkened the HUD and changed nothing in view | A 22° lens; the vignette sits under the controls |
+| F22 | A fifteen-centimetre grey cylinder on a dark log, reachable only by a button that appeared within 1.35 m | The torch, the stones, the rod and the radio can be tapped, gated by the same reach |
+| F24 | "The order domain, the payment abstraction, idempotency and the fulfilment state machine are implemented and tested" on a readout the player is looking at | "THE DEPOT CANNOT TAKE PAYMENT TONIGHT. THE ONE YOU MADE IS YOURS." |
+| F25 | Settings ended cleanly after Resolution with Assists, Keys and Sound below the fold and no sign of them | A fade at the panel's bottom edge |
+| F26 | The serial printed twice | Once |
+| F27 | "No voice here" above a live volume slider | Disabled, and it says so |
+| F28 | "9/2/2026, 1:09:46 AM" and "bat_-VRqBn9M" on keepsake pages | A date and a time; the id gone |
+| F30 | A `?fire=` link on the static site opened a plain campsite with no word said | "That link led to somebody else's fire, and this campsite has no signal tonight. This one is your own." |
+| F31 | "AT THE FIRE · 2" and a frozen figure for the rest of the night after the socket dropped | The others leave the way a dropped connection leaves |
+| F32 | After the pass, still coached to drag it in and out, meter lit, "Take it to the plate" offered | "Moss Larch has the stick." and nothing else |
+| F33 | The name over the other person, a row of dots in the guest view | Baked near the size it is seen: glyphs that fill the canvas, on a wider plate |
+| F34 | The only way to pass the stick was a panel button one thumb-width from "Block" | Hold the marshmallow within arm's reach of somebody for a moment and it is offered, through the same rule |
+| F35 | A scanned camp invite: "That is an invitation to somebody else's fire." and nothing | The service says where an invite leads — `GET /v1/invites/:token`, the token being the credential — and the page walks down the link, invite in hand |
+| F36 | A bearer token in a pasted link was a credential on the public site | Honoured only in a harness build, and stripped from the address either way |
+| F37 | A line from somebody else, and no way in sight to answer | The first time, once: how to answer |
+
+**What the verification of it found, which is the part worth keeping.**
+Three tests were right for the wrong reasons, and one fix was.
+
+- The banking test "taps the middle of the pit to rake it back open". It had
+  been tapping the reach button that stood over the pit at 18% from the
+  bottom; with the button moved (F9) the tap found a log standing at the pit
+  centre and moved it nowhere. A tap on a log is now a poke at the bed, which
+  is what the sentence always claimed.
+- The two-browser suite's guest sometimes reached its own campsite alone
+  with "no join message arrived". Its first frame took eleven seconds on this
+  machine and the service closes an unjoined socket at ten; the socket had
+  been opened before the draw that stalled the thread. It now opens two
+  frames after mount, which is after that draw.
+- The same suite waited on a page it had put in the background, where
+  Chromium throttles the frame loop the shared tick rides on. Its own comment
+  said "one page at a time, each in front while it waits"; now every
+  cross-page wait does.
+
+- F2's own fix was the fourth. The stack was drawn on the tray, the pane's
+  opacity was lowered so it would show, the visual project went green twice,
+  and the regenerated `processing.png` still showed a blank grey square. The
+  smoked window had been a plate glued to the face of a solid 55 mm door, with
+  a solid rubber gasket behind that; nothing had ever been visible through
+  it, and its comment said you could watch the transformation happen. The
+  door and the gasket are now frames around a hole, and the pane sits in it.
+
+The pattern is defect 50's again: a green test is a claim about what it
+measured, not about what it says it measured. A regenerated baseline is not
+verification either, until somebody opens it.
+
+---
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full
@@ -709,7 +791,7 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 
 | # | Shortfall | Why it matters | What it needs |
 | --- | --- | --- | --- |
-| S1 | **Two affordances are still HUD buttons.** Taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The woodpile and the ember bed are now touched directly, and which log you reach for decides what wood goes on the fire. | The remaining two are transitions rather than manipulations, so they read less wrongly — but the spec's spirit is that you carry the marshmallow, not press "take". | Drag the roasting stick to the plate; pick the sandwich off the tray. Both buttons stay as an accessibility fallback for anyone who cannot drag. |
+| S1 | **Two affordances are still HUD buttons, and four acts are now offered as buttons rather than keys.** Lying back, the binoculars, the beam's width and the survey had no way in except a key (Session 8, F16); they are offered in the top band while they apply, which is the same compromise as the two below, made for the same reason. Taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The woodpile and the ember bed are now touched directly, and which log you reach for decides what wood goes on the fire. | The remaining two are transitions rather than manipulations, so they read less wrongly — but the spec's spirit is that you carry the marshmallow, not press "take". | Drag the roasting stick to the plate; pick the sandwich off the tray. Both buttons stay as an accessibility fallback for anyone who cannot drag. |
 | S2 | **Never run on a touch device.** | Roasting is a two-axis drag; risk R7 is unresolved without a thumb on real glass. | A device lab, or at minimum a phone. |
 | S3 | **Never profiled on real hardware.** | The 60 FPS target is unverified; SwiftShader here cannot answer it. | Real device profiling against the budgets in ARCHITECTURE §10. |
 | S4 | ~~Multiplayer is architected, not built.~~ **Built.** RFC 6455 framing, handshake, rooms, authority hand-off with fencing, blocks and anti-grief, all with no new dependencies. Voice is behind a LiveKit adapter that reports "not configured" without credentials. Proximity mixing now applies `proximityGain` per track per frame, with the panner's own distance model turned off so the two curves cannot multiply. | — | Remaining: participant truth is in-process rather than read from a provider, because there is no provider and no WebRTC SDK in this build. `attach(accountId, stream)` is the seam it arrives through. |

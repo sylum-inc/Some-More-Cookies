@@ -47,6 +47,47 @@ const CHAMBER = {
   frontDepth: 0.06,
 };
 
+/** A rectangle in the door's own frame: centre, extent, and where it sits in depth. */
+interface Slab {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  z: number;
+  depth: number;
+}
+
+/** The door leaf, hinged at the group origin on its left edge. */
+const DOOR: Slab = { x: 0.29, y: 0, width: 0.58, height: 0.48, z: 0.012, depth: 0.055 };
+/** The rubber seal on its inner face. */
+const GASKET: Slab = { x: 0.29, y: 0, width: 0.56, height: 0.46, z: -0.016, depth: 0.012 };
+/** The smoked window cut through both. */
+const WINDOW = { x: 0.29, y: 0.03, width: 0.34, height: 0.24 };
+
+/**
+ * A slab with a rectangular hole in it, as four boxes: a band above the hole,
+ * a band below, and a jamb either side between them.
+ */
+function doorFrame(
+  slab: Slab,
+  hole: { x: number; y: number; width: number; height: number },
+): ReadonlyArray<{ x: number; y: number; width: number; height: number }> {
+  const top = slab.y + slab.height / 2;
+  const bottom = slab.y - slab.height / 2;
+  const left = slab.x - slab.width / 2;
+  const right = slab.x + slab.width / 2;
+  const holeTop = hole.y + hole.height / 2;
+  const holeBottom = hole.y - hole.height / 2;
+  const holeLeft = hole.x - hole.width / 2;
+  const holeRight = hole.x + hole.width / 2;
+  return [
+    { x: slab.x, y: (top + holeTop) / 2, width: slab.width, height: top - holeTop },
+    { x: slab.x, y: (bottom + holeBottom) / 2, width: slab.width, height: holeBottom - bottom },
+    { x: (left + holeLeft) / 2, y: hole.y, width: holeLeft - left, height: hole.height },
+    { x: (right + holeRight) / 2, y: hole.y, width: right - holeRight, height: hole.height },
+  ];
+}
+
 export function Machine({ machine, settings, onAction, hintEnabled = true }: MachineProps): React.ReactElement {
   const doorRef = useRef<THREE.Group>(null);
   const leverRef = useRef<THREE.Group>(null);
@@ -80,7 +121,10 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
         roughness: 0.3,
         metalness: 0.1,
         transparent: true,
-        opacity: 0.72,
+        // Smoked, not opaque: the file's own first line says you can watch
+        // the transformation happen, and at 0.72 the s'more on the tray was
+        // invisible behind it for the whole run.
+        opacity: 0.55,
       }),
     [settings],
   );
@@ -485,30 +529,52 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       )}
 
       <group ref={doorRef} position={[-0.29, 0.56, BODY.depth / 2 + 0.005]}>
+        {/*
+          The door is a frame around the window, not a slab with a pane glued
+          to its face.
+
+          It was a slab. The smoked pane sat proud of an unbroken 55 mm of
+          enamel, so nothing behind it could ever show: the s'more on the tray
+          was drawn every frame of the run and seen in none of them, and the
+          pane's own comment -- "you can watch the transformation happen" --
+          was a description of an intention. The same is true of the gasket
+          behind it, which was a second solid sheet. Both are cut the way the
+          chamber mouth is cut into the front face above.
+        */}
+        {doorFrame(DOOR, WINDOW).map((piece, i) => (
+          <mesh
+            key={`door-${i}`}
+            material={enamel}
+            position={[piece.x, piece.y, DOOR.z]}
+            castShadow
+            onClick={canClose ? act({ type: 'close-door' }) : canOpen ? act({ type: 'open-door' }) : undefined}
+            {...pointerProps('door')}
+          >
+            <boxGeometry args={[piece.width, piece.height, DOOR.depth]} />
+          </mesh>
+        ))}
+        {/* Smoked window, set into the hole: you can watch the transformation happen */}
         <mesh
-          material={enamel}
-          position={[0.29, 0, 0.012]}
-          castShadow
+          material={smokedPlastic}
+          position={[WINDOW.x, WINDOW.y, 0.024]}
           onClick={canClose ? act({ type: 'close-door' }) : canOpen ? act({ type: 'open-door' }) : undefined}
           {...pointerProps('door')}
         >
-          <boxGeometry args={[0.58, 0.48, 0.055]} />
-        </mesh>
-        {/* Smoked window — you can watch the transformation happen */}
-        <mesh material={smokedPlastic} position={[0.29, 0.03, 0.042]}>
-          <boxGeometry args={[0.34, 0.24, 0.012]} />
+          <boxGeometry args={[WINDOW.width, WINDOW.height, 0.048]} />
         </mesh>
         {/* Rime on the glass. The shell's frost sheet is capped so the
             cabinet does not wash out to a white slab, which left "complete"
             indistinguishable from "freezing" except for the readout. The
             window is where frost is legible, and where it grows first. */}
-        <mesh ref={windowFrostRef} material={windowFrostMaterial} position={[0.29, 0.03, 0.0495]}>
-          <planeGeometry args={[0.34, 0.24]} />
+        <mesh ref={windowFrostRef} material={windowFrostMaterial} position={[WINDOW.x, WINDOW.y, 0.0495]}>
+          <planeGeometry args={[WINDOW.width, WINDOW.height]} />
         </mesh>
-        {/* Door gasket */}
-        <mesh material={rubber} position={[0.29, 0, -0.016]}>
-          <boxGeometry args={[0.56, 0.46, 0.012]} />
-        </mesh>
+        {/* Door gasket, a rubber frame with the same hole in it */}
+        {doorFrame(GASKET, WINDOW).map((piece, i) => (
+          <mesh key={`gasket-${i}`} material={rubber} position={[piece.x, piece.y, GASKET.z]}>
+            <boxGeometry args={[piece.width, piece.height, GASKET.depth]} />
+          </mesh>
+        ))}
         {/* Handle */}
         <mesh material={aluminium} position={[0.53, 0, 0.06]} castShadow>
           <boxGeometry args={[0.035, 0.2, 0.035]} />

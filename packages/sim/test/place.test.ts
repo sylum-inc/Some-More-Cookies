@@ -58,8 +58,13 @@ function listen(
   const rng = new Rng(seed);
   const remarks: string[] = [];
   const heard: string[] = [];
+  // One conditions object, advanced in place. This loop runs 216,000 times
+  // per simulated hour and the eeriness suite listens to a hundred and
+  // twenty of them; a fresh object per step was most of what that cost.
+  const conditionsNow: PlaceConditions = { ...now };
   for (let i = 0; i < Math.round(seconds / SIM_DT); i++) {
-    stepPlace(place, notes, { ...now, elapsed: now.elapsed + i * SIM_DT }, SIM_DT, rng);
+    conditionsNow.elapsed = now.elapsed + i * SIM_DT;
+    stepPlace(place, notes, conditionsNow, SIM_DT, rng);
     if (place.remark) remarks.push(place.remark.id);
     if (place.heard) heard.push(place.heard.id);
   }
@@ -263,7 +268,14 @@ describe('eeriness', () => {
     // `snag_creak` is weight 5 against `far_car`'s 3 — five eighths at even
     // odds, more than that when the weights are sharpened, less when flattened.
     expect(share(even(1))).toBeGreaterThan(share(even(5)) + 0.05);
-  });
+    /*
+     * A hundred and twenty simulated hours at sixty hertz. It is a statistic,
+     * and sixty seeds a side is what makes the five-point margin above a
+     * property rather than luck. Measured at 2.7 s alone on one machine and
+     * over the default five on a CI runner with another job on it, so its
+     * budget is its own.
+     */
+  }, 20_000);
 
   it('still never says two things in one breath', () => {
     const place = createPlace();

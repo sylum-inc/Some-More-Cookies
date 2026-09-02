@@ -685,6 +685,10 @@ Three tests were right for the wrong reasons, and one fix was.
   said "one page at a time, each in front while it waits"; now every
   cross-page wait does.
 
+- The eeriness statistic in `place.test.ts` (a hundred and twenty simulated
+  hours at sixty hertz, 2.7 s alone here) timed out at vitest's default five
+  seconds on a CI runner sharing its machine with a second run of the same
+  commit. It now carries its own budget, with the measurement beside it.
 - F2's own fix was the fourth. The stack was drawn on the tray, the pane's
   opacity was lowered so it would show, the visual project went green twice,
   and the regenerated `processing.png` still showed a blank grey square. The

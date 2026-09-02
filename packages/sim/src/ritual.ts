@@ -1411,6 +1411,16 @@ export function offered(
       if (candidate.interactable.id === 'fire') return candidate.interactable;
     }
   }
+  /*
+   * With the line out, the rod is what you are doing, wherever you are
+   * looking: eyes on the float, the prompt read "Pick up a stone", and the
+   * strike was only ever offered while facing the rod itself.
+   */
+  if (ritual.fishing.phase !== 'stowed' && ritual.fishing.phase !== 'ready') {
+    for (const candidate of reachable(player, world)) {
+      if (candidate.interactable.id === 'rod') return candidate.interactable;
+    }
+  }
   return focused(player, world);
 }
 

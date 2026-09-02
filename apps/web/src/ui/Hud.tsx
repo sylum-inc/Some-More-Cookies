@@ -31,6 +31,11 @@ export interface HudProps {
   seated?: boolean;
   /** Who has the roasting stick at a shared fire, when it is not you. */
   stickHolder?: string | null;
+  /** The acts that have no object to touch: posture, glasses, the beam, the survey. */
+  onLieBack?: () => void;
+  onBinoculars?: () => void;
+  onTorchFocus?: () => void;
+  onSurvey?: () => void;
   onUse: () => void;
   exploring: boolean;
   stage: RitualStage;
@@ -425,6 +430,61 @@ export function Hud(props: HudProps): React.ReactElement {
    */
   const atThePit = reach?.id === 'fire';
 
+  /*
+   * Acts with nothing to touch.
+   *
+   * Lying back, the binoculars, the beam's width and asking what is around
+   * you were on four keys and on nothing else, so a phone player could never
+   * do any of them. Offered here, in the same band as the reach prompt, only
+   * while they apply: "Lie back" once you are sitting, the binoculars once
+   * you are lying back, the beam only while the torch is in hand.
+   */
+  const acts: { label: string; onClick: (() => void) | undefined; testId: string }[] = [];
+  if (props.exploring) {
+    const reclined = ritual.stargazing.posture === 'reclined';
+    if (props.seated && !reclined) acts.push({ label: 'Lie back', onClick: props.onLieBack, testId: 'act-lie-back' });
+    if (reclined) {
+      acts.push({
+        label: ritual.stargazing.binoculars ? 'Lower the binoculars' : 'Raise the binoculars',
+        onClick: props.onBinoculars,
+        testId: 'act-binoculars',
+      });
+      acts.push({ label: 'Sit up', onClick: props.onLieBack, testId: 'act-sit-up' });
+    }
+    if (ritual.torch.held && ritual.torch.on) {
+      acts.push({
+        label: ritual.torch.focus > 0.5 ? 'Widen the beam' : 'Narrow the beam',
+        onClick: props.onTorchFocus,
+        testId: 'act-torch-focus',
+      });
+    }
+    acts.push({ label: props.survey === null ? 'What is around me?' : 'Enough', onClick: props.onSurvey, testId: 'act-survey' });
+  }
+  const actsRow =
+    acts.length > 0 ? (
+      <div style={{ display: 'flex', justifyContent: 'center', gap: scale(8), flexWrap: 'wrap', pointerEvents: 'auto' }}>
+        {acts.map((act) => (
+          <button
+            key={act.testId}
+            className="sm-focus"
+            data-testid={act.testId}
+            onClick={act.onClick}
+            style={{
+              background: 'rgba(8,10,14,0.55)',
+              color: 'rgba(240,232,214,0.9)',
+              border: '1px solid rgba(240,232,214,0.32)',
+              padding: `${6 * textScale}px ${12 * textScale}px`,
+              fontSize: scale(11.5),
+              letterSpacing: '0.08em',
+              borderRadius: 2,
+            }}
+          >
+            {act.label}
+          </button>
+        ))}
+      </div>
+    ) : null;
+
   const reachButton =
     props.exploring && reach !== null ? (
       <button
@@ -576,6 +636,7 @@ export function Hud(props: HudProps): React.ReactElement {
             {reachButton}
           </div>
         )}
+        {actsRow !== null && <div style={{ padding: `${scale(8)} ${scale(16)} 0` }}>{actsRow}</div>}
       </div>
 
       {/* Photo, available once there is something worth photographing */}
@@ -771,6 +832,8 @@ export function Hud(props: HudProps): React.ReactElement {
           data-testid="binoculars"
           style={{
             position: 'absolute',
+            // Behind the corner controls and the guidance line, not over them.
+            zIndex: -1,
             inset: 0,
             pointerEvents: 'none',
             // One wide field rather than two circles: modern binoculars merge

@@ -69,6 +69,7 @@ import { Torch } from './Torch.js';
 import { NightSky } from './NightSky.js';
 import { reclineLift, skyAzimuth } from './skyAim.js';
 import type { Vec3 } from '@somemore/sim';
+import { arrangementNote, describeArrangement } from '@somemore/sim';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
@@ -212,6 +213,10 @@ const EXPLORE_FOV = 68;
 const CLOSE_WORK_FOV = 48;
 /** The reveal's own lens. See the note above; chosen by looking, not by arithmetic. */
 const REVEAL_FOV = 30;
+/** The same reveal on a frame taller than it is wide. */
+const REVEAL_FOV_PORTRAIT = 44;
+/** Roughly 7x glasses. Eyes only: the camera does not move. */
+const BINOCULAR_FOV = 22;
 const STAGE_FOV: Readonly<Partial<Record<RitualStage, number>>> = { reveal: REVEAL_FOV };
 /**
  * How close to the fire's centre you kneel to roast.
@@ -558,6 +563,8 @@ export interface WorldProps {
   walkable: WalkableWorld;
   /** Reports what the player can act on, so the interface can offer it. */
   onReachChange?: (interactable: Interactable | null) => void;
+  /** Acting on a thing by touching it, when it is within reach. Same path as the reach button. */
+  onUse?: (id: string) => void;
   /**
    * Lifting the finished sandwich off the tray.
    *
@@ -592,9 +599,10 @@ export function World({
   intentRef,
   walkable,
   onReachChange,
+  onUse,
   grabbedFuelRef,
 }: WorldProps): React.ReactElement {
-  const { camera, gl } = useThree();
+  const { camera, gl, size } = useThree();
   const clock = useMemo(() => createClock(), []);
   const state = store.state;
   const ritual = state.ritual;
@@ -633,6 +641,8 @@ export function World({
   const heldSandwichRef = useRef<THREE.Group>(null);
   /** What the player is turning to look at, or null once they have arrived. */
   const lookGoal = useRef<[number, number, number] | null>(null);
+  /** Eye height last step, so a look goal is not abandoned while the stance is still moving. */
+  const lastEyeY = useRef(0);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
   const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
@@ -698,6 +708,19 @@ export function World({
    * remark about the lie of the land across the fire on the very first
    * frame — every session.
    */
+  /*
+   * Touching a thing is reaching for it.
+   *
+   * The torch, the stones, the rod and the radio could only be reached
+   * through a button that appeared once you had wandered within reach;
+   * tapping the object itself did nothing. Now a tap on the thing is the same
+   * act as the button, gated the same way: only when it is what is in reach,
+   * so a tap from across the clearing is not a teleport.
+   */
+  const touchIfInReach = (id: string): void => {
+    if (lastReach.current === id) onUse?.(id);
+  };
+
   const landed = useRef(false);
   const landAtTheFire = (): void => {
     const bearing = LAYOUT.playerBearing;
@@ -797,7 +820,15 @@ export function World({
           while (turn < -Math.PI) turn += Math.PI * 2;
           player.facing += turn * rate;
           player.pitch += (wantPitch - player.pitch) * rate;
-          if (Math.abs(turn) < 0.02 && Math.abs(wantPitch - player.pitch) < 0.02) {
+          /*
+           * Reached, and the body has stopped moving. The goal used to clear
+           * the moment the head was on it, while the stance was still
+           * settling — so the eye kept rising after the aim was fixed and the
+           * reveal opened on the chamber wall above the sandwich.
+           */
+          const eyeSettled = Math.abs(eye.y - lastEyeY.current) < 0.002;
+          lastEyeY.current = eye.y;
+          if (eyeSettled && Math.abs(turn) < 0.02 && Math.abs(wantPitch - player.pitch) < 0.02) {
             lookGoal.current = null;
           }
         }
@@ -949,9 +980,21 @@ export function World({
        * camera stays where it belongs — on the player's eyes — so what is left
        * of that composed shot is the part that never needed to cost agency.
        */
+      /*
+       * The reveal on a phone held upright: a 30° lens on a portrait frame is
+       * narrow enough that on two of three phones the door opened on a bare
+       * chamber wall with the sandwich out of shot. Wider when the frame is
+       * taller than it is wide. And the binoculars are a lens too — they used
+       * to darken the HUD and change nothing in view.
+       */
+      const portrait = size.height > size.width;
       const fovTarget = CLOSE_WORK_STAGES.has(ritual.stage)
-        ? (STAGE_FOV[ritual.stage] ?? CLOSE_WORK_FOV)
-        : EXPLORE_FOV;
+        ? ritual.stage === 'reveal' && portrait
+          ? REVEAL_FOV_PORTRAIT
+          : (STAGE_FOV[ritual.stage] ?? CLOSE_WORK_FOV)
+        : ritual.stargazing.binoculars
+          ? BINOCULAR_FOV
+          : EXPLORE_FOV;
       if (Math.abs(perspective.fov - fovTarget) > 0.05) {
         perspective.fov += (fovTarget - perspective.fov) * (1 - Math.exp(-4 * delta));
         perspective.updateProjectionMatrix();
@@ -1132,6 +1175,7 @@ export function World({
         campsiteSeed={state.campsiteSeed}
         position={LAYOUT.radio}
         rotationY={-0.7}
+        onTouch={touchIfInReach}
       />
 
       {/* The water, where the manifest actually has any. Absent entirely at a
@@ -1141,6 +1185,7 @@ export function World({
         settings={settings}
         walkable={walkable}
         waterColour={environment?.scene.nightPalette.water ?? null}
+        onTouch={touchIfInReach}
       />
 
       {/* The named constellations, at the real altitude and azimuth for the
@@ -1153,6 +1198,7 @@ export function World({
         player={player}
         settings={settings}
         restPosition={LAYOUT.torch}
+        onTouch={touchIfInReach}
       />
 
       <Wildlife ritual={ritual} settings={settings} walkable={walkable} />
@@ -1177,7 +1223,11 @@ export function World({
             tendFire(ritual, { type: 'bank' });
             store.setNotice('Ash over the coals. They will keep.');
           } else if (ritual.gathering.armful.length > 0) {
-            if (layFuel(ritual, { spot: { x, z } })) store.setNotice(describeArmful(ritual.gathering));
+            const before = describeArrangement(ritual.fire);
+            if (layFuel(ritual, { spot: { x, z } })) {
+              const after = describeArrangement(ritual.fire);
+              store.setNotice(after !== before ? arrangementNote(after) : describeArmful(ritual.gathering));
+            }
           } else {
             tendFire(ritual, { type: 'rake' });
           }
@@ -1185,7 +1235,16 @@ export function World({
         }}
         onMoveLog={(logId, x, z) => {
           if (!atThePit(player)) return;
+          /*
+           * A tepee and the same three logs raked flat looked alike under the
+           * flames, and the vocabulary written for exactly this — "It draws
+           * like a chimney." — was exported and read by nobody. Said when the
+           * arrangement changes, and only then.
+           */
+          const before = describeArrangement(ritual.fire);
           tendFire(ritual, { type: 'move-log', logId, spot: { x, z } });
+          const after = describeArrangement(ritual.fire);
+          if (after !== before) store.setNotice(arrangementNote(after));
           store.touch();
         }}
         canTouch={() => atThePit(player) && handsFreeForTheFire(ritual.stage)}

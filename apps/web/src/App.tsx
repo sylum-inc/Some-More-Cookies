@@ -165,7 +165,9 @@ export function App({ store }: AppProps): React.ReactElement {
       ],
       interactables: [
         { id: 'fire', x: 0, z: 0, reach: 1.45 },
-        { id: 'woodpile', x: 1.7, z: -0.9, reach: 1.15 },
+        // An arc, so "Take a log" is offered only while facing the pile: it
+        // was offered with the pile behind you and out of the frame.
+        { id: 'woodpile', x: 1.7, z: -0.9, reach: 1.15, arc: 1.4 },
         { id: 'machine', x: LAYOUT.machine[0], z: LAYOUT.machine[2], reach: 1.5 },
         { id: 'marshmallows', x: LAYOUT.assemblyTable[0] - 0.16, z: LAYOUT.assemblyTable[2] - 0.16, reach: 1.1 },
         { id: 'plate', x: LAYOUT.assemblyTable[0], z: LAYOUT.assemblyTable[2], reach: 1.1 },
@@ -215,6 +217,7 @@ export function App({ store }: AppProps): React.ReactElement {
           x: patch.x,
           z: patch.z,
           reach: 1.3,
+          arc: 1.4,
         })),
         /*
          * And the named things that make this campsite this campsite.
@@ -723,10 +726,8 @@ export function App({ store }: AppProps): React.ReactElement {
     store.touch();
   }, [ritual, player, store]);
 
-  /** Acts on whatever is within reach. The world offers; it never menus. */
-  const handleUse = useCallback(() => {
-    const target = offered(ritual, player, walkable);
-    if (!target) return;
+  /** Acts on one named thing, by id. The world offers; it never menus. */
+  const useReach = useCallback((id: string) => {
     /*
      * Somewhere there is wood.
      *
@@ -742,7 +743,7 @@ export function App({ store }: AppProps): React.ReactElement {
      * because which ones exist is decided by the environment and not by this
      * file.
      */
-    const met = visitLandmark(ritual, target.id);
+    const met = visitLandmark(ritual, id);
     if (met) {
       if (met.telling) store.setNotice(met.telling);
       else store.setSubtitle(`[${met.label}]`);
@@ -750,8 +751,8 @@ export function App({ store }: AppProps): React.ReactElement {
       store.touch();
       return;
     }
-    if (patchAt(ritual.gathering, target.id)) {
-      const result = gatherFuel(ritual, target.id);
+    if (patchAt(ritual.gathering, id)) {
+      const result = gatherFuel(ritual, id);
       if (result.full) {
         store.setNotice('Your arms are full. Take it back to the fire first.');
       } else if (result.empty) {
@@ -765,7 +766,7 @@ export function App({ store }: AppProps): React.ReactElement {
       store.touch();
       return;
     }
-    switch (target.id) {
+    switch (id) {
       case 'woodpile': {
         const environment = getEnvironment(state.environmentId);
         const woodId = environment?.fuel.sources[0]?.woodId ?? 'oak';
@@ -868,6 +869,45 @@ export function App({ store }: AppProps): React.ReactElement {
     }
     store.touch();
   }, [player, walkable, ritual, state.environmentId, store, throwHeldStone]);
+
+  /** Acts on whatever is within reach: the reach button and the reach key. */
+  const handleUse = useCallback(() => {
+    const target = offered(ritual, player, walkable);
+    if (target) useReach(target.id);
+  }, [ritual, player, walkable, useReach]);
+
+  /*
+   * The acts that had no way in except a key.
+   *
+   * Lying back, raising the binoculars, narrowing the torch and asking what
+   * is around you were bound to c, v, g and q and to nothing else, so a phone
+   * or mouse player could sit, hold the torch and pick up a stone and never
+   * once do any of these. The same intents the keys reach, offered on screen
+   * when they apply.
+   */
+  const handleLieBack = useCallback(() => {
+    const reclined = ritual.stargazing.posture !== 'reclined';
+    lieBack(ritual, reclined);
+    if (reclined) intentRef.current.sit = true;
+    store.touch();
+  }, [ritual, store]);
+  const handleBinoculars = useCallback(() => {
+    raiseBinoculars(ritual, !ritual.stargazing.binoculars);
+    store.touch();
+  }, [ritual, store]);
+  const handleTorchFocus = useCallback(() => {
+    if (!ritual.torch.held) return;
+    setTorchFocus(ritual, ritual.torch.focus > 0.5 ? 0.15 : 0.9);
+    store.setSubtitle(describeTorch(ritual.torch));
+    store.touch();
+  }, [ritual, store]);
+  const handleSurvey = useCallback(() => {
+    store.setSurvey(
+      store.state.survey === null
+        ? surveySurroundings(ritual, player, walkable, { places: ritual.presence.places })
+        : null,
+    );
+  }, [ritual, player, walkable, store]);
 
   // --- Pointer handling --------------------------------------------------
   const dragging = useRef(false);
@@ -1763,6 +1803,7 @@ export function App({ store }: AppProps): React.ReactElement {
       >
         <World
           store={store}
+          onUse={useReach}
           roastControl={roastControl}
           onLiftSandwich={handleTakeSandwich}
           quality={quality}
@@ -1798,6 +1839,10 @@ export function App({ store }: AppProps): React.ReactElement {
         seated={player.seated}
         stickHolder={stickHolder}
         onUse={handleUse}
+        onLieBack={handleLieBack}
+        onBinoculars={handleBinoculars}
+        onTorchFocus={handleTorchFocus}
+        onSurvey={handleSurvey}
         /*
          * Nothing is offered while your hands are full of sandwich.
          *

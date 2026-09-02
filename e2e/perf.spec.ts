@@ -192,6 +192,13 @@ test.describe('performance budgets', () => {
     // failure — the point of a budget is to see the wall before hitting it.
     const near = (value: number, budget: number) => value >= budget * WARN_AT_FRACTION;
     const draws = report.peaks.drawCalls.value;
+    /*
+     * There is no accepted deviation for draw calls, and there was never a
+     * `drawCalls` entry in the table — but this message read one, and would
+     * have thrown the first time the number went over budget, which is the one
+     * moment it exists for. Found by typechecking the suite (S15).
+     */
+    const knownDrawCalls = (KNOWN_DEVIATIONS as Partial<Record<string, { status: string; why: string }>>)['drawCalls'];
     if (near(draws, STATIC_BUDGETS.drawCalls)) {
       const over = draws - STATIC_BUDGETS.drawCalls;
       report.warnings.push(
@@ -200,7 +207,7 @@ test.describe('performance budgets', () => {
           (over > 0 ? `${over} OVER.` : `${-over} calls of headroom.`) +
           ' The arrival shot frames the whole campsite from the trail with nothing yet culled, so it is the ' +
           'worst case by construction and the frame least able to afford a stall.' +
-          (over > 0 ? ` ${KNOWN_DEVIATIONS.drawCalls.status} ${KNOWN_DEVIATIONS.drawCalls.why}` : ''),
+          (over > 0 && knownDrawCalls ? ` ${knownDrawCalls.status} ${knownDrawCalls.why}` : ''),
       );
     }
     if (report.peaks.dynamicLights.value > STATIC_BUDGETS.dynamicLights) {

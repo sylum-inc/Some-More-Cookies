@@ -46,9 +46,11 @@ export interface ShoreProps {
   walkable: WalkableWorld;
   /** Water tint from the environment's night palette, if it has one. */
   waterColour?: string | null;
+  /** The stones or the rod, tapped. Gated by reach in the world, not here. */
+  onTouch?: (id: 'stones' | 'rod') => void;
 }
 
-export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): React.ReactElement | null {
+export function Shore({ ritual, settings, walkable, waterColour, onTouch }: ShoreProps): React.ReactElement | null {
   const water = ritual.water;
 
   const surfaceRef = useRef<THREE.Mesh>(null);
@@ -307,6 +309,11 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
       {/* The stones on the shingle. Picking one up is a matter of reaching
           down at the water's edge, not of choosing from a list. */}
       <instancedMesh
+        onClick={(event) => {
+          event.stopPropagation();
+          onTouch?.('stones');
+        }}
+        
         ref={stoneRef}
         args={[stoneGeometry, shingleMaterial, STONE_POOL]}
         castShadow
@@ -317,7 +324,15 @@ export function Shore({ ritual, settings, walkable, waterColour }: ShoreProps): 
 
       {/* The rod, leaning where somebody left it */}
       <group ref={rodRef}>
-        <mesh position={[0, 0.78, 0]} rotation={[0.36, 0, 0]} material={shingleMaterial}>
+        <mesh
+          position={[0, 0.78, 0]}
+          rotation={[0.36, 0, 0]}
+          material={shingleMaterial}
+          onClick={(event) => {
+            event.stopPropagation();
+            onTouch?.('rod');
+          }}
+        >
           <cylinderGeometry args={[0.006, 0.013, 1.7, 5]} />
         </mesh>
       </group>

@@ -61,7 +61,7 @@ export { LAYOUT, machineToWorld, hashSeed, campFurniture };
 import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
-import { AssemblyTable, RoastingStick, Sandwich } from './RitualObjects.js';
+import { AssemblyTable, PlacedStack, RoastingStick, Sandwich } from './RitualObjects.js';
 import { Radio } from './Radio.js';
 import { Wildlife } from './Wildlife.js';
 import { Shore } from './Shore.js';
@@ -69,6 +69,8 @@ import { Torch } from './Torch.js';
 import { NightSky } from './NightSky.js';
 import { reclineLift, skyAzimuth } from './skyAim.js';
 import type { Vec3 } from '@somemore/sim';
+import { arrangementNote, describeArrangement } from '@somemore/sim';
+import { MARSHMALLOW_OBJECT_ID } from '../net/authority.js';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
@@ -212,6 +214,13 @@ const EXPLORE_FOV = 68;
 const CLOSE_WORK_FOV = 48;
 /** The reveal's own lens. See the note above; chosen by looking, not by arithmetic. */
 const REVEAL_FOV = 30;
+/** How close the marshmallow has to come to somebody, and for how long, to be offered. */
+const HOLD_OUT_M = 1.0;
+const HOLD_OUT_SECONDS = 0.6;
+/** The same reveal on a frame taller than it is wide. */
+const REVEAL_FOV_PORTRAIT = 44;
+/** Roughly 7x glasses. Eyes only: the camera does not move. */
+const BINOCULAR_FOV = 22;
 const STAGE_FOV: Readonly<Partial<Record<RitualStage, number>>> = { reveal: REVEAL_FOV };
 /**
  * How close to the fire's centre you kneel to roast.
@@ -558,6 +567,8 @@ export interface WorldProps {
   walkable: WalkableWorld;
   /** Reports what the player can act on, so the interface can offer it. */
   onReachChange?: (interactable: Interactable | null) => void;
+  /** Acting on a thing by touching it, when it is within reach. Same path as the reach button. */
+  onUse?: (id: string) => void;
   /**
    * Lifting the finished sandwich off the tray.
    *
@@ -592,9 +603,10 @@ export function World({
   intentRef,
   walkable,
   onReachChange,
+  onUse,
   grabbedFuelRef,
 }: WorldProps): React.ReactElement {
-  const { camera, gl } = useThree();
+  const { camera, gl, size } = useThree();
   const clock = useMemo(() => createClock(), []);
   const state = store.state;
   const ritual = state.ritual;
@@ -633,6 +645,8 @@ export function World({
   const heldSandwichRef = useRef<THREE.Group>(null);
   /** What the player is turning to look at, or null once they have arrived. */
   const lookGoal = useRef<[number, number, number] | null>(null);
+  /** Eye height last step, so a look goal is not abandoned while the stance is still moving. */
+  const lastEyeY = useRef(0);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
   const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
@@ -686,11 +700,102 @@ export function World({
     [settings],
   );
 
+  /**
+   * Arriving puts the player at the fireside wherever they were before, so
+   * every route into the campsite lands the same way — including tests and
+   * links that skip the walk.
+   *
+   * Called from inside the step, *before* the world is asked where the player
+   * is. It used to run after the step, so the first step at the fire ran with
+   * the player still at the trail head: the place model read a position
+   * twenty metres out, decided you had just walked somewhere new, and put its
+   * remark about the lie of the land across the fire on the very first
+   * frame — every session.
+   */
+  /*
+   * Touching a thing is reaching for it.
+   *
+   * The torch, the stones, the rod and the radio could only be reached
+   * through a button that appeared once you had wandered within reach;
+   * tapping the object itself did nothing. Now a tap on the thing is the same
+   * act as the button, gated the same way: only when it is what is in reach,
+   * so a tap from across the clearing is not a teleport.
+   */
+  const touchIfInReach = (id: string): void => {
+    if (lastReach.current === id) onUse?.(id);
+  };
+
+  /*
+   * Handing the stick over by holding it out.
+   *
+   * The only way to pass the marshmallow was a panel button next to "Block".
+   * Now the drag is the act: bring the marshmallow to within arm's reach of
+   * somebody standing beside you and keep it there for a moment, and it is
+   * offered — the same `offer` the panel makes, through the same authority
+   * rule, so it can still be refused. Once per person until the stick moves
+   * away again.
+   */
+  const heldOutSeconds = useRef(0);
+  const heldOutTo = useRef<string | null>(null);
+  const holdOut = (dt: number): void => {
+    const fire = store.campfire;
+    if (fire === null || !fire.joined || fire.authority.holderOf(MARSHMALLOW_OBJECT_ID) !== fire.accountId) return;
+    const mm = ritual.marshmallow.position;
+    let near: { accountId: string; name: string } | null = null;
+    for (const person of fire.roster.everyone) {
+      if (person.phase !== 'here') continue;
+      if (Math.hypot(mm.x - person.position.x, mm.z - person.position.z) < HOLD_OUT_M) {
+        near = person;
+        break;
+      }
+    }
+    if (near === null) {
+      heldOutSeconds.current = 0;
+      heldOutTo.current = null;
+      return;
+    }
+    if (near.accountId === heldOutTo.current) return;
+    heldOutSeconds.current += dt;
+    if (heldOutSeconds.current < HOLD_OUT_SECONDS) return;
+    heldOutTo.current = near.accountId;
+    if (fire.offer(MARSHMALLOW_OBJECT_ID, 'marshmallow', near.accountId)) {
+      store.setSubtitle(`[you hold it out to ${near.name}]`);
+    }
+  };
+
+  const landed = useRef(false);
+  const landAtTheFire = (): void => {
+    const bearing = LAYOUT.playerBearing;
+    player.position.x = Math.cos(bearing) * 2.4;
+    player.position.z = Math.sin(bearing) * 2.4;
+    player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
+    player.facing = Math.atan2(-player.position.z, -player.position.x);
+    /*
+     * Looking at the fire, not over it.
+     *
+     * At a level pitch the pit sits on the very bottom edge of the frame
+     * from the landing spot — the opening image was trees and sky with the
+     * one thing you came for cut off at the chin, and the ground between
+     * you and it was off screen entirely, so a tap could not even walk you
+     * in. The eye is at one metre and a half and the fire is two and a
+     * half metres out; this is roughly where a person would be looking.
+     */
+    player.pitch = -0.32;
+    player.velocity.x = 0;
+    player.velocity.z = 0;
+    player.moveTarget = null;
+  };
+
   useFrame((_, delta) => {
     const frameStart = typeof performance !== 'undefined' ? performance.now() : 0;
 
     // --- Simulation ------------------------------------------------------
     advance(clock, delta, (dt) => {
+      if (ritual.stage === 'arriving') landed.current = false;
+      else if (!landed.current) {
+        landed.current = true;
+        landAtTheFire();
+      }
       // The player moves in every stage; the anchored stages simply stop
       // taking movement input, so the world keeps simulating around them.
       /*
@@ -757,7 +862,15 @@ export function World({
           while (turn < -Math.PI) turn += Math.PI * 2;
           player.facing += turn * rate;
           player.pitch += (wantPitch - player.pitch) * rate;
-          if (Math.abs(turn) < 0.02 && Math.abs(wantPitch - player.pitch) < 0.02) {
+          /*
+           * Reached, and the body has stopped moving. The goal used to clear
+           * the moment the head was on it, while the stance was still
+           * settling — so the eye kept rising after the aim was fixed and the
+           * reveal opened on the chamber wall above the sandwich.
+           */
+          const eyeSettled = Math.abs(eye.y - lastEyeY.current) < 0.002;
+          lastEyeY.current = eye.y;
+          if (eyeSettled && Math.abs(turn) < 0.02 && Math.abs(wantPitch - player.pitch) < 0.02) {
             lookGoal.current = null;
           }
         }
@@ -772,6 +885,7 @@ export function World({
           bearingFromFire(player),
           state.accessibility.autoRotate <= 0,
         );
+        holdOut(dt);
       }
       // The torch is aimed where the player is looking. This is the *real*
       // light sweep: the model measures how fast the beam is moving and the
@@ -833,27 +947,6 @@ export function World({
       // Done here rather than at the end of the walk-in animation so that
       // every route into the campsite lands the same way — including tests
       // and links that skip the walk.
-      if (lastStage.current === 'arriving' && ritual.stage !== 'arriving') {
-        const bearing = LAYOUT.playerBearing;
-        player.position.x = Math.cos(bearing) * 2.4;
-        player.position.z = Math.sin(bearing) * 2.4;
-        player.position.y = terrainHeight(player.position.x, player.position.z, walkable.seed, walkable.amplitude);
-        player.facing = Math.atan2(-player.position.z, -player.position.x);
-        /*
-         * Looking at the fire, not over it.
-         *
-         * At a level pitch the pit sits on the very bottom edge of the frame
-         * from the landing spot — the opening image was trees and sky with the
-         * one thing you came for cut off at the chin, and the ground between
-         * you and it was off screen entirely, so a tap could not even walk you
-         * in. The eye is at one metre and a half and the fire is two and a
-         * half metres out; this is roughly where a person would be looking.
-         */
-        player.pitch = -0.32;
-        player.velocity.x = 0;
-        player.velocity.z = 0;
-        player.moveTarget = null;
-      }
       // Capture where the player was standing as the interaction begins.
       if (isAnchored(ritual.stage) && !isAnchored(lastStage.current)) {
         anchorBearing.current = bearingFromFire(player);
@@ -930,9 +1023,21 @@ export function World({
        * camera stays where it belongs — on the player's eyes — so what is left
        * of that composed shot is the part that never needed to cost agency.
        */
+      /*
+       * The reveal on a phone held upright: a 30° lens on a portrait frame is
+       * narrow enough that on two of three phones the door opened on a bare
+       * chamber wall with the sandwich out of shot. Wider when the frame is
+       * taller than it is wide. And the binoculars are a lens too — they used
+       * to darken the HUD and change nothing in view.
+       */
+      const portrait = size.height > size.width;
       const fovTarget = CLOSE_WORK_STAGES.has(ritual.stage)
-        ? (STAGE_FOV[ritual.stage] ?? CLOSE_WORK_FOV)
-        : EXPLORE_FOV;
+        ? ritual.stage === 'reveal' && portrait
+          ? REVEAL_FOV_PORTRAIT
+          : (STAGE_FOV[ritual.stage] ?? CLOSE_WORK_FOV)
+        : ritual.stargazing.binoculars
+          ? BINOCULAR_FOV
+          : EXPLORE_FOV;
       if (Math.abs(perspective.fov - fovTarget) > 0.05) {
         perspective.fov += (fovTarget - perspective.fov) * (1 - Math.exp(-4 * delta));
         perspective.updateProjectionMatrix();
@@ -1113,6 +1218,7 @@ export function World({
         campsiteSeed={state.campsiteSeed}
         position={LAYOUT.radio}
         rotationY={-0.7}
+        onTouch={touchIfInReach}
       />
 
       {/* The water, where the manifest actually has any. Absent entirely at a
@@ -1122,6 +1228,7 @@ export function World({
         settings={settings}
         walkable={walkable}
         waterColour={environment?.scene.nightPalette.water ?? null}
+        onTouch={touchIfInReach}
       />
 
       {/* The named constellations, at the real altitude and azimuth for the
@@ -1134,6 +1241,7 @@ export function World({
         player={player}
         settings={settings}
         restPosition={LAYOUT.torch}
+        onTouch={touchIfInReach}
       />
 
       <Wildlife ritual={ritual} settings={settings} walkable={walkable} />
@@ -1158,7 +1266,11 @@ export function World({
             tendFire(ritual, { type: 'bank' });
             store.setNotice('Ash over the coals. They will keep.');
           } else if (ritual.gathering.armful.length > 0) {
-            if (layFuel(ritual, { spot: { x, z } })) store.setNotice(describeArmful(ritual.gathering));
+            const before = describeArrangement(ritual.fire);
+            if (layFuel(ritual, { spot: { x, z } })) {
+              const after = describeArrangement(ritual.fire);
+              store.setNotice(after !== before ? arrangementNote(after) : describeArmful(ritual.gathering));
+            }
           } else {
             tendFire(ritual, { type: 'rake' });
           }
@@ -1166,7 +1278,16 @@ export function World({
         }}
         onMoveLog={(logId, x, z) => {
           if (!atThePit(player)) return;
+          /*
+           * A tepee and the same three logs raked flat looked alike under the
+           * flames, and the vocabulary written for exactly this — "It draws
+           * like a chimney." — was exported and read by nobody. Said when the
+           * arrangement changes, and only then.
+           */
+          const before = describeArrangement(ritual.fire);
           tendFire(ritual, { type: 'move-log', logId, spot: { x, z } });
+          const after = describeArrangement(ritual.fire);
+          if (after !== before) store.setNotice(arrangementNote(after));
           store.touch();
         }}
         canTouch={() => atThePit(player) && handsFreeForTheFire(ritual.stage)}
@@ -1216,6 +1337,15 @@ export function World({
       )}
 
       {showAssembly && <AssemblyTable assembly={ritual.assembly} settings={settings} position={LAYOUT.assemblyTable} />}
+
+      {/* The s'more on the tray, from the moment it is put in until the door
+          opens on what it became. Visible through the smoked window while the
+          machine works on it. */}
+      {ritual.stage === 'machine' && ritual.machine.stage !== 'idle' && (
+        <group position={machineToWorld([0, 0.372, 0.14])} rotation={[0, LAYOUT.machineRotation, 0]}>
+          <PlacedStack components={ritual.assembly.components} settings={settings} scale={0.85} />
+        </group>
+      )}
 
       {showSandwichOnTray && ritual.sandwich && (
         <group

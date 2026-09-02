@@ -148,6 +148,8 @@ export class RealtimeTransport {
   statusDetail: string | null = null;
   /** Round-trip time in milliseconds, from the application-level ping. */
   latencyMs = 0;
+  /** When the current socket was created, so an error can be dated to it. */
+  private openedAtMs = 0;
   /** Errors the server sent, newest last. Bounded; kept for the settings panel. */
   readonly serverErrors: { code: string; message: string; at: number }[] = [];
 
@@ -197,6 +199,7 @@ export class RealtimeTransport {
       return;
     }
     this.socket = socket;
+    this.openedAtMs = this.now();
 
     socket.onopen = () => {
       this.attempt = 0;
@@ -218,13 +221,38 @@ export class RealtimeTransport {
        * 1008 is the server saying "no": not a member, unsupported protocol
        * version, flooding. Reconnecting would produce the same answer at a
        * steady rate, which is a denial of service aimed at ourselves.
+       *
+       * One 1008 is about *when* rather than *who*. The service closes a
+       * socket that has sat ten seconds without a join, and the join is sent
+       * from the `open` handler, which cannot run while the main thread is
+       * compiling the scene's first frame. On a slow phone, or a CI runner
+       * with two browsers on it, that stall has been measured at thirteen
+       * seconds. The socket was open the whole time; the page simply had not
+       * been given a turn to speak. Asking again is the right answer, since
+       * by the time the close is even seen the stall is over. The error the
+       * service sends before closing is what tells this apart from a refusal.
        */
       if (event.code === 1008) {
+        if (this.joinCameTooLate()) {
+          this.scheduleRetry(reason);
+          return;
+        }
         this.setStatus('alone', reason);
         return;
       }
       this.scheduleRetry(reason);
     };
+  }
+
+  /**
+   * Whether the socket that just closed was one the service gave up waiting
+   * on, rather than one it turned away: never welcomed, and the last thing it
+   * said was that no join arrived in time.
+   */
+  private joinCameTooLate(): boolean {
+    if (this.statusValue === 'joined') return false;
+    const last = this.serverErrors[this.serverErrors.length - 1];
+    return last !== undefined && last.code === 'not_joined' && last.at >= this.openedAtMs;
   }
 
   private sendJoin(): void {

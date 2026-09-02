@@ -144,7 +144,8 @@ export function CampfirePanel({ fire, textScale, highContrast, onClose }: Campfi
                 step={0.05}
                 value={person.volume}
                 aria-label={`Volume for ${person.name}`}
-                title={`How loud ${person.name} is, for you`}
+                title={fire.voice.status === 'ready' ? `How loud ${person.name} is, for you` : 'No voice here'}
+                disabled={fire.voice.status !== 'ready'}
                 onChange={(event) =>
                   fire.requestVoice('set_volume', { accountId: person.accountId, volume: Number(event.target.value) })
                 }

@@ -241,6 +241,31 @@ describe('the transport', () => {
     }
   });
 
+  it('knocks again when the "no" was only that the join came too late', async () => {
+    vi.useFakeTimers();
+    try {
+      const { transport, sockets } = makeTransport();
+      transport.connect();
+      (sockets[0] as FakeSocket).open();
+      /*
+       * The service closes a socket that sits ten seconds without a join,
+       * with the same 1008 it uses for "not a member". The difference is that
+       * this one is about *when*, not *who*: a page whose first draw stalled
+       * the thread through the window will be let in the moment it asks
+       * again. The error before the close is how the two are told apart.
+       */
+      (sockets[0] as FakeSocket).deliver({ t: 'error', code: 'not_joined', message: 'No join message arrived in time.', seq: null, retryAfterMs: null });
+      (sockets[0] as FakeSocket).drop(1008, 'Join timed out.');
+      expect(transport.status).toBe('reconnecting');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(sockets).toHaveLength(2);
+      (sockets[1] as FakeSocket).open();
+      expect((sockets[1] as FakeSocket).parsed(0)['t']).toBe('join');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('measures the round trip from its own ping', () => {
     let now = 1_000;
     const { transport, sockets } = makeTransport({ now: () => now });

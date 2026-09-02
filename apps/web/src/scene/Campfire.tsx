@@ -113,23 +113,29 @@ export function nameTexture(name: string): THREE.Texture | null {
     return null;
   }
   const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 32;
+  /*
+   * Baked near the size it is seen. A 13 px name on a 32 px canvas, drawn on
+   * a plate that covers about twelve internal pixels at five metres, came out
+   * as a row of dots in the guest view. The glyphs now fill the canvas and
+   * the plate is wider, so one texel is roughly one pixel across a fire.
+   */
+  canvas.width = 160;
+  canvas.height = 40;
   const ctx = canvas.getContext('2d');
   if (ctx === null) {
     nameCache.set(name, null);
     return null;
   }
-  ctx.clearRect(0, 0, 128, 32);
-  ctx.font = '13px ui-monospace, monospace';
+  ctx.clearRect(0, 0, 160, 40);
+  ctx.font = 'bold 28px ui-monospace, monospace';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   // A shadow first, so the name stays readable against the flames as well as
   // against the trees. Nothing here is delivered by colour alone.
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fillText(name.toLowerCase(), 64, 17);
-  ctx.fillStyle = 'rgba(228,220,202,0.82)';
-  ctx.fillText(name.toLowerCase(), 64, 16);
+  ctx.fillText(name.toLowerCase(), 80, 22);
+  ctx.fillStyle = 'rgba(228,220,202,0.88)';
+  ctx.fillText(name.toLowerCase(), 80, 20);
   const texture = new THREE.CanvasTexture(canvas);
   texture.magFilter = THREE.NearestFilter;
   texture.minFilter = THREE.NearestFilter;
@@ -287,7 +293,7 @@ export function CampfireScene({
         fog: false,
         opacity: 0,
       });
-      const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.29), plateMaterial);
+      const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), plateMaterial);
       // Named so the end-to-end suite can assert a name is actually legible
       // rather than take a picture and hope.
       plate.name = 'nameplate';

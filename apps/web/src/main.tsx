@@ -49,6 +49,7 @@ import { LAYOUT, campFurniture } from './scene/layout.js';
 import { facingForSkyAzimuth, pitchForSkyAltitude, reclineLift } from './scene/skyAim.js';
 import { overlayForBoot } from './net/overlay.js';
 import { Store } from './state/store.js';
+import type { SomeMoreHandle } from './testHandle.js';
 
 /**
  * Picks the campsite for this visit.
@@ -126,20 +127,6 @@ const store = new Store({
  * real ritual through the real simulation, they do not stub it. Anything a
  * test can do here, a player can do by touching the world.
  */
-declare global {
-  interface Window {
-    __someMore?: {
-      store: Store;
-      actions: Record<string, (...args: never[]) => unknown>;
-      /** Populated once the canvas exists; used by the screenshot harness. */
-      three?: { gl: unknown; scene: unknown; camera: unknown };
-      /** The player being simulated, for inspection and end-to-end tests. */
-      player?: import('@somemore/sim').PlayerState;
-      walkable?: import('@somemore/sim').WalkableWorld;
-      environments: readonly { id: string; name: string }[];
-    };
-  }
-}
 if (typeof window !== 'undefined') {
   const wrap =
     <A extends unknown[], R>(fn: (...args: A) => R) =>
@@ -148,7 +135,7 @@ if (typeof window !== 'undefined') {
       store.touch();
       return result;
     };
-  window.__someMore = {
+  const handle: SomeMoreHandle = {
     environments: listEnvironments().map((e) => ({ id: e.id, name: e.name })),
     store,
     actions: {
@@ -358,8 +345,9 @@ if (typeof window !== 'undefined') {
         for (let i = 0; i < steps; i++) stepRitual(store.state.ritual, SIM_DT);
         return store.state.ritual.elapsed;
       }),
-    } as unknown as Record<string, (...args: never[]) => unknown>,
+    } as unknown as SomeMoreHandle['actions'],
   };
+  window.__someMore = handle;
 }
 
 const container = document.getElementById('root');

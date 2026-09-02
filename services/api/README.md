@@ -286,6 +286,7 @@ public. Every route marked **idem** requires an idempotency key (body
 | `PATCH` | `/v1/campsites/:campsiteId` | required | - | Rename a campsite, change its privacy (owner only) or refinish the machine. |
 | `POST` | `/v1/campsites/:campsiteId/invites` | required | yes | Mint an invite link + camp code + QR payload. |
 | `POST` | `/v1/campsites/join` | required | yes | Join a campsite by invite link, camp code or QR. |
+| `GET` | `/v1/invites/:token` | required | no | Where an invite leads: the campsite, and its live session if one is open. The token is the credential; membership is not required, so a scanned camp QR can become a fire link. |
 | `GET` | `/v1/campsites/:campsiteId/machine` | required | - | Read the serialized SM-01: wear, quirks, maintenance history. |
 | `POST` | `/v1/campsites/:campsiteId/machine/maintenance` | required | yes | Service the SM-01. |
 | `GET` | `/v1/campsites/:campsiteId/world` | required | - | Read the live world state: traces with decay applied, plus landmarks. |

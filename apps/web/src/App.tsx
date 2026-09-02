@@ -96,7 +96,8 @@ import {
 } from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
 import { AudioBridge, type AudioCue } from './audio/bridge.js';
-import { defaultApiBaseUrl } from './net/client.js';
+import { apiBaseUrl } from './net/client.js';
+import { MARSHMALLOW_OBJECT_ID } from './net/authority.js';
 import { SyncEngine } from './net/sync.js';
 import { Scan } from './ui/Scan.js';
 import {
@@ -164,7 +165,9 @@ export function App({ store }: AppProps): React.ReactElement {
       ],
       interactables: [
         { id: 'fire', x: 0, z: 0, reach: 1.45 },
-        { id: 'woodpile', x: 1.7, z: -0.9, reach: 1.15 },
+        // An arc, so "Take a log" is offered only while facing the pile: it
+        // was offered with the pile behind you and out of the frame.
+        { id: 'woodpile', x: 1.7, z: -0.9, reach: 1.15, arc: 1.4 },
         { id: 'machine', x: LAYOUT.machine[0], z: LAYOUT.machine[2], reach: 1.5 },
         { id: 'marshmallows', x: LAYOUT.assemblyTable[0] - 0.16, z: LAYOUT.assemblyTable[2] - 0.16, reach: 1.1 },
         { id: 'plate', x: LAYOUT.assemblyTable[0], z: LAYOUT.assemblyTable[2], reach: 1.1 },
@@ -214,6 +217,7 @@ export function App({ store }: AppProps): React.ReactElement {
           x: patch.x,
           z: patch.z,
           reach: 1.3,
+          arc: 1.4,
         })),
         /*
          * And the named things that make this campsite this campsite.
@@ -283,6 +287,9 @@ export function App({ store }: AppProps): React.ReactElement {
     camera: THREE.Camera;
   } | null>(null);
   const audioRef = useRef<AudioBridge | null>(null);
+  /** Frames the render loop has reported, and who is waiting on the second. */
+  const framesDrawn = useRef(0);
+  const onDrawn = useRef<(() => void) | null>(null);
   const syncRef = useRef<SyncEngine | null>(null);
   const campsiteIdRef = useRef<string | null>(null);
   /**
@@ -362,7 +369,7 @@ export function App({ store }: AppProps): React.ReactElement {
   // campsite in the background. Nothing in the ritual waits for it, and a
   // failure means the player carries on with a device-local Passport.
   useEffect(() => {
-    const baseUrl = import.meta.env['VITE_API_URL'] ?? defaultApiBaseUrl();
+    const baseUrl = apiBaseUrl();
     const sync = new SyncEngine({ baseUrl: String(baseUrl) });
     syncRef.current = sync;
     void (async () => {
@@ -454,15 +461,38 @@ export function App({ store }: AppProps): React.ReactElement {
     const intent = parseJoin(typeof location === 'undefined' ? '' : location.search);
     if (intent === null) return;
 
-    const baseUrl = String(import.meta.env['VITE_API_URL'] ?? defaultApiBaseUrl());
-    const token = intent.token ?? persistedAuthToken();
-    if (token === null) return;
+    const baseUrl = apiBaseUrl();
+    /*
+     * `token` and `ws` in the link are for the test harness, which puts two
+     * independent players in two browser contexts without either bootstrapping
+     * an account. On a public site a bearer token in a URL is a credential
+     * anyone who sees the link can use, so they are honoured only in a build
+     * that says it is a harness build, and stripped from the address either way.
+     */
+    const harness = import.meta.env['VITE_E2E'] === '1';
+    const token = (harness ? intent.token : undefined) ?? persistedAuthToken();
+    if (!harness && (intent.token !== undefined || intent.wsUrl !== undefined) && typeof history !== 'undefined') {
+      const url = new URL(location.href);
+      url.searchParams.delete('token');
+      url.searchParams.delete('ws');
+      history.replaceState(history.state, '', url.toString());
+    }
+    if (token === null) {
+      /*
+       * A link to somebody's fire, and no way to reach it from here: no
+       * account yet, or no service behind this site at all. Said out loud in
+       * the channel that does not depend on subtitles being on, because the
+       * alternative was an ordinary campsite with no word about the link.
+       */
+      store.setNotice("That link led to somebody else's fire, and this campsite has no signal tonight. This one is your own.");
+      return;
+    }
 
     let subtitleTimer: ReturnType<typeof setTimeout> | null = null;
 
     const fire = new Campfire({
       transport: {
-        url: intent.wsUrl ?? realtimeUrl(baseUrl),
+        url: (harness ? intent.wsUrl : undefined) ?? realtimeUrl(baseUrl),
         token,
         sessionId: intent.sessionId,
         ...(intent.join === undefined ? {} : { join: intent.join }),
@@ -488,6 +518,7 @@ export function App({ store }: AppProps): React.ReactElement {
         assemblyAssist: store.state.accessibility.assemblyAssist,
       }),
       onAdopt: (shared, seed, environmentId) => store.adoptRitual(shared, seed, environmentId),
+      onHint: (line) => store.setNotice(line),
       /*
        * Everything the fire says out loud, said in text as well (spec §12) —
        * and then taken away again. The simulation's own cues expire on a timer
@@ -523,11 +554,40 @@ export function App({ store }: AppProps): React.ReactElement {
     bindCampfire(fire);
     store.campfire = fire;
     setCampfire(fire);
-    fire.connect();
+    /*
+     * The socket opens after the world has drawn, not before it.
+     *
+     * The first draw compiles every material in the scene, and on a slow
+     * device that is a stall of several seconds during which nothing else on
+     * the main thread runs — including the handler that answers the socket
+     * opening with the join message. The service closes a socket that has
+     * not joined within ten seconds, reasonably, so a page whose first frame
+     * took eleven was told "no join message arrived" and reached its own
+     * campsite alone.
+     *
+     * This waited two animation frames after mount, on the theory that the
+     * stall was in the commit before them. It was not, or not all of it: on a
+     * runner with two browsers the guest's first frame took thirteen seconds
+     * and the two frames had already gone by. So the gate is now the fact
+     * itself — the render loop reporting its second frame, which is after the
+     * first one has been drawn — and the transport also asks again if the
+     * service gave up waiting (see `joinCameTooLate`).
+     */
+    let cancelled = false;
+    if (framesDrawn.current >= 2) {
+      fire.connect();
+    } else {
+      onDrawn.current = () => {
+        if (cancelled) return;
+        onDrawn.current = null;
+        fire.connect();
+      };
+    }
     const handle = window.__someMore;
-    if (handle) (handle as { campfire?: Campfire }).campfire = fire;
+    if (handle) handle.campfire = fire;
 
     return () => {
+      cancelled = true;
       if (subtitleTimer !== null) clearTimeout(subtitleTimer);
       bindCampfire(null);
       store.campfire = null;
@@ -698,10 +758,8 @@ export function App({ store }: AppProps): React.ReactElement {
     store.touch();
   }, [ritual, player, store]);
 
-  /** Acts on whatever is within reach. The world offers; it never menus. */
-  const handleUse = useCallback(() => {
-    const target = offered(ritual, player, walkable);
-    if (!target) return;
+  /** Acts on one named thing, by id. The world offers; it never menus. */
+  const useReach = useCallback((id: string) => {
     /*
      * Somewhere there is wood.
      *
@@ -717,7 +775,7 @@ export function App({ store }: AppProps): React.ReactElement {
      * because which ones exist is decided by the environment and not by this
      * file.
      */
-    const met = visitLandmark(ritual, target.id);
+    const met = visitLandmark(ritual, id);
     if (met) {
       if (met.telling) store.setNotice(met.telling);
       else store.setSubtitle(`[${met.label}]`);
@@ -725,8 +783,8 @@ export function App({ store }: AppProps): React.ReactElement {
       store.touch();
       return;
     }
-    if (patchAt(ritual.gathering, target.id)) {
-      const result = gatherFuel(ritual, target.id);
+    if (patchAt(ritual.gathering, id)) {
+      const result = gatherFuel(ritual, id);
       if (result.full) {
         store.setNotice('Your arms are full. Take it back to the fire first.');
       } else if (result.empty) {
@@ -740,7 +798,7 @@ export function App({ store }: AppProps): React.ReactElement {
       store.touch();
       return;
     }
-    switch (target.id) {
+    switch (id) {
       case 'woodpile': {
         const environment = getEnvironment(state.environmentId);
         const woodId = environment?.fuel.sources[0]?.woodId ?? 'oak';
@@ -843,6 +901,45 @@ export function App({ store }: AppProps): React.ReactElement {
     }
     store.touch();
   }, [player, walkable, ritual, state.environmentId, store, throwHeldStone]);
+
+  /** Acts on whatever is within reach: the reach button and the reach key. */
+  const handleUse = useCallback(() => {
+    const target = offered(ritual, player, walkable);
+    if (target) useReach(target.id);
+  }, [ritual, player, walkable, useReach]);
+
+  /*
+   * The acts that had no way in except a key.
+   *
+   * Lying back, raising the binoculars, narrowing the torch and asking what
+   * is around you were bound to c, v, g and q and to nothing else, so a phone
+   * or mouse player could sit, hold the torch and pick up a stone and never
+   * once do any of these. The same intents the keys reach, offered on screen
+   * when they apply.
+   */
+  const handleLieBack = useCallback(() => {
+    const reclined = ritual.stargazing.posture !== 'reclined';
+    lieBack(ritual, reclined);
+    if (reclined) intentRef.current.sit = true;
+    store.touch();
+  }, [ritual, store]);
+  const handleBinoculars = useCallback(() => {
+    raiseBinoculars(ritual, !ritual.stargazing.binoculars);
+    store.touch();
+  }, [ritual, store]);
+  const handleTorchFocus = useCallback(() => {
+    if (!ritual.torch.held) return;
+    setTorchFocus(ritual, ritual.torch.focus > 0.5 ? 0.15 : 0.9);
+    store.setSubtitle(describeTorch(ritual.torch));
+    store.touch();
+  }, [ritual, store]);
+  const handleSurvey = useCallback(() => {
+    store.setSurvey(
+      store.state.survey === null
+        ? surveySurroundings(ritual, player, walkable, { places: ritual.presence.places })
+        : null,
+    );
+  }, [ritual, player, walkable, store]);
 
   // --- Pointer handling --------------------------------------------------
   const dragging = useRef(false);
@@ -1453,6 +1550,9 @@ export function App({ store }: AppProps): React.ReactElement {
         const frost = r.options.world.machine?.frostNote;
         if (frost) store.setNotice(frost);
       }
+      // And gone by the time the sandwich is in hand: it lingered across the
+      // reveal and into the first bite, doubled with the vapour subtitle.
+      if (r.stageChangedTo === 'eating') store.setNotice(null);
       if (r.windowChangedTo) {
         const said = describeWindow(r.windowChangedTo);
         if (said) store.setNotice(said);
@@ -1471,6 +1571,13 @@ export function App({ store }: AppProps): React.ReactElement {
       if (cue && cue.text !== lastSubtitle.current?.text) {
         lastSubtitle.current = { text: cue.text, at: performance.now() };
         store.setSubtitle(cue.text);
+      }
+      // A line said from outside this loop — a reach act, a key — is timed
+      // from here too. "[you pick the torch up off the log]" used to stay on
+      // screen through the sweep, the refocus and everything after.
+      const showing = store.state.subtitle;
+      if (showing !== null && showing !== lastSubtitle.current?.text) {
+        lastSubtitle.current = { text: showing, at: performance.now() };
       }
       if (lastSubtitle.current && performance.now() - lastSubtitle.current.at > 2600) {
         lastSubtitle.current = null;
@@ -1591,6 +1698,20 @@ export function App({ store }: AppProps): React.ReactElement {
    */
   const fireWantsBanking = rainIsComing(ritual.weather) && ritual.fire.ashCover < 0.55;
 
+  /*
+   * Whose stick it is, at a shared fire.
+   *
+   * After handing the marshmallow over, the giver's screen kept coaching them
+   * to drag it in and out, lit the doneness meter, and offered "Take it to
+   * the plate" for a marshmallow across the fire in somebody else's hands.
+   */
+  const stickHolder = (() => {
+    if (campfire === null || ritual.stage !== 'roasting') return null;
+    const holder = campfire.authority.holderOf(MARSHMALLOW_OBJECT_ID);
+    if (holder === null || holder === campfire.accountId) return null;
+    return campfire.roster.get(holder)?.name ?? 'Somebody else';
+  })();
+
   const handleAddLog = useCallback(() => {
     tendFire(ritual, { type: 'add-log', woodId: 'oak' });
     store.touch();
@@ -1607,9 +1728,12 @@ export function App({ store }: AppProps): React.ReactElement {
     store.touch();
   }, [ritual, store]);
 
-  // Adaptive quality from measured frame time.
+  // Adaptive quality from measured frame time, and the count of frames the
+  // loop has reported, which is what the socket waits on above.
   const onFrame = useCallback(
     (frameMs: number) => {
+      framesDrawn.current += 1;
+      if (framesDrawn.current === 2) onDrawn.current?.();
       const next = adaptive.sample(frameMs);
       if (next !== quality) setQuality(next);
     },
@@ -1714,6 +1838,7 @@ export function App({ store }: AppProps): React.ReactElement {
       >
         <World
           store={store}
+          onUse={useReach}
           roastControl={roastControl}
           onLiftSandwich={handleTakeSandwich}
           quality={quality}
@@ -1747,7 +1872,12 @@ export function App({ store }: AppProps): React.ReactElement {
         reach={reach}
         grip={throwRef.current}
         seated={player.seated}
+        stickHolder={stickHolder}
         onUse={handleUse}
+        onLieBack={handleLieBack}
+        onBinoculars={handleBinoculars}
+        onTorchFocus={handleTorchFocus}
+        onSurvey={handleSurvey}
         /*
          * Nothing is offered while your hands are full of sandwich.
          *
@@ -1837,9 +1967,7 @@ export function App({ store }: AppProps): React.ReactElement {
         being offered two controls for a fire behind them.
       */}
       {FIRESIDE_STAGES.has(state.stage) &&
-        ((state.stage === 'roasting' && fireWantsRaking) ||
-          fireWantsBanking ||
-          state.accessibility.simplifiedGestures) &&
+        state.accessibility.simplifiedGestures &&
         state.overlay === 'none' && (
         <div
           style={{
@@ -1858,10 +1986,10 @@ export function App({ store }: AppProps): React.ReactElement {
           {state.accessibility.simplifiedGestures && (
             <SideButton label="Add wood" onClick={handleAddLog} textScale={state.accessibility.textScale} />
           )}
-          {(fireWantsRaking || state.accessibility.simplifiedGestures) && (
+          {(state.stage === 'roasting' || fireWantsRaking) && (
             <SideButton label="Rake coals" onClick={handleRake} textScale={state.accessibility.textScale} />
           )}
-          {(fireWantsBanking || state.accessibility.simplifiedGestures) && (
+          {(
             <SideButton label="Bank the coals" onClick={handleBank} textScale={state.accessibility.textScale} />
           )}
         </div>
@@ -1920,17 +2048,30 @@ export function App({ store }: AppProps): React.ReactElement {
           onClose={() => store.setOverlay('none')}
           onCampInvite={(token) => {
             /*
-             * The seam. A `camp` code is a campfire invitation, and its
-             * signature has already been checked on this device — so a forged
-             * QR never reaches the invite table. What happens next (opening a
-             * session, presenting the token on the realtime handshake, showing
-             * somebody else's fire) belongs to the multiplayer client, which is
-             * being built separately. Recording it is where this stops.
+             * A `camp` code is a campfire invitation, and its signature has
+             * already been checked on this device — so a forged QR never
+             * reaches the invite table. Then the service is asked where it
+             * leads, and if a fire is lit there this page walks down the link
+             * to it, invite in hand for the handshake. This used to stop at a
+             * subtitle and a console line.
              */
             store.setSubtitle('[an invitation to someone else’s fire]');
-            if (typeof console !== 'undefined') {
-              console.info('[some-more] verified camp invite token', token.slice(0, 8), '…');
-            }
+            void (async () => {
+              const result = await syncRef.current?.resolveInvite(token);
+              if (result === undefined || !result.ok) {
+                store.setNotice('That invitation leads to a fire this campsite cannot reach tonight.');
+                return;
+              }
+              if (result.value.sessionId === null) {
+                store.setNotice(`${result.value.campsiteName} has no fire lit tonight. Try again when they are there.`);
+                return;
+              }
+              const url = new URL(location.href);
+              url.search = '';
+              url.searchParams.set('fire', result.value.sessionId);
+              url.searchParams.set('invite', token);
+              location.assign(url.toString());
+            })();
           }}
         />
       )}

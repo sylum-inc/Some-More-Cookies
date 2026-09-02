@@ -35,6 +35,7 @@ export const GLOBAL_CSS = `
   button { font: inherit; color: inherit; cursor: pointer; }
   .sm-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: 4vmin; z-index: 40; background: rgba(6, 8, 11, 0.72); backdrop-filter: blur(2px); }
   .sm-panel { background: ${TOKENS.paper}; color: ${TOKENS.ink}; max-width: min(860px, 94vw); max-height: 88vh; overflow-y: auto; border-radius: 3px; box-shadow: 0 18px 60px rgba(0,0,0,0.6); position: relative; }
+  .sm-panel::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; background: linear-gradient(to bottom, rgba(0,0,0,0), ${TOKENS.paper}); pointer-events: none; }
   .sm-focus:focus-visible { outline: 3px solid ${TOKENS.amber}; outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 `;

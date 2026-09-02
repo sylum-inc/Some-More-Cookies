@@ -517,7 +517,12 @@ export class AudioBridge {
             distanceM,
             alarm: animal?.alarm ?? 0,
           });
-          cue = { kind: 'wildlife', text: describeSighting(event) };
+          /*
+           * Not named yet. It appeared twenty metres out in the dark and its
+           * eyeshine is a pixel at most; a species subtitle at this moment was
+           * a label on an empty picture. What you get is what you heard.
+           */
+          cue = { kind: 'wildlife', text: '[something, out past the firelight]' };
           break;
         case 'startled':
           kit.startle({ speciesId: event.speciesId, shyness, curiosity, x, y, z, distanceM });
@@ -529,6 +534,10 @@ export class AudioBridge {
           kit.rustle(x, y, z, distanceM, 0.45);
           break;
         case 'settled':
+          // Now it has come in and stayed long enough to be looked at, it
+          // has a name.
+          cue = { kind: 'wildlife', text: describeSighting(event) };
+          break;
         case 'left-trace':
         case 'departed':
         default:

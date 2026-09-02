@@ -34,10 +34,10 @@ containing one line). Everything below was built from zero.
 | Media storage · photo upload · campsite memory sync | ✅ |
 | Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**1,565 unit, integration and seam tests across 88 files**, plus Playwright
+**1,755 unit, integration and seam tests across 99 files**, plus Playwright
 projects for acceptance, activities, accessibility, multiplayer, offline boot,
 service-worker update, mobile layout, night legibility, code redemption, the
-live-ops console, performance budgets and visual regression. 23 further tests
+live-ops console, performance budgets and visual regression. 26 further tests
 run only against Postgres. Every one of those thirteen projects runs in CI —
 five as their own job, the rest as a named matrix entry — because eight of them
 were green and enforced by nobody until this was checked.
@@ -598,6 +598,8 @@ renderer rather than the world.
 | 56 | **A constellation was recognised according to where the head happened to be, and what time it was.** `activities` failed on CI at 20:15 UTC with nothing recognised, and had passed at 19:23. | The test hook `lookAtSky` wrote an aim straight into the stargazing model, and the frame loop derives that aim from the player's facing and pitch on every step (`World.tsx`), so the hook's aim lasted exactly one frame. Whether anything was then recognised depended on whether a constellation lay within the field of wherever the reclined head was pointing — and the sky turns with the real clock, so the answer changed by the hour. `scene/skyAim.ts` now carries both directions of the head-to-sky conversion, the hook turns the head, and the test asserts that a frame later the model still looks where the head does before it holds |
 | 57 | **The first browser at a shared fire never showed a frame in the time allowed.** `campfire` failed in the *first* `walkIn` of each two-browser test, at `awaitFrames`, while the third test — the same helper — passed every time. | Joined, socket live, `arrive` applied, and twenty seconds in which a wait polled on animation frames never saw the tick move. The first explanation written down here was shader compilation on the software renderer, twenty to thirty seconds of it, and it was wrong: once the wait was made to measure, CI reported the first page's first tick 1.6–3.3 s after joining and the second page's 3–16 s (it shares the runner with a page that is still drawing) — here, 2–2.5 s and 8–9 s. The page was ticking; the wait was not looking. Frame waits now poll on an interval rather than on animation frames, because a wait that itself needs a frame cannot report that frames are not running, and on failure they describe the page: visibility, whether an animation frame fires at all, whether the canvas exists, and where the shared timeline has got to. What is *not* established is why an animation-frame-polled wait in the first page of a fresh browser never re-evaluated; the diagnostic exists so that a recurrence answers it |
 | 58 | **`npm run typecheck` — the command the workflow comment names as the local equivalent — was red at HEAD, and CI could not see it.** | CI runs `tsc -b`; the script also checks `test/integration`, where five `add-log` actions still carried the `placement` field removed when logs became things you place (`e9ba23c`). Vitest runs the file without typechecking, so the drift was invisible everywhere except the one command the comment says to run. Fixed. The same sweep found that `e2e/` is typechecked by nothing at all — recorded as S15 |
+| 59 | **The first Pages deploy asked the account's root for its service.** Found by rendering the deployed bytes and recording every request: `/v1/auth/anonymous`, `/v1/codes/keys` and `/v1/content/manifest` went to `/` on `github.io`, not under `/Some-More-Cookies/` — defect 41 again, from the other side. | The workflow bakes `VITE_API_URL=""` into a build whose `api_url` input is left blank, and `""` is not `undefined`, so `import.meta.env.VITE_API_URL ?? defaultApiBaseUrl()` kept it. The `subpath` project could not see it because it built without the variable; it now builds exactly as the deploy does, and failed on the unfixed client before passing on the fixed one. `apiBaseUrlFrom` treats blank as unset, the workflow exports the variable only when there is one, and the run that found it is the first time this app was loaded from anywhere but this machine |
+| 60 | **The draw-call budget warning would have thrown the first time draw calls went over budget.** `perf.spec.ts` built its message from `KNOWN_DEVIATIONS.drawCalls.status`, and there has never been a `drawCalls` entry in that table — only `dynamicLights`. | Found on the first day `e2e/` was typechecked (S15, now closed). The branch had never executed because draw calls have never exceeded the budget, which is exactly the moment the message exists for. It now looks the deviation up as something that may not exist, and says nothing when it does not |
 
 Two of the six are model corrections that happened to be found by a slow
 machine: the torch (53) and the sky aim (56) were both wrong on a phone in
@@ -607,6 +609,97 @@ measures the renderer is not a wait, it is a guess with a timeout on it. And
 57 carries its own footnote: the first cause written for it was plausible,
 confidently stated, and contradicted by the first number the fix produced.
 That is the reason the fix prints the number.
+
+---
+
+### Session 8: seven readers, and thirty-seven things they found
+
+The first structured review of the product as a player meets it: five
+readers, one per surface (the ritual; the fire and the campsite; the
+activities and the night; everything that is not the world; two people at
+one fire), each made to open every screenshot in its surface and cite the
+picture or the line, and two skeptics whose only job was to refute what the
+readers said. The skeptics confirmed thirty, downgraded seven and refuted
+none, which says less about the readers than about how much there was to
+find by looking. All thirty-seven are landed. The table records what a
+player saw and what changed; the pictures are in `artifacts/screenshots/`.
+
+| # | A player saw | Now |
+| --- | --- | --- |
+| F1, F23 | SCORCHING half buried under TAKE IT TO THE PLATE in the bottom-left corner — the one non-colour channel for heat, covered | One bottom-left column: readout above, keyboard button below, and the readout is a live region (F29) |
+| F2 | The s'more vanished when the top cracker went on; "Put it in." over an empty lit tray; a run happened to nothing | `PlacedStack` draws the layers as built, on the plate and then on the SM-01's tray from the moment it is loaded, visible through the smoked window |
+| F3 | On two of three phones the reveal opened on the chamber wall with the sandwich out of shot | A 44° lens on a portrait frame, and a look goal that is not abandoned while the eye is still settling |
+| F4 | "Take a marshmallow" while setting a cracker down; "Poke the coals" on the way to the machine; "The SM-01" for a whole run | Nothing offered while assembling; at the machine only the machine, and only while the tray is waiting |
+| F5 | The frost note across the machine ten seconds later, over the first bite, doubled with the vapour subtitle | Cleared when the sandwich is in hand |
+| F6 | "Walk toward the fire." above "TAP TO WALK IN", and nothing moved when they tried | "The fire is ahead." |
+| F7 | Complete looked like freezing with a different word on the readout | Rime on the window, where frost is legible, growing with the run |
+| F8 | Ten bright coals sitting on top of grey ash under "heat still under it" | The coals' emissive light follows the ash |
+| F9 | The notice and the reach prompt across the flame base and the log ends in the crouched view | Both move up into the top band while the pit is what is in reach |
+| F10 | The lie-of-the-land remark boxed over the fire on the first frame of every session | The landing happens inside the step, before the world is asked where you are |
+| F11 | A tepee and the same logs raked flat looked alike; the fire's own vocabulary for it reached nobody | Moving a log says what the arrangement has become, when it changes |
+| F12 | A frame ninety-five per cent black at the tinder patch; a torch disc with no sticks in it | Thicker, paler dead wood on a low heap of litter |
+| F13 | BANK THE COALS floating at mid-left over a healthy fire whenever rain was a minute out | The assist column is an assist: only under simplified gestures. The weather speaks for itself |
+| F14 | "Take a log" with the pile behind you and out of frame | An arc on the woodpile and the patches, from a step away; standing on a thing, it is in reach whichever way you face |
+| F15 | No plume over the soaked log the frame exists to show drying | The wisp has a floor under the quantiser and a little firelight in it |
+| F16 | Lying back, the binoculars, the beam's width and "what is around me?" existed on four keys and nowhere else | An acts row in the top band, only while each applies |
+| F17 | "Drag to look" with a stone in hand, when a drag was the throw | The guidance says what the thing in hand makes the controls do |
+| F18 | "[you pick the torch up off the log]" still on screen through the sweep and the refocus | Any subtitle expires |
+| F19 | "Pick up a stone" under "The float goes under." | With the line out, the rod is what is offered |
+| F20 | "Saw-whet owl" as a subtitle over an empty picture, the moment it spawned twenty metres out | "[something, out past the firelight]" when it appears; its name once it has settled in |
+| F21 | Binoculars darkened the HUD and changed nothing in view | A 22° lens; the vignette sits under the controls |
+| F22 | A fifteen-centimetre grey cylinder on a dark log, reachable only by a button that appeared within 1.35 m | The torch, the stones, the rod and the radio can be tapped, gated by the same reach |
+| F24 | "The order domain, the payment abstraction, idempotency and the fulfilment state machine are implemented and tested" on a readout the player is looking at | "THE DEPOT CANNOT TAKE PAYMENT TONIGHT. THE ONE YOU MADE IS YOURS." |
+| F25 | Settings ended cleanly after Resolution with Assists, Keys and Sound below the fold and no sign of them | A fade at the panel's bottom edge |
+| F26 | The serial printed twice | Once |
+| F27 | "No voice here" above a live volume slider | Disabled, and it says so |
+| F28 | "9/2/2026, 1:09:46 AM" and "bat_-VRqBn9M" on keepsake pages | A date and a time; the id gone |
+| F30 | A `?fire=` link on the static site opened a plain campsite with no word said | "That link led to somebody else's fire, and this campsite has no signal tonight. This one is your own." |
+| F31 | "AT THE FIRE · 2" and a frozen figure for the rest of the night after the socket dropped | The others leave the way a dropped connection leaves |
+| F32 | After the pass, still coached to drag it in and out, meter lit, "Take it to the plate" offered | "Moss Larch has the stick." and nothing else |
+| F33 | The name over the other person, a row of dots in the guest view | Baked near the size it is seen: glyphs that fill the canvas, on a wider plate |
+| F34 | The only way to pass the stick was a panel button one thumb-width from "Block" | Hold the marshmallow within arm's reach of somebody for a moment and it is offered, through the same rule |
+| F35 | A scanned camp invite: "That is an invitation to somebody else's fire." and nothing | The service says where an invite leads — `GET /v1/invites/:token`, the token being the credential — and the page walks down the link, invite in hand |
+| F36 | A bearer token in a pasted link was a credential on the public site | Honoured only in a harness build, and stripped from the address either way |
+| F37 | A line from somebody else, and no way in sight to answer | The first time, once: how to answer |
+
+**What the verification of it found, which is the part worth keeping.**
+Three tests were right for the wrong reasons, and one fix was.
+
+- The banking test "taps the middle of the pit to rake it back open". It had
+  been tapping the reach button that stood over the pit at 18% from the
+  bottom; with the button moved (F9) the tap found a log standing at the pit
+  centre and moved it nowhere. A tap on a log is now a poke at the bed, which
+  is what the sentence always claimed.
+- The two-browser suite's guest sometimes reached its own campsite alone
+  with "no join message arrived". Its first frame took eleven seconds on this
+  machine and the service closes an unjoined socket at ten; the socket had
+  been opened before the draw that stalled the thread. The first fix opened it
+  two animation frames after mount, on the theory that the stall was in the
+  commit before them. CI then measured a guest first frame of 13.4 s with the
+  two frames already gone by, and failed the same way on one of two runs of
+  the same commit. The gate is now the render loop's own second frame, and
+  the transport treats "Join timed out" as a reason to ask again rather than
+  as a refusal, since a slow phone will meet the same ten-second window.
+- The same suite waited on a page it had put in the background, where
+  Chromium throttles the frame loop the shared tick rides on. Its own comment
+  said "one page at a time, each in front while it waits"; now every
+  cross-page wait does.
+
+- The eeriness statistic in `place.test.ts` (a hundred and twenty simulated
+  hours at sixty hertz, 2.7 s alone here) timed out at vitest's default five
+  seconds on a CI runner sharing its machine with a second run of the same
+  commit. It now carries its own budget, with the measurement beside it.
+- F2's own fix was the fourth. The stack was drawn on the tray, the pane's
+  opacity was lowered so it would show, the visual project went green twice,
+  and the regenerated `processing.png` still showed a blank grey square. The
+  smoked window had been a plate glued to the face of a solid 55 mm door, with
+  a solid rubber gasket behind that; nothing had ever been visible through
+  it, and its comment said you could watch the transformation happen. The
+  door and the gasket are now frames around a hole, and the pane sits in it.
+
+The pattern is defect 50's again: a green test is a claim about what it
+measured, not about what it says it measured. A regenerated baseline is not
+verification either, until somebody opens it.
 
 ---
 
@@ -707,7 +800,7 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 
 | # | Shortfall | Why it matters | What it needs |
 | --- | --- | --- | --- |
-| S1 | **Two affordances are still HUD buttons.** Taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The woodpile and the ember bed are now touched directly, and which log you reach for decides what wood goes on the fire. | The remaining two are transitions rather than manipulations, so they read less wrongly — but the spec's spirit is that you carry the marshmallow, not press "take". | Drag the roasting stick to the plate; pick the sandwich off the tray. Both buttons stay as an accessibility fallback for anyone who cannot drag. |
+| S1 | **Two affordances are still HUD buttons, and four acts are now offered as buttons rather than keys.** Lying back, the binoculars, the beam's width and the survey had no way in except a key (Session 8, F16); they are offered in the top band while they apply, which is the same compromise as the two below, made for the same reason. Taking the marshmallow to the plate and taking the sandwich off the tray are screen buttons. The woodpile and the ember bed are now touched directly, and which log you reach for decides what wood goes on the fire. | The remaining two are transitions rather than manipulations, so they read less wrongly — but the spec's spirit is that you carry the marshmallow, not press "take". | Drag the roasting stick to the plate; pick the sandwich off the tray. Both buttons stay as an accessibility fallback for anyone who cannot drag. |
 | S2 | **Never run on a touch device.** | Roasting is a two-axis drag; risk R7 is unresolved without a thumb on real glass. | A device lab, or at minimum a phone. |
 | S3 | **Never profiled on real hardware.** | The 60 FPS target is unverified; SwiftShader here cannot answer it. | Real device profiling against the budgets in ARCHITECTURE §10. |
 | S4 | ~~Multiplayer is architected, not built.~~ **Built.** RFC 6455 framing, handshake, rooms, authority hand-off with fencing, blocks and anti-grief, all with no new dependencies. Voice is behind a LiveKit adapter that reports "not configured" without credentials. Proximity mixing now applies `proximityGain` per track per frame, with the panner's own distance model turned off so the two curves cannot multiply. | — | Remaining: participant truth is in-process rather than read from a provider, because there is no provider and no WebRTC SDK in this build. `attach(accountId, stream)` is the seam it arrives through. |
@@ -718,7 +811,7 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 | S9b | ~~One visual baseline is stale, and one verification number is unmeasured.~~ **Closed.** Every one of the sixteen baselines was regenerated from scratch rather than updated — a tolerance wide enough to hide the fire's flicker is wide enough to hide a stale picture, and `roasted.png` was still showing the one-sided marshmallow from before the input fix while matching happily. `perf` was re-run serially on an idle machine: 83/120 draw calls, 10,370/60,000 triangles, 1.605/24 MB textures. | — | — |
 | S10 | **The native shells are configured but not generated.** `apps/mobile/` has the Capacitor config, an asset generator that draws all 37 native icons from the same code as the favicon, and the argument in full — but no `ios/` or `android/`. | Generating them writes a Gradle wrapper JAR and placeholder PNGs, which ADR-0002 forbids, and nothing here could compile or run them. Committing two hundred files that have never been built is what §16 exists to prevent. | Developer accounts, and a machine with Xcode and the Android SDK. |
 | S14 | **The night's arc does not reach the sky, and one line promises that it does.** `describeWindow('dawn')` says *"There is grey in the east. That went quickly."* The sky is a single flat `<color attach="background">` from the manifest's `nightPalette.zenith`, constant for the whole session — there is no gradient, so there is no east. Measured across the four windows at one campsite (per-channel median, stars excluded, so a drifting star field cannot fake a difference): zenith `(8,8,8) → (8,8,8) → (8,8,15) → (8,8,15)`, and the horizon band the same. The sky changes **once in four windows, and not at dawn**. | The arc itself works where it was built: the ground by the fire goes `(58,33,8) → (16,8,1) → (16,8,8) → (8,8,8)` as the fire dies through the night, and the cold, the prose and the fire model all follow it. It is only the sky that stands still — and note that at 5-bit quantisation anything under 8/255 snaps to zero (§4.1, D7), so a gradual warming of a few units would be eaten before it reached a pixel. | Either give the sky a horizon gradient that can carry a dawn (a real rendering feature on a deliberately flat PS1 sky, and an amplitude of at least 8/255 to clear the quantiser), or reword the beat so it does not promise a picture the renderer cannot draw. That is a design call rather than a correction, so it is recorded here rather than decided. |
-| S15 | **`e2e/` is typechecked by nothing.** No tsconfig covers it and it is not a `tsc -b` reference; Playwright transpiles the specs without checking them. Under a strict ad-hoc configuration the fifteen specs produce 58 errors — thirty-seven of them the `unknown` result of `act()` used as a value, the rest properties the specs read off `window.__someMore` that its declared type does not carry. | Every spec fix this session was validated by running it, never by compiling it, and a mistyped property in a diagnostic path is found only on the day that path fires. The `placement` drift in 58 lived for the same reason. | An `e2e/tsconfig.json` in the build, and one typed test handle the specs share with `main.tsx`. |
+| S15 | ~~`e2e/` is typechecked by nothing.~~ **Closed.** `e2e/tsconfig.json` is a `tsc -b` reference, so `npx tsc -b` — what CI runs — and `npm run typecheck` both cover the fifteen specs. The specs read `window.__someMore` through the one declaration the app makes (`apps/web/src/testHandle.ts`), which removed the thirty-seven `unknown` results at a stroke: they were the suite's own copy of the store type, not the app's. The three that were left were real: a bad cast in `helpers.ts`, actions typed as taking `never`, and one dormant bug (finding 60). | The first typecheck of the suite found a message that would have thrown at the one moment it existed for. | — |
 | S7 | **Audio is unheard.** 102 tests cover its maths and scheduling; no human has listened to it. | The SM-01's mechanical narrative is carried by sound. | Someone with speakers. |
 
 ---

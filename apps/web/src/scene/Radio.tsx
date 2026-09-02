@@ -29,6 +29,8 @@ export interface RadioProps {
   position: readonly [number, number, number];
   /** Radians. Whichever way it happens to have been left facing. */
   rotationY?: number;
+  /** Tapped. Gated by reach in the world, not here. */
+  onTouch?: (id: 'radio') => void;
 }
 
 export function Radio({
@@ -37,6 +39,7 @@ export function Radio({
   campsiteSeed,
   position,
   rotationY = 0,
+  onTouch,
 }: RadioProps): React.ReactElement {
   const needleRef = useRef<THREE.Mesh>(null);
   const scaleLightRef = useRef<THREE.Mesh>(null);
@@ -108,7 +111,15 @@ export function Radio({
   return (
     <group position={position as unknown as THREE.Vector3Tuple} rotation={[0, rotationY, 0]} name="radio">
       {/* Case */}
-      <mesh castShadow receiveShadow material={caseMaterial}>
+      <mesh
+        castShadow
+        receiveShadow
+        material={caseMaterial}
+        onClick={(event) => {
+          event.stopPropagation();
+          onTouch?.('radio');
+        }}
+      >
         <boxGeometry args={[CASE.width, CASE.height, CASE.depth]} />
       </mesh>
 

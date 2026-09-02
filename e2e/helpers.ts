@@ -2,24 +2,20 @@ import type { Page } from '@playwright/test';
 
 export const SHOTS = 'artifacts/screenshots';
 
-/** The window handle the client exposes for inspection and testing. */
-export interface SomeMoreHandle {
-  actions: Record<string, (...args: unknown[]) => unknown>;
-  store: { state: Record<string, unknown> };
-  environments: readonly { id: string; name: string }[];
-  three?: { scene: unknown; camera: unknown };
-  /** The player being simulated, when a spec needs to look at somebody. */
-  player?: import('@somemore/sim').PlayerState;
-  /** The shared fire, present only when a link brought this page to one. */
-  campfire?: import('../apps/web/src/net/campfire.js').Campfire;
-}
+/**
+ * The window handle the client exposes, typed by the client.
+ *
+ * `apps/web/src/testHandle.ts` declares `window.__someMore` and this suite
+ * reads it through that declaration, so the specs and the app cannot drift
+ * apart silently the way they had (IMPLEMENTATION_PLAN S15: a copy of this
+ * type lived here with a store of `Record<string, unknown>`, a `three` with
+ * no renderer and no `walkable`, and nothing compared the two). The PWA
+ * controller's `window.__someMorePwa` comes in the same way.
+ */
+import type { SomeMoreHandle } from '../apps/web/src/testHandle.js';
+import type {} from '../apps/web/src/pwa/register.js';
 
-
-declare global {
-  interface Window {
-    __someMore?: SomeMoreHandle;
-  }
-}
+export type { SomeMoreHandle };
 
 /**
  * Invokes one of the ritual actions the interface itself calls.
@@ -27,7 +23,8 @@ declare global {
  */
 export function act(page: Page, name: string, ...args: unknown[]): Promise<unknown> {
   return page.evaluate(
-    ([n, a]) => window.__someMore!.actions[n as string]!(...(a as unknown[])),
+    ([n, a]) =>
+      (window.__someMore!.actions[n as string] as (...args: unknown[]) => unknown)(...(a as unknown[])),
     [name, args] as const,
   );
 }
@@ -46,8 +43,7 @@ export function readWorld(page: Page): Promise<{
   eaten: number;
 }> {
   return page.evaluate(() => {
-    const r = window.__someMore!.store.state.ritual as Record<string, never>;
-    const anyR = r as unknown as {
+    const anyR = window.__someMore!.store.state.ritual as unknown as {
       stage: string;
       fire: { flame: number; emberMass: number };
       marshmallow: { patches: { brown: number; char: number }[] };

@@ -549,6 +549,9 @@ export interface ReachResult {
  * offers what is within arm's reach rather than presenting a menu, so this is
  * what drives the interface's affordances.
  */
+/** Within this, you are standing on the thing rather than facing it. */
+const STANDING_ON_M = 0.5;
+
 export function reachable(player: PlayerState, world: WalkableWorld): ReachResult[] {
   const results: ReachResult[] = [];
   for (const interactable of world.interactables) {
@@ -561,7 +564,9 @@ export function reachable(player: PlayerState, world: WalkableWorld): ReachResul
     let delta = wrapAngle(angle - player.facing);
     if (delta > Math.PI) delta -= TAU;
     const facing = clamp01(1 - Math.abs(delta) / Math.PI);
-    if (interactable.arc !== undefined && Math.abs(delta) > interactable.arc) continue;
+    // Facing it matters from a step or two away. Standing on it, the bearing
+    // is meaningless and the thing is plainly in reach whichever way you face.
+    if (interactable.arc !== undefined && distance > STANDING_ON_M && Math.abs(delta) > interactable.arc) continue;
 
     results.push({ interactable, distance, facing });
   }

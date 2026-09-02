@@ -143,6 +143,8 @@ export interface CampfireOptions {
   readonly onAdopt?: (ritual: RitualState, seed: number, environmentId: string) => void;
   /** A line for the subtitle layer. Everything audible has one (spec §12). */
   readonly onSubtitle?: (line: string) => void;
+  /** A line that is not a sound: shown as a notice, so it does not depend on subtitles being on. */
+  readonly onHint?: (line: string) => void;
   /** Presentation-relevant change; the interface should re-render. */
   readonly onChange?: () => void;
   /** The local player's accessibility assists, read when an intent is built. */
@@ -159,6 +161,8 @@ export class Campfire {
 
   transport: RealtimeTransport | null = null;
   timeline: SharedTimeline | null = null;
+  /** Whether the player has been told how to answer somebody yet. */
+  private answerHinted = false;
 
   accountId: string | null = null;
   sessionId: string | null = null;
@@ -337,6 +341,17 @@ export class Campfire {
           this.options.onSubtitle?.(
             status === 'alone' ? '[you are alone at the fire]' : '[the others have gone quiet for a moment]',
           );
+        }
+        if (status === 'alone') {
+          /*
+           * Alone means alone. The subtitle said so for three seconds and then
+           * the corner kept reading "At the fire · 2" while the other person
+           * stood frozen where the last presence left them, for the rest of
+           * the night. They leave the way a dropped connection leaves.
+           */
+          for (const person of [...this.roster.everyone]) {
+            this.roster.depart(person.accountId, 'dropped', null, this.tick);
+          }
         }
         this.options.onChange?.();
       },
@@ -528,6 +543,15 @@ export class Campfire {
     // Chat is a *sound* at a campfire as much as a text box, so it goes to the
     // subtitle layer too rather than only into a panel nobody has open.
     this.options.onSubtitle?.(`${line.name}: ${line.text}`);
+    /*
+     * The first time somebody else speaks, say how to answer — once. The
+     * only ways to reply are a corner pill that reads like a headcount and a
+     * key nothing on screen mentions.
+     */
+    if (!line.mine && !this.answerHinted) {
+      this.answerHinted = true;
+      this.options.onHint?.('Somebody spoke. Tap "At the fire", or press K, to answer.');
+    }
     this.options.onChange?.();
   }
 

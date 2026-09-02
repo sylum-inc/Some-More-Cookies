@@ -105,6 +105,8 @@ export function Fire({
   const ashRef = useRef<THREE.Mesh>(null);
   /** The piece currently under a finger, if any. */
   const dragging = useRef<string | null>(null);
+  /** Where a log was touched and whether the finger then moved: a tap on wood is a poke at the bed. */
+  const logTap = useRef<{ x: number; z: number; moved: boolean } | null>(null);
   /** Where a hand went into the ash, so a sweep can be told from a tap. */
   const sweep = useRef<{ radius: number; x: number; z: number } | null>(null);
 
@@ -252,6 +254,15 @@ export function Fire({
     // arriving at one needs telling that there is anything alive in it.
     const buried = 1 - fire.ashCover * 0.92;
     const emberGlow = Math.min(1, fire.emberMass) * buried;
+    /*
+     * The coals' own light, not just their colour.
+     *
+     * Their per-instance colour already followed the glow, but the emissive
+     * term on the shared material did not, so a banked bed — "grey ash, and
+     * heat still under it" — still showed ten bright orange coals sitting on
+     * top of the ash. One write, one material.
+     */
+    emberMaterial.emissiveIntensity = 1.6 * emberGlow;
 
     // --- Flames -----------------------------------------------------------
     const flames = flamesRef.current;
@@ -436,8 +447,17 @@ export function Fire({
             dummy.scale.setScalar((0.6 + life * 1.1) * (0.45 + log.steam * 0.55));
             dummy.updateMatrix();
             steamRef.current?.setMatrixAt(steamIndex, dummy.matrix);
-            const fade = log.steam * Math.pow(1 - life, 0.7) * 0.8;
-            color.setRGB(fade, fade, fade * 0.97);
+            /*
+             * A floor under the wisp, and a little warmth in it.
+             *
+             * At `steam * 0.8` the whole plume sat under the 5-bit quantiser
+             * against the dark ground and the frame that exists to show a
+             * soaked log drying showed nothing above it. It starts pale and
+             * catches a touch of firelight, which is what steam next to a fire
+             * looks like.
+             */
+            const fade = Math.min(1, 0.3 + log.steam * 0.7) * Math.pow(1 - life, 0.6);
+            color.setRGB(fade, fade * 0.96, fade * 0.88);
             steamRef.current?.setColorAt(steamIndex, color);
             steamIndex++;
           }
@@ -569,6 +589,7 @@ export function Fire({
                     event.stopPropagation();
                     dragging.current = log.id;
                     if (grabbedRef) grabbedRef.current = log.id;
+                    logTap.current = { x: event.point.x, z: event.point.z, moved: false };
                     // Without capture the drag dies the instant the pointer
                     // leaves a piece of wood five centimetres across, which on
                     // a phone is immediately.
@@ -602,6 +623,8 @@ export function Fire({
                     const x = ray.origin.x + ray.direction.x * distance;
                     const z = ray.origin.z + ray.direction.z * distance;
                     const r = Math.hypot(x, z);
+                    const tap = logTap.current;
+                    if (tap && Math.hypot(x - tap.x, z - tap.z) > 0.04) tap.moved = true;
                     // Let go of it outside the ring and it stays on the stones:
                     // the pit has no opinion about wood beyond them.
                     const scale = r > PIT.ringRadius ? PIT.ringRadius / r : 1;
@@ -613,6 +636,17 @@ export function Fire({
               if (dragging.current === null) return;
               dragging.current = null;
               if (grabbedRef) grabbedRef.current = null;
+              /*
+               * Touched and let go without moving: that is a poke, not a
+               * move. Reaching into the pit and finding a log under your
+               * finger opens the bed the same as reaching into the ash —
+               * the wood is what is standing on the coals, after all.
+               */
+              const tap = logTap.current;
+              logTap.current = null;
+              if (tap && !tap.moved && onWorkBed && !(canTouch && !canTouch())) {
+                onWorkBed({ x: tap.x, z: tap.z, inward: 0 });
+              }
               try {
                 (event.target as Element | null)?.releasePointerCapture(event.pointerId);
               } catch {

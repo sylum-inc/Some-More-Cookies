@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
+  type RitualState,
   STACK_ORDER,
   type AssemblyState,
   type BiteState,
@@ -186,6 +187,76 @@ const COMPONENT_SIZE: Record<ComponentKind, [number, number, number]> = {
   'graham-top': [0.064, 0.007, 0.064],
 };
 
+type PlacedComponent = RitualState['assembly']['components'][number];
+
+/**
+ * The s'more as it has been built, wherever it is now.
+ *
+ * On the plate while it is being assembled, and then on the SM-01's tray: it
+ * used to vanish the moment the top cracker went on, and the player walked
+ * to the machine with nothing in hand, put nothing on an empty lit tray, and
+ * watched a run happen to nothing. The same layers, the same materials, so
+ * what comes out the other end is recognisably what went in.
+ */
+export function PlacedStack({
+  components,
+  settings,
+  scale = 1,
+}: {
+  components: readonly PlacedComponent[];
+  settings: RenderSettings;
+  scale?: number;
+}): React.ReactElement {
+  const materials = useMemo(
+    () => ({
+      graham: createPs1Material({ settings, map: getTexture('graham', { size: 64 }), roughness: 0.95 }),
+      chocolate: createPs1Material({
+        settings,
+        map: getTexture('chocolate', { size: 64 }),
+        roughness: 0.35,
+        metalness: 0.05,
+      }),
+      marshmallow: createPs1Material({
+        settings,
+        map: getTexture('marshmallow', { size: 64 }),
+        roughness: 0.8,
+      }),
+    }),
+    [settings],
+  );
+  const materialFor = (kind: ComponentKind) =>
+    kind === 'chocolate' ? materials.chocolate : kind === 'marshmallow' ? materials.marshmallow : materials.graham;
+  // Stacking height for placed components.
+  let stackY = 0.005;
+  return (
+    <group scale={scale} name="placed-stack">
+      {components
+        .filter((c) => c.placed)
+        .map((component, i) => {
+          const size = COMPONENT_SIZE[component.kind];
+          const squishScale = 1 - component.squish * 0.45;
+          const height = size[1] * squishScale;
+          const y = stackY + height / 2;
+          stackY += height;
+          return (
+            <mesh
+              key={`${component.kind}-${i}`}
+              material={materialFor(component.kind)}
+              position={[component.offset.x, y, component.offset.z]}
+              rotation={[component.tilt, component.rotation, component.tilt * 0.5]}
+              castShadow
+              receiveShadow
+            >
+              <boxGeometry
+                args={[size[0] * (1 + component.squish * 0.12), height, size[2] * (1 + component.squish * 0.12)]}
+              />
+            </mesh>
+          );
+        })}
+    </group>
+  );
+}
+
 export function AssemblyTable({ assembly, settings, position = [0, 0, 0] }: AssemblyTableProps): React.ReactElement {
   const heldRef = useRef<THREE.Group>(null);
 
@@ -223,8 +294,6 @@ export function AssemblyTable({ assembly, settings, position = [0, 0, 0] }: Asse
     }
   });
 
-  // Stacking height for placed components.
-  let stackY = 0.005;
   const placed = assembly.components.filter((c) => c.placed);
 
   return (
@@ -295,25 +364,7 @@ export function AssemblyTable({ assembly, settings, position = [0, 0, 0] }: Asse
       </mesh>
 
       {/* Placed layers */}
-      {placed.map((component, i) => {
-        const size = COMPONENT_SIZE[component.kind];
-        const squishScale = 1 - component.squish * 0.45;
-        const height = size[1] * squishScale;
-        const y = stackY + height / 2;
-        stackY += height;
-        return (
-          <mesh
-            key={`${component.kind}-${i}`}
-            material={materialFor(component.kind)}
-            position={[component.offset.x, y, component.offset.z]}
-            rotation={[component.tilt, component.rotation, component.tilt * 0.5]}
-            castShadow
-            receiveShadow
-          >
-            <boxGeometry args={[size[0] * (1 + component.squish * 0.12), height, size[2] * (1 + component.squish * 0.12)]} />
-          </mesh>
-        );
-      })}
+      <PlacedStack components={assembly.components} settings={settings} />
 
       {/* The component currently in hand */}
       <group ref={heldRef} visible={false}>

@@ -100,6 +100,13 @@ export type ApiFailure =
 
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: ApiFailure };
 
+/** Where a campfire invite leads. */
+export interface InviteDestination {
+  campsiteId: string;
+  campsiteName: string;
+  sessionId: string | null;
+}
+
 const DEFAULT_TIMEOUT = 8000;
 
 /** Deterministic-enough idempotency keys without pulling in a uuid library. */
@@ -132,6 +139,30 @@ export function idempotencyKey(): string {
 export function defaultApiBaseUrl(): string {
   const base = typeof import.meta.env === 'undefined' ? '/' : (import.meta.env.BASE_URL ?? '/');
   return base.replace(/\/$/, '');
+}
+
+/**
+ * Where the service is, taking the build's word for it only when it said
+ * something.
+ *
+ * `VITE_API_URL` is baked in at build time, and a build that was given the
+ * variable *empty* — the Pages workflow does exactly that when its `api_url`
+ * input is left blank — bakes in `""`, which a `??` fallback keeps. The first
+ * deploy asked `github.io` for `/v1/auth/anonymous` at the account's root for
+ * precisely that reason. Blank means nobody said, and nobody said means
+ * relative to the app, which is what {@link defaultApiBaseUrl} is for.
+ */
+export function apiBaseUrlFrom(env: Record<string, unknown>, fallback: string): string {
+  const configured = env['VITE_API_URL'];
+  if (typeof configured !== 'string') return fallback;
+  const trimmed = configured.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+/** {@link apiBaseUrlFrom} with this build's own environment. */
+export function apiBaseUrl(): string {
+  const env = typeof import.meta.env === 'undefined' ? {} : (import.meta.env as Record<string, unknown>);
+  return apiBaseUrlFrom(env, defaultApiBaseUrl());
 }
 
 export class ApiClient {
@@ -254,6 +285,16 @@ export class ApiClient {
 
   fetchCampsite(campsiteId: string): Promise<ApiResult<Campsite>> {
     return this.request('GET', `/v1/campsites/${encodeURIComponent(campsiteId)}`, CampsiteSchema, {});
+  }
+
+  /** Where an invite leads. The token is the credential; membership is not required. */
+  resolveInvite(token: string): Promise<ApiResult<InviteDestination>> {
+    return this.request(
+      'GET',
+      `/v1/invites/${encodeURIComponent(token)}`,
+      z.object({ campsiteId: z.string(), campsiteName: z.string(), sessionId: z.string().nullable() }),
+      {},
+    );
   }
 
   // --- Campsite memory ---------------------------------------------------

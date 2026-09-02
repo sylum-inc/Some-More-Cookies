@@ -6,6 +6,7 @@
     { "path": "./packages/protocol" },
     { "path": "./services/api" },
     { "path": "./apps/web" },
-    { "path": "./apps/console" }
+    { "path": "./apps/console" },
+    { "path": "./e2e" }
   ]
 }

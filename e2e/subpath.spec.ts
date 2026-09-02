@@ -53,7 +53,15 @@ test.beforeAll(async () => {
    */
   execFileSync('npx', ['vite', 'build', '--outDir', dist, '--emptyOutDir'], {
     cwd: join(REPO, 'apps/web'),
-    env: { ...process.env, BASE_PATH: BASE },
+    /*
+     * `VITE_API_URL` deliberately present and empty, because that is what the
+     * Pages workflow bakes in when its `api_url` input is left blank — and an
+     * empty string is not `undefined`, so a `??` fallback keeps it. The first
+     * deploy asked `github.io` for `/v1/auth/anonymous` at the account's root
+     * for exactly that reason, which is the request this test exists to
+     * refuse. Building the way the deploy builds is the only way to see it.
+     */
+    env: { ...process.env, BASE_PATH: BASE, VITE_API_URL: '' },
     stdio: 'pipe',
     timeout: 300_000,
   });

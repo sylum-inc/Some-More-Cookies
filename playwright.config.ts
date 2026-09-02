@@ -210,6 +210,10 @@ export default defineConfig({
    */
   webServer: {
     command: 'npm run build --workspace @somemore/web && npm run preview --workspace @somemore/web',
+    // A harness build: the client honours `token` and `ws` in a fire link only
+    // when this is set, so a bearer token pasted into a chat is not a
+    // credential on the public site. The two-browser spec depends on it.
+    env: { VITE_E2E: '1' },
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: false,
     timeout: 180_000,

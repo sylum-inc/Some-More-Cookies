@@ -40,9 +40,11 @@ export interface TorchProps {
    * cannot tell.
    */
   restPosition: readonly [number, number, number];
+  /** Tapped where it lies. Gated by reach in the world, not here. */
+  onTouch?: (id: 'torch') => void;
 }
 
-export function Torch({ torch, player, settings, restPosition }: TorchProps): React.ReactElement {
+export function Torch({ torch, player, settings, restPosition, onTouch }: TorchProps): React.ReactElement {
   const lightRef = useRef<THREE.SpotLight>(null);
   const targetRef = useRef<THREE.Object3D>(null);
   const bodyRef = useRef<THREE.Mesh>(null);
@@ -137,7 +139,15 @@ export function Torch({ torch, player, settings, restPosition }: TorchProps): Re
           object, and the whole affordance is "pick the torch up off the log" —
           the same quantisation floor that makes an unlit surface render as
           nothing rather than as very dark (ARCHITECTURE §4.1). */}
-      <mesh ref={bodyRef} geometry={bodyGeometry} castShadow>
+      <mesh
+        ref={bodyRef}
+        geometry={bodyGeometry}
+        castShadow
+        onClick={(event) => {
+          event.stopPropagation();
+          onTouch?.('torch');
+        }}
+      >
         <meshStandardMaterial
           color={0x9aa5ae}
           emissive={0x1c2228}

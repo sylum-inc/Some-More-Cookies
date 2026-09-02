@@ -289,7 +289,7 @@ test.describe('sitting, stargazing and the rod', () => {
     await act(page, 'arrive');
     await page.waitForTimeout(900);
 
-    // Lie back and look at whatever is actually highest tonight. Nothing in
+    // Lie back and look at whatever is actually clearest tonight. Nothing in
     // the world says where it is — the sky turns, so a fixed bearing would be
     // a coin flip, and the test has to find it the way a player would.
     await act(page, 'lieBack', true);
@@ -302,21 +302,70 @@ test.describe('sitting, stargazing and the rod', () => {
       up: boolean;
       known: boolean;
     }[];
-    const highest = target
+    const clearest = target
       .filter((candidate) => candidate.up)
-      .sort((a, b) => b.altitude - a.altitude)[0];
-    expect(highest, 'something should be above the horizon').toBeDefined();
+      .sort((a, b) => b.clarity - a.clarity || b.altitude - a.altitude)[0];
+    expect(clearest, 'something should be above the horizon').toBeDefined();
     // It is not named until it has been held in view.
-    expect(highest!.known).toBe(false);
+    expect(clearest!.known).toBe(false);
 
-    await act(page, 'lookAtSky', highest!.azimuth, highest!.altitude);
+    /*
+     * `lookAtSky` turns the head, and the head is what the model reads: the
+     * frame loop derives the aim from the player's facing and pitch on every
+     * step, so an aim written past the body lasted exactly one frame, and
+     * whether anything was recognised depended on where the body happened to
+     * be looking and on what the real clock said. The hold runs on the
+     * model's own clock rather than the renderer's.
+     */
+    const readGaze = () =>
+      page.evaluate(() => {
+        const sky = (window.__someMore!.store.state.ritual as unknown as {
+          stargazing: {
+            azimuth: number;
+            altitude: number;
+            holdingId: string | null;
+            holdSeconds: number;
+            steadiness: number;
+          };
+        }).stargazing;
+        return {
+          azimuth: Number(sky.azimuth.toFixed(3)),
+          altitude: Number(sky.altitude.toFixed(3)),
+          holding: sky.holdingId,
+          heldSeconds: Number(sky.holdSeconds.toFixed(2)),
+          steadiness: Number(sky.steadiness.toFixed(2)),
+        };
+      });
+    const aimed = `${clearest!.id} (azimuth ${clearest!.azimuth.toFixed(3)}, altitude ${clearest!.altitude.toFixed(3)}, clarity ${clearest!.clarity.toFixed(2)})`;
+
+    await act(page, 'lookAtSky', clearest!.azimuth, clearest!.altitude);
+    // Let frames run before the hold, deliberately. A frame later the model
+    // must still be looking where the head is — the assertion the old test
+    // could not make, because it aimed the model and hoped no frame ran.
+    await page.waitForTimeout(500);
+    const aim = await readGaze();
+    const gap = Math.acos(
+      Math.max(
+        -1,
+        Math.min(
+          1,
+          Math.sin(aim.altitude) * Math.sin(clearest!.altitude) +
+            Math.cos(aim.altitude) * Math.cos(clearest!.altitude) * Math.cos(aim.azimuth - clearest!.azimuth),
+        ),
+      ),
+    );
+    expect(gap, `a frame after looking at ${aimed} the model was aimed at ${JSON.stringify(aim)}`).toBeLessThan(0.15);
+
     await advanceSeconds(page, 10);
     await page.waitForTimeout(600);
     await capture(page, 'act-12-lying-back');
 
     const found = await readActivities(page);
     expect(found.reclined).toBe(true);
-    expect(found.recognised).toBeGreaterThan(0);
+    expect(
+      found.recognised,
+      `nothing was recognised. Aimed at ${aimed}; the model saw ${JSON.stringify(await readGaze())}`,
+    ).toBeGreaterThan(0);
 
     // Binoculars narrow the field and are drawn as a real optical frame.
     await act(page, 'binoculars', true);

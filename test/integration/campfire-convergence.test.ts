@@ -100,7 +100,7 @@ describe('two clients at one fire', () => {
 
     // The host builds the fire up and starts roasting. Every one of these
     // travels: `Campfire` applies nothing locally while it is joined.
-    one.tendFire({ type: 'add-log', woodId: 'oak', placement: 0.75 });
+    one.tendFire({ type: 'add-log', woodId: 'oak' });
     one.beginRoast();
     await until(() => one.authority.holderOf(MARSHMALLOW_OBJECT_ID) === host.accountId, 5_000);
 
@@ -166,7 +166,7 @@ describe('two clients at one fire', () => {
     await joined(one);
     await joined(two);
 
-    one.tendFire({ type: 'add-log', woodId: 'oak', placement: 0.8 });
+    one.tendFire({ type: 'add-log', woodId: 'oak' });
     one.beginRoast();
     await until(() => one.authority.holderOf(MARSHMALLOW_OBJECT_ID) === host.accountId, 5_000);
     for (let i = 0; i < 20; i += 1) {
@@ -277,7 +277,7 @@ describe('two clients at one fire', () => {
     await joined(one);
     await joined(two);
 
-    one.tendFire({ type: 'add-log', woodId: 'oak', placement: 0.7 });
+    one.tendFire({ type: 'add-log', woodId: 'oak' });
     rig.api.clock.advance(2_000);
     await settle(4);
 
@@ -317,7 +317,7 @@ describe('the two intent mappings', () => {
     const theirs: RitualState = createRitual({ campsiteSeed: seed, environmentId });
 
     const script: InputIntent[] = [
-      { kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak', placement: 0.7 } },
+      { kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak', grade: 'log' } },
       { kind: 'tend_fire', action: { action: 'rake' } },
       { kind: 'tend_fire', action: { action: 'fan', strength: 0.8 } },
       { kind: 'begin_roast', objectId: MARSHMALLOW_OBJECT_ID },
@@ -381,7 +381,7 @@ describe('the shared timeline', () => {
     const seed = 4242;
     const environmentId = 'pine-hollow';
     const inputs: StampedInput[] = [
-      stamped(0, 1, { kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak', placement: 0.6 } }),
+      stamped(0, 1, { kind: 'tend_fire', action: { action: 'add_log', woodId: 'oak', grade: 'log' } }),
       stamped(30, 2, { kind: 'begin_roast', objectId: MARSHMALLOW_OBJECT_ID }),
       stamped(30, 3, {
         kind: 'move_marshmallow',

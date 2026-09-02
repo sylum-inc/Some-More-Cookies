@@ -46,6 +46,7 @@ import {
 } from '@somemore/sim';
 import { App } from './App.js';
 import { LAYOUT, campFurniture } from './scene/layout.js';
+import { facingForSkyAzimuth, pitchForSkyAltitude, reclineLift } from './scene/skyAim.js';
 import { overlayForBoot } from './net/overlay.js';
 import { Store } from './state/store.js';
 
@@ -293,9 +294,25 @@ if (typeof window !== 'undefined') {
         return lieBack(store.state.ritual, back as boolean);
       }),
       binoculars: wrap((up = true) => raiseBinoculars(store.state.ritual, up as boolean)),
-      lookAtSky: wrap((azimuth = 0, altitude = 1) =>
-        lookAtSky(store.state.ritual, azimuth as number, altitude as number),
-      ),
+      lookAtSky: wrap((azimuth = 0, altitude = 1) => {
+        /*
+         * Through the body, not past it.
+         *
+         * The frame loop derives the sky aim from the player's facing and pitch
+         * on every step (`World.tsx`), so an aim written straight into the
+         * model lasted until the next frame — and whether a constellation was
+         * ever recognised depended on where the head happened to be. Turning
+         * the head is what a player does, and it keeps the model and the
+         * picture agreeing. The model is aimed as well so the hold starts now
+         * rather than a frame from now.
+         */
+        const player = window.__someMore?.player;
+        if (player) {
+          player.facing = facingForSkyAzimuth(azimuth as number);
+          player.pitch = pitchForSkyAltitude(altitude as number, reclineLift(store.state.ritual));
+        }
+        return lookAtSky(store.state.ritual, azimuth as number, altitude as number);
+      }),
       takeRod: wrap(() => takeFishingRod(store.state.ritual)),
       cast: wrap((power = 0.6) => {
         const ritual = store.state.ritual;

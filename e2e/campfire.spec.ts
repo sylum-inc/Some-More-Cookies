@@ -93,6 +93,8 @@ type PageRitual = {
 interface Player {
   accountId: string;
   token: string;
+  /** What they were bootstrapped as, so a log line can say who did what. */
+  name: string;
 }
 
 async function call(
@@ -124,7 +126,7 @@ async function bootstrapPlayer(name: string): Promise<Player> {
     },
   });
   if (response.status !== 201) throw new Error(`bootstrap failed: ${JSON.stringify(response.body)}`);
-  return { accountId: response.body.account.id, token: response.body.auth.token };
+  return { accountId: response.body.account.id, token: response.body.auth.token, name };
 }
 
 test.beforeAll(async () => {
@@ -315,6 +317,21 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
    * reason. Anything that needs a frame to have run needs the page in front.
    */
   await page.bringToFront();
+  /*
+   * The first frame, paid for up front.
+   *
+   * On the software renderer the first picture of a campsite is the expensive
+   * one: every material in the scene is compiled the first time it is drawn,
+   * and on CI that is twenty to thirty seconds during which the page is
+   * joined, the socket is live, `arrive` has been applied, and nothing has
+   * ticked. Both two-browser tests failed there, in their *first* `walkIn`,
+   * while the third test — the same helper, a warm GPU process — passed every
+   * time. So the first tick gets a cold-start budget of its own, once, and
+   * every later wait for frames stays short enough to mean something. The
+   * cost is measured and printed rather than assumed.
+   */
+  const coldStart = await firstFrame(page, 90_000);
+  console.log(`  ${player.name} drew a first frame ${(coldStart / 1000).toFixed(1)} s after joining`);
   await page.evaluate(() => window.__someMore!.actions['arrive']!());
   try {
     /*
@@ -380,14 +397,81 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
  */
 async function awaitFrames(page: Page): Promise<void> {
   await page.bringToFront();
+  await frameAdvances(page, 20_000, 'the page stopped drawing frames');
+}
+
+/** Waits for the render loop to move the ritual at all, and says how long that took. */
+async function firstFrame(page: Page, timeoutMs: number): Promise<number> {
+  const started = Date.now();
+  await frameAdvances(page, timeoutMs, 'the page never drew a first frame');
+  return Date.now() - started;
+}
+
+/**
+ * Waits for the ritual's tick to move, and names what the page looked like if
+ * it did not.
+ *
+ * Polled on an interval rather than on animation frames — the default — since
+ * a wait that itself needs a frame to run cannot report that frames are not
+ * running. "Timed out" was the whole of the previous finding.
+ */
+async function frameAdvances(page: Page, timeoutMs: number, what: string): Promise<void> {
   const before = await page.evaluate(
     () => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick,
   );
-  await page.waitForFunction(
-    (start) => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick > (start as number),
-    before,
-    { timeout: 20_000 },
-  );
+  try {
+    await page.waitForFunction(
+      (start) => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick > (start as number),
+      before,
+      { timeout: timeoutMs, polling: 250 },
+    );
+  } catch (error) {
+    const seen = await describeFrames(page, before);
+    const failures = pageFailures.get(page) ?? [];
+    throw new Error(
+      `${what} within ${(timeoutMs / 1000).toFixed(0)} s: ${JSON.stringify(seen)}.${
+        failures.length > 0 ? ` Page errors: ${failures.join(' | ')}` : ' No page errors were reported.'
+      }`,
+      { cause: error },
+    );
+  }
+}
+
+/**
+ * What a page that is not drawing frames actually looks like.
+ *
+ * Whether the document thinks it is visible, whether an animation frame fires
+ * at all, whether the canvas ever existed, and where the shared timeline has
+ * got to — the four different bugs that share the symptom, told apart.
+ */
+async function describeFrames(page: Page, tickBefore: number): Promise<Record<string, unknown>> {
+  return page.evaluate(async (start) => {
+    const handle = window.__someMore!;
+    const state = handle.store.state as { ritual: PageRitual };
+    const fire = handle.campfire ?? null;
+    const frameWithin = (ms: number): Promise<boolean> =>
+      new Promise((done) => {
+        const timer = setTimeout(() => done(false), ms);
+        requestAnimationFrame(() => {
+          clearTimeout(timer);
+          done(true);
+        });
+      });
+    return {
+      visibility: document.visibilityState,
+      animationFrameWithin2s: await frameWithin(2_000),
+      canvas: handle.three !== undefined,
+      stage: state.ritual.stage,
+      tickBefore: start,
+      tickNow: state.ritual.tick,
+      joined: fire?.joined ?? null,
+      status: fire?.status ?? null,
+      safeTick: fire?.timeline?.safeTick ?? -1,
+      appliedTick: fire?.timeline?.appliedTick ?? -1,
+      strayed: fire?.timeline?.strayed ?? null,
+      sharedIsAdopted: fire !== null && fire.timeline !== null && fire.timeline.ritual === state.ritual,
+    };
+  }, tickBefore);
 }
 
 /** Turn the local player to look at somebody. A person looking at a person. */
@@ -590,7 +674,7 @@ test.describe('two at the same fire', () => {
      * has that log in it, because the intent travelled and both replayed it.
      */
     const logsBefore = await two.evaluate(() => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.fire.logs.length);
-    await one.evaluate(() => window.__someMore!.campfire!.tendFire({ type: 'add-log', woodId: 'oak', placement: 0.8 }));
+    await one.evaluate(() => window.__someMore!.campfire!.tendFire({ type: 'add-log', woodId: 'oak' }));
     await two.waitForFunction(
       (before) => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.fire.logs.length > (before as number),
       logsBefore,

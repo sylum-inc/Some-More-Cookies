@@ -67,6 +67,7 @@ import { Wildlife } from './Wildlife.js';
 import { Shore } from './Shore.js';
 import { Torch } from './Torch.js';
 import { NightSky } from './NightSky.js';
+import { reclineLift, skyAzimuth } from './skyAim.js';
 import type { Vec3 } from '@somemore/sim';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
@@ -243,25 +244,6 @@ const placesScratch: string[] = [];
 
 /** How close to the water counts as being at the water's edge. */
 const SHORE_REACH_M = 2.2;
-
-/** How far lying back tips the head up, radians. About fifty degrees. */
-const RECLINE_LIFT = 0.9;
-
-function reclineLift(ritual: RitualState): number {
-  return ritual.stargazing.posture === 'reclined' ? RECLINE_LIFT : 0;
-}
-
-/**
- * The player's facing as a sky azimuth.
- *
- * Azimuth is measured from north, and +Z is north in this scene (the same
- * convention `Campsite.tsx` places the moon with), while a yaw of 0 looks
- * along +X. So the two are a quarter turn apart, and this is that quarter turn
- * written down once instead of three times.
- */
-function skyAzimuth(facing: number): number {
-  return Math.atan2(Math.cos(facing), Math.sin(facing));
-}
 
 /**
  * The named places the player is currently standing in.

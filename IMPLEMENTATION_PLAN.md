@@ -28,13 +28,13 @@ containing one line). Everything below was built from zero.
 | Realtime transport and multiplayer authority | ✅ RFC 6455 by hand, no new deps |
 | Client ↔ server seam, commerce and rewards | ✅ 10 seam tests against the real service |
 | Live ops / CMS · QR and events · live-ops console | ✅ |
-| Secondary activities (skipping, stars, torch, fishing, sitting) | ✅ 127 tests |
+| Secondary activities (skipping, stars, torch, fishing, sitting) | ✅ 128 tests |
 | Multiplayer client — two browsers share a fire | ✅ convergence proven patch by patch |
 | Content overlay · signed codes · scan and redeem | ✅ |
 | Media storage · photo upload · campsite memory sync | ✅ |
 | Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**1,564 unit, integration and seam tests across 88 files**, plus Playwright
+**1,565 unit, integration and seam tests across 88 files**, plus Playwright
 projects for acceptance, activities, accessibility, multiplayer, offline boot,
 service-worker update, mobile layout, night legibility, code redemption, the
 live-ops console, performance budgets and visual regression. 23 further tests
@@ -579,6 +579,34 @@ the test measures what it says it measures.
 
 ---
 
+### Session 7: what the runner's clock was measuring
+
+The pull request went up with every suite green here and four of them red on
+CI. None of the four was the product being wrong; all four were a test — or,
+twice, the model itself — reading a clock it had no business reading. The
+common root: the fixed-step clock caps catch-up at sixteen steps a frame
+(`time.ts`), so on a software renderer drawing a frame every hundred and fifty
+milliseconds, simulated time runs at roughly sixty per cent of wall time.
+Anything that counts in wall-clock, or samples once a frame, measures the
+renderer rather than the world.
+
+| # | Found | Cause |
+| --- | --- | --- |
+| 53 | **The torch minded a raked beam less the slower the machine drawing it.** `activities` failed on CI with `torch.sweep` at 0.415 against a floor of 0.5, and passed here every time. | The beam's angular speed was read one fixed step at a time, and drag-to-look lands in the first step of a frame and is spent (`locomotion.ts`) — so on a renderer stepping four times a frame a smooth quarter-turn arrived as one jump and three steps of nothing, and the wildlife's alarm depended on the frame rate. `torch.ts` now averages the aim's movement over the last 0.3 s of steps, and a new test pins the same turn reading the same at one, four and sixteen steps a frame. A model fix, not a tolerance |
+| 54 | **The roast loop was closing on the wrong clock.** `acceptance` failed with a mean brown of 0.297 against 0.3. | The loop turned the marshmallow for a fixed count of wall-clock iterations, so the same loop roasted for fewer fire-seconds on CI than here. It now reads the fire's own elapsed time and the mean brown, and stops on either the golden reading or a fire-second budget, logging fire-seconds against wall-seconds so the ratio is on the record |
+| 55 | **"Camera still" was measured from outside, on a wall-clock interval.** `visual` failed on screenshots that would not settle, then on `assembled` alone by twelve per cent. | `waitForCameraStill` sampled the camera between round trips, which on a slow renderer compared two samples of the same frame and called that still. It now samples position, orientation and field of view on rendered frames inside the page, requires three consecutive still frames with no walk target, and says what it saw when it gives up. The `assembled` baseline had been captured before the walk to the machine had finished — the old wait could not see the difference — and was regenerated, never updated |
+| 56 | **A constellation was recognised according to where the head happened to be, and what time it was.** `activities` failed on CI at 20:15 UTC with nothing recognised, and had passed at 19:23. | The test hook `lookAtSky` wrote an aim straight into the stargazing model, and the frame loop derives that aim from the player's facing and pitch on every step (`World.tsx`), so the hook's aim lasted exactly one frame. Whether anything was then recognised depended on whether a constellation lay within the field of wherever the reclined head was pointing — and the sky turns with the real clock, so the answer changed by the hour. `scene/skyAim.ts` now carries both directions of the head-to-sky conversion, the hook turns the head, and the test asserts that a frame later the model still looks where the head does before it holds |
+| 57 | **The first browser at a shared fire never drew a frame in the time allowed.** `campfire` failed in the *first* `walkIn` of each two-browser test, at `awaitFrames`, while the third test — the same helper — passed every time. | Joined, socket live, `arrive` applied, tick not moving for twenty seconds: everything short of a frame. On the software renderer the first draw compiles every material in the scene, and in a fresh GPU process that is twenty to thirty seconds; later contexts inherit the compiled programs, which is why the test that ran third passed. The first tick now has a cold-start budget of its own, measured and printed — here it is 2.5 s for the first page and 8.5 s for the second, which is sharing the machine with the first — so the ordinary frame waits can stay at twenty seconds and mean it. Those waits poll on an interval rather than on animation frames, because a wait that itself needs a frame cannot report that frames are not running, and on failure they describe the page: visibility, whether an animation frame fires at all, whether the canvas exists, and where the shared timeline has got to |
+| 58 | **`npm run typecheck` — the command the workflow comment names as the local equivalent — was red at HEAD, and CI could not see it.** | CI runs `tsc -b`; the script also checks `test/integration`, where five `add-log` actions still carried the `placement` field removed when logs became things you place (`e9ba23c`). Vitest runs the file without typechecking, so the drift was invisible everywhere except the one command the comment says to run. Fixed. The same sweep found that `e2e/` is typechecked by nothing at all — recorded as S15 |
+
+Two of the six are model corrections that happened to be found by a slow
+machine: the torch (53) and the sky aim (56) were both wrong on a phone in
+exactly the way they were wrong on CI, and a fast desktop was hiding it. The
+other four are the same lesson as defect 50, one level down — a wait that
+measures the renderer is not a wait, it is a guess with a timeout on it.
+
+---
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full
@@ -687,6 +715,7 @@ Recorded plainly, because a plan that only lists wins is not a plan.
 | S9b | ~~One visual baseline is stale, and one verification number is unmeasured.~~ **Closed.** Every one of the sixteen baselines was regenerated from scratch rather than updated — a tolerance wide enough to hide the fire's flicker is wide enough to hide a stale picture, and `roasted.png` was still showing the one-sided marshmallow from before the input fix while matching happily. `perf` was re-run serially on an idle machine: 83/120 draw calls, 10,370/60,000 triangles, 1.605/24 MB textures. | — | — |
 | S10 | **The native shells are configured but not generated.** `apps/mobile/` has the Capacitor config, an asset generator that draws all 37 native icons from the same code as the favicon, and the argument in full — but no `ios/` or `android/`. | Generating them writes a Gradle wrapper JAR and placeholder PNGs, which ADR-0002 forbids, and nothing here could compile or run them. Committing two hundred files that have never been built is what §16 exists to prevent. | Developer accounts, and a machine with Xcode and the Android SDK. |
 | S14 | **The night's arc does not reach the sky, and one line promises that it does.** `describeWindow('dawn')` says *"There is grey in the east. That went quickly."* The sky is a single flat `<color attach="background">` from the manifest's `nightPalette.zenith`, constant for the whole session — there is no gradient, so there is no east. Measured across the four windows at one campsite (per-channel median, stars excluded, so a drifting star field cannot fake a difference): zenith `(8,8,8) → (8,8,8) → (8,8,15) → (8,8,15)`, and the horizon band the same. The sky changes **once in four windows, and not at dawn**. | The arc itself works where it was built: the ground by the fire goes `(58,33,8) → (16,8,1) → (16,8,8) → (8,8,8)` as the fire dies through the night, and the cold, the prose and the fire model all follow it. It is only the sky that stands still — and note that at 5-bit quantisation anything under 8/255 snaps to zero (§4.1, D7), so a gradual warming of a few units would be eaten before it reached a pixel. | Either give the sky a horizon gradient that can carry a dawn (a real rendering feature on a deliberately flat PS1 sky, and an amplitude of at least 8/255 to clear the quantiser), or reword the beat so it does not promise a picture the renderer cannot draw. That is a design call rather than a correction, so it is recorded here rather than decided. |
+| S15 | **`e2e/` is typechecked by nothing.** No tsconfig covers it and it is not a `tsc -b` reference; Playwright transpiles the specs without checking them. Under a strict ad-hoc configuration the fifteen specs produce 58 errors — thirty-seven of them the `unknown` result of `act()` used as a value, the rest properties the specs read off `window.__someMore` that its declared type does not carry. | Every spec fix this session was validated by running it, never by compiling it, and a mistyped property in a diagnostic path is found only on the day that path fires. The `placement` drift in 58 lived for the same reason. | An `e2e/tsconfig.json` in the build, and one typed test handle the specs share with `main.tsx`. |
 | S7 | **Audio is unheard.** 102 tests cover its maths and scheduling; no human has listened to it. | The SM-01's mechanical narrative is carried by sound. | Someone with speakers. |
 
 ---

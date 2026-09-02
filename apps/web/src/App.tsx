@@ -96,7 +96,7 @@ import {
 } from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
 import { AudioBridge, type AudioCue } from './audio/bridge.js';
-import { defaultApiBaseUrl } from './net/client.js';
+import { apiBaseUrl } from './net/client.js';
 import { SyncEngine } from './net/sync.js';
 import { Scan } from './ui/Scan.js';
 import {
@@ -362,7 +362,7 @@ export function App({ store }: AppProps): React.ReactElement {
   // campsite in the background. Nothing in the ritual waits for it, and a
   // failure means the player carries on with a device-local Passport.
   useEffect(() => {
-    const baseUrl = import.meta.env['VITE_API_URL'] ?? defaultApiBaseUrl();
+    const baseUrl = apiBaseUrl();
     const sync = new SyncEngine({ baseUrl: String(baseUrl) });
     syncRef.current = sync;
     void (async () => {
@@ -454,7 +454,7 @@ export function App({ store }: AppProps): React.ReactElement {
     const intent = parseJoin(typeof location === 'undefined' ? '' : location.search);
     if (intent === null) return;
 
-    const baseUrl = String(import.meta.env['VITE_API_URL'] ?? defaultApiBaseUrl());
+    const baseUrl = apiBaseUrl();
     const token = intent.token ?? persistedAuthToken();
     if (token === null) return;
 

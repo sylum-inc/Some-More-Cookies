@@ -62,11 +62,20 @@ jobs:
       # The player build only. `apps/console` is the operator app and has no
       # business on a public URL — `e2e/console.spec.ts` asserts it never ships
       # from the player build, and this keeps that true of the deploy as well.
+      # `VITE_API_URL` is exported only when there is one. A blank input
+      # exported as-is bakes `""` into the build, and the client's first
+      # version of the fallback kept it — the first deploy asked github.io for
+      # `/v1/auth/anonymous` at the account's root. The client now treats a
+      # blank as unset as well (`apiBaseUrlFrom`); this keeps the build honest
+      # from its own side.
       - name: Build
-        run: npm run build --workspace @somemore/web
+        run: |
+          set -euo pipefail
+          if [ -n "${API_URL}" ]; then export VITE_API_URL="${API_URL}"; fi
+          npm run build --workspace @somemore/web
         env:
           BASE_PATH: ${{ inputs.base_path }}
-          VITE_API_URL: ${{ inputs.api_url }}
+          API_URL: ${{ inputs.api_url }}
 
       # Cheap, and it catches the one mistake this whole workflow can make. A
       # base that does not match where Pages will actually serve the site

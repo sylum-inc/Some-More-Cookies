@@ -134,6 +134,30 @@ export function defaultApiBaseUrl(): string {
   return base.replace(/\/$/, '');
 }
 
+/**
+ * Where the service is, taking the build's word for it only when it said
+ * something.
+ *
+ * `VITE_API_URL` is baked in at build time, and a build that was given the
+ * variable *empty* — the Pages workflow does exactly that when its `api_url`
+ * input is left blank — bakes in `""`, which a `??` fallback keeps. The first
+ * deploy asked `github.io` for `/v1/auth/anonymous` at the account's root for
+ * precisely that reason. Blank means nobody said, and nobody said means
+ * relative to the app, which is what {@link defaultApiBaseUrl} is for.
+ */
+export function apiBaseUrlFrom(env: Record<string, unknown>, fallback: string): string {
+  const configured = env['VITE_API_URL'];
+  if (typeof configured !== 'string') return fallback;
+  const trimmed = configured.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+/** {@link apiBaseUrlFrom} with this build's own environment. */
+export function apiBaseUrl(): string {
+  const env = typeof import.meta.env === 'undefined' ? {} : (import.meta.env as Record<string, unknown>);
+  return apiBaseUrlFrom(env, defaultApiBaseUrl());
+}
+
 export class ApiClient {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;

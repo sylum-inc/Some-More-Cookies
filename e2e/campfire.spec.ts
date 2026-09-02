@@ -902,14 +902,18 @@ test.describe('two at the same fire', () => {
     }));
     await two.evaluate(() => window.__someMore!.campfire!.transport!.dispose());
     await two.bringToFront();
-    // Wait for the fire to move rather than for a fixed number of seconds: on
-    // a software renderer a "two second" wait can be three frames.
+    /*
+     * Wait for the client to admit it has strayed, not merely for the tick to
+     * move. A page that joined with a backlog of ordered ticks keeps applying
+     * them after the socket goes — correctly — and the tick moves before it
+     * has taken a single unordered step; reading `strayed` at that moment
+     * called an honest client a liar. And on a software renderer a "two
+     * second" wait can be three frames, so it is a wait for the fact.
+     */
     try {
-      await two.waitForFunction(
-        (tick) => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.tick > (tick as number),
-        before.tick,
-        { timeout: 20_000 },
-      );
+      await two.waitForFunction(() => window.__someMore!.campfire!.timeline?.strayed === true, undefined, {
+        timeout: 20_000,
+      });
     } catch (error) {
       const seen = await two.evaluate(() => {
         const fire = window.__someMore!.campfire!;

@@ -1,0 +1,396 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createRitual, beginRoasting } from '@somemore/sim';
+import {
+  applyRoastPose,
+  BlowGestureDetector,
+  DEFAULT_ROAST_CONTROL,
+  RoastController,
+  screenToTableOffset,
+} from '../src/interaction/roastControl.js';
+import { formatDateStamp } from '../src/interaction/photo.js';
+import { Store } from '../src/state/store.js';
+
+describe('roast control', () => {
+  it('starts within the reachable band', () => {
+    const pose = new RoastController().pose();
+    const radius = Math.hypot(pose.position.x, pose.position.z);
+    expect(radius).toBeGreaterThanOrEqual(DEFAULT_ROAST_CONTROL.minRadius);
+    expect(radius).toBeLessThanOrEqual(DEFAULT_ROAST_CONTROL.maxRadius);
+  });
+
+  it('covers the browning band the heat model actually produces', () => {
+    // The reachable range must bracket where roasting happens, or the control
+    // is unusable no matter how good the simulation is (risk R7).
+    const control = new RoastController();
+    control.nudge(-1, 0);
+    const closest = Math.hypot(control.pose().position.x, control.pose().position.z);
+    control.nudge(1, 0);
+    const furthest = Math.hypot(control.pose().position.x, control.pose().position.z);
+    expect(closest).toBeLessThan(0.12);
+    expect(furthest).toBeGreaterThan(0.45);
+  });
+
+  it('does not move until a drag begins', () => {
+    const control = new RoastController();
+    const before = control.bandPosition;
+    control.move(500, 500);
+    expect(control.bandPosition).toBe(before);
+  });
+
+  it('never jumps when a finger lands', () => {
+    // Dragging is relative to where it started, so touching the screen far
+    // from the marshmallow must not teleport it.
+    const control = new RoastController();
+    const before = control.bandPosition;
+    control.begin(900, 30);
+    expect(control.bandPosition).toBe(before);
+  });
+
+  it('dragging up moves it toward the heat', () => {
+    const control = new RoastController();
+    control.begin(500, 500);
+    control.move(500, 400);
+    expect(control.bandPosition).toBeLessThan(DEFAULT_ROAST_CONTROL.startPosition);
+  });
+
+  it('dragging down pulls it back out', () => {
+    const control = new RoastController();
+    control.begin(500, 400);
+    control.move(500, 500);
+    expect(control.bandPosition).toBeGreaterThan(DEFAULT_ROAST_CONTROL.startPosition);
+  });
+
+  it('dragging sideways rotates it', () => {
+    const control = new RoastController();
+    control.begin(500, 500);
+    control.move(700, 500);
+    expect(control.totalRotation).toBeGreaterThan(0);
+    control.move(300, 500);
+    expect(control.totalRotation).toBeLessThan(0);
+  });
+
+  it('controls both axes in one continuous drag', () => {
+    // The core mobile requirement (spec §4.2).
+    const control = new RoastController();
+    control.begin(500, 500);
+    control.move(640, 420);
+    expect(control.totalRotation).not.toBe(0);
+    expect(control.bandPosition).not.toBe(DEFAULT_ROAST_CONTROL.startPosition);
+  });
+
+  it('clamps at both ends of the band', () => {
+    const control = new RoastController();
+    control.begin(500, 500);
+    control.move(500, -100000);
+    expect(control.bandPosition).toBe(0);
+    control.move(500, 100000);
+    expect(control.bandPosition).toBe(1);
+  });
+
+  it('holds position across successive drags', () => {
+    const control = new RoastController();
+    control.begin(500, 500);
+    control.move(500, 400);
+    const after = control.bandPosition;
+    control.end();
+    control.begin(200, 200);
+    expect(control.bandPosition).toBe(after);
+  });
+
+  it('is held higher when further out — the arc of an arm', () => {
+    const control = new RoastController();
+    control.nudge(-1, 0);
+    const near = control.pose().position.y;
+    control.nudge(2, 0);
+    const far = control.pose().position.y;
+    expect(far).toBeGreaterThan(near);
+  });
+
+  it('reports proximity for the non-numeric heat readout', () => {
+    const control = new RoastController();
+    control.nudge(-1, 0);
+    expect(control.pose().proximity).toBeCloseTo(1, 5);
+    control.nudge(2, 0);
+    expect(control.pose().proximity).toBeCloseTo(0, 5);
+  });
+
+  it('places the marshmallow on the player’s side of the fire', () => {
+    const control = new RoastController({}, Math.PI / 2);
+    const pose = control.pose();
+    expect(pose.position.x).toBeCloseTo(0, 5);
+    expect(pose.position.z).toBeGreaterThan(0);
+  });
+
+  it('supports keyboard nudging as an alternate control scheme', () => {
+    const control = new RoastController();
+    const before = control.bandPosition;
+    control.nudge(-0.04, 0.22);
+    expect(control.bandPosition).toBeLessThan(before);
+    expect(control.totalRotation).toBeCloseTo(0.22, 6);
+  });
+
+  it('automatic rotation does not disturb the player’s distance', () => {
+    const control = new RoastController();
+    const before = control.bandPosition;
+    control.addRotation(1.4);
+    expect(control.bandPosition).toBe(before);
+    expect(control.totalRotation).toBeCloseTo(1.4, 6);
+  });
+
+  it('rotation applied by an assist survives the next drag', () => {
+    const control = new RoastController();
+    control.begin(500, 500);
+    control.addRotation(1);
+    control.move(500, 500);
+    expect(control.totalRotation).toBeCloseTo(1, 6);
+  });
+
+  it('every keyboard nudge reaches the ritual, not just the last before a frame', () => {
+    // The regression this exists for: the pose used to be sampled once per
+    // rendered frame, so on a slowly rendering device a burst of presses
+    // collapsed into one and the marshmallow browned on a single face. The
+    // simulation runs at sixty steps a second whatever the frame rate, so the
+    // input has to be applied when it is given.
+    const ritual = createRitual({ campsiteSeed: 'keyboard-nudge', environmentId: 'pine_hollow' });
+    beginRoasting(ritual);
+    const control = new RoastController();
+    for (let i = 0; i < 24; i += 1) {
+      control.nudge(0, 0.22);
+      applyRoastPose(control, ritual, 0, true);
+    }
+    expect(ritual.roastInput.rotation).toBeCloseTo(24 * 0.22, 6);
+  });
+
+  it('carries the marshmallow to the plate when the stick is pulled right back', () => {
+    // The pull that replaced the button. Past the end of the band the stick is
+    // off the fire, and far enough past it is on its way to the plate.
+    const control = new RoastController();
+    control.begin(500, 100);
+    // Drag down to the very end of the band and no further.
+    const pxPerBand = (DEFAULT_ROAST_CONTROL.maxRadius - DEFAULT_ROAST_CONTROL.minRadius) /
+      DEFAULT_ROAST_CONTROL.radiusPerPixel;
+    control.move(500, 100 + pxPerBand * (1 - DEFAULT_ROAST_CONTROL.startPosition));
+    expect(control.bandPosition).toBeCloseTo(1, 5);
+    expect(control.withdrawProgress, 'reaching the end of the band is not taking it off').toBe(0);
+
+    // Cooling it by drawing it back a little must not finish the roast.
+    control.move(500, 100 + pxPerBand * (1 - DEFAULT_ROAST_CONTROL.startPosition + 0.1));
+    expect(control.withdrawProgress).toBeLessThan(1);
+
+    control.move(
+      500,
+      100 + pxPerBand * (1 - DEFAULT_ROAST_CONTROL.startPosition + DEFAULT_ROAST_CONTROL.withdrawToPlate),
+    );
+    expect(control.withdrawProgress).toBe(1);
+  });
+
+  it('springs back if the pull stops short', () => {
+    // Otherwise a half-pull would sit there and the next small movement would
+    // finish a roast the player never meant to end.
+    const control = new RoastController();
+    control.begin(500, 100);
+    control.move(500, 700);
+    expect(control.withdrawProgress).toBeGreaterThan(0);
+    control.end();
+    expect(control.withdrawProgress).toBe(0);
+  });
+
+  it('reaches the plate on the keyboard too, on the key that already means further away', () => {
+    const control = new RoastController();
+    // Enough presses to cross the band and then the withdraw, at the App's step.
+    let fired = 0;
+    for (let i = 0; i < 60 && fired === 0; i += 1) {
+      control.nudge(0.04, 0);
+      if (control.withdrawProgress >= 1) fired = i + 1;
+    }
+    expect(fired, 'holding the away key never reached the plate').toBeGreaterThan(0);
+    // And it is a deliberate hold, not two taps.
+    expect(fired).toBeGreaterThan(15);
+  });
+
+  it('draws the marshmallow back visibly as it is pulled, rather than only counting', () => {
+    const control = new RoastController();
+    control.begin(500, 100);
+    control.move(500, 700);
+    const pulled = control.pose();
+    expect(
+      Math.hypot(pulled.position.x, pulled.position.z),
+      'the pull moved a number and nothing on screen',
+    ).toBeGreaterThan(DEFAULT_ROAST_CONTROL.maxRadius);
+  });
+
+  it('leaves the rotation alone when the auto-rotate assist owns it', () => {
+    const ritual = createRitual({ campsiteSeed: 'auto-rotate', environmentId: 'pine_hollow' });
+    beginRoasting(ritual);
+    ritual.roastInput.rotation = 1.5;
+    const control = new RoastController();
+    control.nudge(-0.2, 0.9);
+    applyRoastPose(control, ritual, 0, false);
+    expect(ritual.roastInput.rotation).toBe(1.5);
+    // The distance is still the player's to set while the assist turns it.
+    expect(Math.hypot(ritual.roastInput.position.x, ritual.roastInput.position.z)).toBeCloseTo(
+      DEFAULT_ROAST_CONTROL.minRadius +
+        (DEFAULT_ROAST_CONTROL.maxRadius - DEFAULT_ROAST_CONTROL.minRadius) *
+          (DEFAULT_ROAST_CONTROL.startPosition - 0.2),
+      6,
+    );
+  });
+});
+
+describe('blow-out gesture', () => {
+  it('recognises a shake', () => {
+    const detector = new BlowGestureDetector();
+    let fired = false;
+    let t = 0;
+    for (let i = 0; i < 8; i++) {
+      t += 40;
+      fired = detector.sample(i % 2 === 0 ? 100 : 260, t) || fired;
+    }
+    expect(fired).toBe(true);
+  });
+
+  it('ignores a plain swipe', () => {
+    // A straight drag is how the player *roasts*; it must never blow the
+    // marshmallow out by accident.
+    const detector = new BlowGestureDetector();
+    let fired = false;
+    for (let i = 0; i < 12; i++) fired = detector.sample(100 + i * 30, i * 30) || fired;
+    expect(fired).toBe(false);
+  });
+
+  it('ignores a small jitter', () => {
+    const detector = new BlowGestureDetector();
+    let fired = false;
+    for (let i = 0; i < 12; i++) fired = detector.sample(i % 2 === 0 ? 100 : 103, i * 30) || fired;
+    expect(fired).toBe(false);
+  });
+
+  it('does not fire twice in quick succession', () => {
+    const detector = new BlowGestureDetector();
+    let count = 0;
+    let t = 0;
+    for (let i = 0; i < 40; i++) {
+      t += 40;
+      if (detector.sample(i % 2 === 0 ? 100 : 300, t)) count++;
+    }
+    expect(count).toBeLessThanOrEqual(2);
+  });
+
+  it('needs enough samples to decide', () => {
+    const detector = new BlowGestureDetector();
+    expect(detector.sample(100, 0)).toBe(false);
+    expect(detector.sample(300, 30)).toBe(false);
+  });
+
+  it('resets cleanly', () => {
+    const detector = new BlowGestureDetector();
+    for (let i = 0; i < 6; i++) detector.sample(i % 2 === 0 ? 100 : 300, i * 40);
+    detector.reset();
+    expect(detector.sample(100, 1000)).toBe(false);
+  });
+
+  it('works immediately, not only after the first second', () => {
+    // Regression: a zero-initialised cooldown made this inert at t < 900ms.
+    const detector = new BlowGestureDetector();
+    let fired = false;
+    for (let i = 0; i < 8; i++) fired = detector.sample(i % 2 === 0 ? 100 : 260, i * 40) || fired;
+    expect(fired).toBe(true);
+  });
+});
+
+describe('table offset mapping', () => {
+  it('is relative to the anchor', () => {
+    const offset = screenToTableOffset(500, 500, 500, 500);
+    expect(offset.x).toBe(0);
+    expect(offset.z).toBe(0);
+  });
+
+  it('maps pixels to a plausible physical scale', () => {
+    // 200 px of drag should move a component centimetres, not metres.
+    const offset = screenToTableOffset(700, 500, 500, 500);
+    expect(offset.x).toBeGreaterThan(0.02);
+    expect(offset.x).toBeLessThan(0.2);
+  });
+
+  it('keeps the component above the plate', () => {
+    expect(screenToTableOffset(0, 0, 500, 500).y).toBeGreaterThan(0);
+  });
+});
+
+describe('photo date stamp', () => {
+  it('uses the format those cameras printed', () => {
+    expect(formatDateStamp(new Date(2024, 7, 12))).toBe("'24 08 12");
+  });
+
+  it('pads single digits', () => {
+    expect(formatDateStamp(new Date(2003, 0, 5))).toBe("'03 01 05");
+  });
+});
+
+/**
+ * A report that goes away again.
+ *
+ * `setNotice` has always taken `string | null` and nothing ever passed null:
+ * the first notice of a session went up and stayed up, replaced only by the
+ * next one. A line about how the ground rises on three sides was still on
+ * screen over the SM-01 minutes later when the door opened, and almost every
+ * screenshot in `artifacts/` has one camped on it. Found by opening them.
+ */
+describe('the notice channel', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const store = () => new Store({ environmentId: 'pine_hollow', campsiteSeed: 'notice' });
+
+  it('shows a report and then puts it away', () => {
+    const s = store();
+    s.setNotice('Nothing left here worth carrying.');
+    expect(s.state.notice).toBe('Nothing left here worth carrying.');
+    vi.advanceTimersByTime(3_500);
+    expect(s.state.notice, 'gone before it could be read').not.toBeNull();
+    vi.advanceTimersByTime(12_000);
+    expect(s.state.notice).toBeNull();
+  });
+
+  it('holds a longer line on screen for longer', () => {
+    const shortLine = 'Ash over the coals.';
+    const longLine =
+      'A shallow bowl. The ground rises gently on three sides, which is why the smoke pools and why the site is so quiet.';
+    const a = store();
+    a.setNotice(shortLine);
+    vi.advanceTimersByTime(4_100);
+    expect(a.state.notice, 'a short line should be gone by now').toBeNull();
+
+    const b = store();
+    b.setNotice(longLine);
+    vi.advanceTimersByTime(4_100);
+    expect(b.state.notice, 'a long line should still be readable').toBe(longLine);
+  });
+
+  it('never camps, however long the line is', () => {
+    const s = store();
+    s.setNotice('x'.repeat(4000));
+    vi.advanceTimersByTime(11_001);
+    expect(s.state.notice).toBeNull();
+  });
+
+  it('lets a new report replace one still on screen, and restarts its dwell', () => {
+    const s = store();
+    s.setNotice('First.');
+    vi.advanceTimersByTime(3_000);
+    s.setNotice('Second.');
+    expect(s.state.notice).toBe('Second.');
+    // The first one's timer must not now clear the second.
+    vi.advanceTimersByTime(1_500);
+    expect(s.state.notice).toBe('Second.');
+    vi.advanceTimersByTime(4_000);
+    expect(s.state.notice).toBeNull();
+  });
+
+  it('can still be cleared by hand', () => {
+    const s = store();
+    s.setNotice('Something.');
+    s.setNotice(null);
+    expect(s.state.notice).toBeNull();
+  });
+});

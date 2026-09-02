@@ -1,0 +1,16 @@
+{
+  "name": "@somemore/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Native shell configuration for Some More. See README.md — the ios/ and android/ projects are generated, not committed.",
+  "scripts": {
+    "assets": "node scripts/native-assets.mjs",
+    "assets:preview": "node scripts/native-assets.mjs --out .preview",
+    "add:ios": "npx --yes @capacitor/cli@8.5.0 add ios && npm run assets",
+    "add:android": "npx --yes @capacitor/cli@8.5.0 add android && npm run assets",
+    "sync": "npm run build --workspace @somemore/web && npx --yes @capacitor/cli@8.5.0 sync && npm run assets",
+    "open:ios": "npx --yes @capacitor/cli@8.5.0 open ios",
+    "open:android": "npx --yes @capacitor/cli@8.5.0 open android"
+  }
+}

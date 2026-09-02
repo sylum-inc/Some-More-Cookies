@@ -1,0 +1,313 @@
+import type { EnvironmentManifest } from '../schema.js';
+
+/**
+ * Cicada Bottoms — warm black water, fireflies, and the loudest insect night
+ * in the catalogue.
+ *
+ * The humid, enclosed, gently uncanny one. Everything here is close: the
+ * canopy is low, the water is right there, and the draw distance is the
+ * shortest in the set. Cozy by pressure rather than by shelter.
+ */
+export const CICADA_BOTTOMS: EnvironmentManifest = {
+  id: 'cicada_bottoms',
+  name: 'Cicada Bottoms',
+  tagline: 'A boardwalk over black water, air like a warm towel, and about ten thousand insects doing one thing.',
+  inspiration:
+    'A bottomland hardwood swamp on the southern coastal plain — cypress knees, tannin-black water, Spanish moss, and a fishing platform somebody built out of scavenged lumber.',
+  biomeTags: ['bottomland-swamp', 'humid-subtropical', 'blackwater', 'cypress'],
+  character: {
+    temperature: 'hot',
+    moisture: 'wet',
+    altitude: 'lowland',
+    treeCover: 'canopy',
+    water: 'blackwater',
+    eeriness: 4,
+  },
+  arrival: {
+    approach:
+      'A boardwalk. Two planks wide, no handrail, running out over the water on posts at slightly different angles. It flexes and it talks.',
+    firstHeard:
+      'Cicadas and frogs at a volume that is genuinely hard to talk over, arriving all at once as you step off the levee.',
+    firstSeen:
+      'Fireflies — a whole slow field of them at knee height under the trees, going off in something that is almost but not quite a rhythm.',
+    underfoot:
+      'Boards that give a half-inch under each step and knock against their posts behind you.',
+    arrivalBeat:
+      'The boardwalk widens into a platform and the fire is in a rusted half-drum on legs, throwing orange up into a low canopy of moss. Everything around the light is completely black water.',
+    walkSeconds: { min: 24, max: 40 },
+  },
+  scene: {
+    ground: 'boardwalk-plank',
+    groundNote:
+      'Grey weathered decking with mud in the gaps, three boards replaced in newer wood, and one that is a slightly different width and always creaks.',
+    vegetation: [
+      { kitId: 'kit_cypress', label: 'Bald cypress', density: 8, heightRange: { min: 12, max: 22 }, lowTierDrop: false, note: 'Buttressed trunks going straight into the water, with knees breaking the surface in rings around each one.' },
+      { kitId: 'kit_moss_veil', label: 'Spanish moss', density: 34, heightRange: { min: 0.6, max: 3.5 }, lowTierDrop: false, note: 'Hanging veils, backlit by the fire. The single most identity-defining element of the environment; the low tier keeps it and cuts elsewhere.' },
+      { kitId: 'kit_palmetto', label: 'Dwarf palmetto', density: 26, heightRange: { min: 0.7, max: 1.6 }, lowTierDrop: true, note: 'Hard-edged fans on the one patch of solid ground. Catch light like cut metal.' },
+      { kitId: 'kit_duckweed', label: 'Duckweed mat', density: 90, heightRange: { min: 0.01, max: 0.02 }, lowTierDrop: true, note: 'A skin of green on the still water that your boat wake — or a fish — opens and closes again.' },
+    ],
+    landmarks: [
+      { id: 'the_platform', label: 'The fishing platform', kind: 'built', handcrafted: true, note: 'Scavenged lumber on cypress posts, with two chairs, a hook for a lantern and a shelf of rusted coffee cans full of tackle.' },
+      { id: 'drum_fire', label: 'The drum', kind: 'camp', handcrafted: true, note: 'A half-drum firepit on angle-iron legs, rusted through in one spot so a bar of orange light escapes sideways across the deck.' },
+      { id: 'sunken_boat', label: 'The sunken jon boat', kind: 'abandoned', handcrafted: true, note: 'Twenty metres out, one gunwale above water, full of black water and one small tree growing out of it.' },
+      { id: 'gauge_board', label: 'The water gauge', kind: 'signage', handcrafted: true, note: 'A painted board nailed to a piling with numbers on it. The current level is always readable and always slightly different.' },
+      { id: 'the_far_light', label: 'The light across the water', kind: 'sky', handcrafted: false, note: 'A single small yellow light, a long way off through the trunks. It is a porch. It has to be a porch.' },
+    ],
+    elevation: 'flat',
+    elevationNote:
+      'Absolutely level. The only vertical is the water surface, the deck, and the canopy — three planes, which is why the place reads as a room.',
+    water: {
+      kind: 'blackwater',
+      label: 'The bottoms',
+      widthM: 120,
+      flow: 'still',
+      clarity: 0.05,
+      fishable: true,
+      skippable: false,
+      note: 'Tannin black and mirror-still. It reflects the fire perfectly and shows nothing at all below the surface, which is the entire mood of the environment.',
+    },
+    drawDistanceM: 34,
+    fog: { colour: '#1c2119', density: 0.052, note: 'Warm green-grey mist standing off the water in sheets. The shortest draw distance in the catalogue, and the reason this place feels enclosed.' },
+    nightPalette: {
+      zenith: '#0b1210',
+      horizon: '#1a2318',
+      ground: '#3a3227',
+      foliage: '#1b2a1d',
+      rock: '#3d3a33',
+      water: '#0a0f0c',
+      fireGlow: '#ff8f3c',
+      moonlight: '#93ad9a',
+      shadow: '#050805',
+    },
+    skyOpenness: 0.12,
+    walkableRadiusM: 26,
+  },
+  weather: {
+    id: 'cicada-bottoms',
+    weights: { overcast: 4, 'high-cloud': 3, clear: 3, 'light-rain': 4, rain: 3, storm: 2, fog: 4 },
+    baseTempC: 26,
+    baseWind: 0.4,
+    exposure: 0.12,
+    skyEventChance: 0.12,
+    skyEvents: ['heat-lightning'],
+    transitionSeconds: 200,
+  },
+  weatherCharacter: {
+    temperatureNote:
+      'Warm all night and never dropping. The fire is not for heat here — it is for light and for the ritual, and it is the only environment where that is true.',
+    windNote: 'Effectively none. Smoke goes straight up until it hits the canopy and then spreads out flat underneath it.',
+    exposureNote: 'The most sheltered pit in the catalogue. Rain reaches the water long before it reaches the fire.',
+    nightRangeC: { min: 21, max: 31 },
+  },
+  fuel: {
+    sources: [
+      { woodId: 'oak', weight: 6, foundAs: 'Water oak split and stacked under the platform, up off the mud on two bricks.', moistureBias: 0.14 },
+      { woodId: 'pine', weight: 3, foundAs: 'Fat lighter — resin-soaked heart pine in a coffee can, saved for starting.', moistureBias: -0.15 },
+      { woodId: 'driftwood', weight: 2, foundAs: 'Cypress limbs caught against the pilings, needing a full day on the rail to be worth anything.', moistureBias: 0.3 },
+    ],
+    note:
+      'Everything here has taken on damp, so every fire starts with a long steamy sulk before it decides to burn. The fat lighter in the coffee can is the answer and finding it is one of the small pleasures of the place. Once the oak is going it makes a slow, low, humid ember bed that roasts beautifully.',
+  },
+  wildlife: [
+    {
+      id: 'firefly',
+      label: 'Fireflies',
+      shyness: 0.05,
+      curiosity: 0.2,
+      window: ['dusk', 'early-night'],
+      attractedBy: ['stillness', 'warmth'],
+      repelledBy: ['flashlight'],
+      canPersist: false,
+      investigatesObjects: false,
+      traces: ['none — they are simply fewer later in the night'],
+      note: 'Hundreds, at knee height, in a synchronising pattern that almost locks and then falls apart. Turning the flashlight off is the mechanic.',
+    },
+    {
+      id: 'barred_owl',
+      label: 'Barred owl',
+      shyness: 0.6,
+      curiosity: 0.75,
+      window: ['early-night', 'deep-night'],
+      attractedBy: ['quiet', 'voices', 'firelight'],
+      repelledBy: ['sudden-movement', 'compressor-noise'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a pellet on the deck boards', 'a wet mark on the rail where it sat'],
+      note: 'Calls the eight-note phrase from close range and then, alarmingly and delightfully, answers itself from the other side. Lands on the platform rail if you have been quiet a long time.',
+    },
+    {
+      id: 'raccoon',
+      label: 'Raccoon',
+      shyness: 0.3,
+      curiosity: 1,
+      window: ['early-night', 'deep-night'],
+      attractedBy: ['food-smell', 'marshmallow-smell', 'crumbs', 'machine-hum'],
+      repelledBy: ['sudden-movement', 'camera-flash'],
+      canPersist: true,
+      investigatesObjects: true,
+      traces: ['perfect little hand prints on the SM-01 door', 'a coffee can knocked off the shelf and its contents sorted', 'wet prints leading away down the boardwalk'],
+      note: 'Comes up the far end of the boardwalk with total confidence, opens whatever is closed, and washes a graham cracker in the water until there is nothing left of it. Has a torn ear.',
+    },
+    {
+      id: 'bullfrog',
+      label: 'Bullfrogs',
+      shyness: 0.25,
+      curiosity: 0.1,
+      window: ['early-night', 'deep-night'],
+      attractedBy: ['warmth', 'water-edge'],
+      repelledBy: ['footsteps', 'splashing'],
+      canPersist: false,
+      investigatesObjects: false,
+      traces: ['a ring of ripples under the platform'],
+      note: 'One directly beneath the deck at a volume that goes through the boards and into your feet. When you stand up it stops. When you sit down, eventually, it starts again.',
+    },
+    {
+      id: 'gar',
+      label: 'Gar',
+      shyness: 0.7,
+      curiosity: 0.2,
+      window: ['deep-night'],
+      attractedBy: ['stillness', 'moonlight'],
+      repelledBy: ['splashing'],
+      canPersist: false,
+      investigatesObjects: false,
+      traces: ['a long straight parting in the duckweed that closes behind it'],
+      note: 'Rolls at the surface to gulp air, showing a metre of armoured back, and is gone before the sound registers. Prehistoric and completely uninterested in you.',
+    },
+  ],
+  ambience: {
+    wind: { character: 'still', baseLevel: 0.06, gustiness: 0.15, material: 'moss veils, occasionally, and nothing else' },
+    insectDensity: 1,
+    insectNote:
+      'The maximum. Three distinct layers — a cicada band that pulses about every eleven seconds, a continuous cricket floor, and individual frogs that are clearly individuals. It stops all at once, sometimes, for two seconds. That silence is the eeriest sound in the game.',
+    waterPresence: 0.3,
+    reverb: 'indoorSmall',
+    reverbNote:
+      'Genuinely small and close. The canopy and the water make a low flat room with early reflections off the deck, and a voice at normal volume sounds like it is indoors — which is why the environment feels sheltered rather than exposed despite being outdoors on a plank over a swamp.',
+    distantEvents: [
+      { id: 'insect_dropout', label: 'Everything stops at once', weight: 3, minGapSeconds: 340, note: 'Two seconds of total silence, then it all resumes. Nothing caused it. Nothing follows it.' },
+      { id: 'far_dogs', label: 'Dogs, across the water', weight: 4, minGapSeconds: 260, note: 'Two of them, from the direction of the far light, briefly, and then somebody calls them in.' },
+      { id: 'tree_fall', label: 'Something falls in the water', weight: 4, minGapSeconds: 180, note: 'A single heavy splash out past the sunken boat. A limb. It is a limb.' },
+      { id: 'boat_motor', label: 'A small outboard', weight: 2, minGapSeconds: 500, note: 'Somebody running a channel a long way off, throttling down, then nothing.' },
+      { id: 'train_horn', label: 'A train horn through the humidity', weight: 3, minGapSeconds: 420, note: 'Flattened and stretched by the wet air until it sounds like a held chord.' },
+    ],
+    nightFloorDb: -30,
+  },
+  activities: [
+    { id: 'fire-tending', label: 'Tend the fire', prominence: 'notable', note: 'Damp fuel and a rusted drum. The fat lighter is the key and nobody tells you.' },
+    { id: 'fishing', label: 'Fish off the platform', prominence: 'signature', note: 'A cane pole, a cork float, and a lantern hung over the rail. You watch the float in black water. Sometimes it goes under. It is the most patient activity in the game and people love it.' },
+    { id: 'firefly-watching', label: 'Watch the fireflies', prominence: 'signature', note: 'Kill every light and wait. The synchrony almost happens. It never quite does.' },
+    { id: 'boardwalk-walk', label: 'Walk the boardwalk', prominence: 'notable', note: 'Out to the end, where it stops for no reason in open water with two posts sticking up beyond it.' },
+    { id: 'photography', label: 'Photograph', prominence: 'notable', note: 'Fire reflected in dead-still black water, doubled, with moss between. The sandwich on the rail with fireflies behind it is unfairly good.' },
+    { id: 'radio', label: 'Radio', prominence: 'available', note: 'Poor and beautiful. Everything is far away and half of it is in another language.' },
+    { id: 'flashlight', label: 'Flashlight', prominence: 'notable', note: 'Sweep the water and dozens of small orange points look back — spiders on the surface film. This is more charming than it sounds and the game is careful to make sure of that.' },
+    { id: 'wildlife-watching', label: 'Watch for wildlife', prominence: 'available', note: 'The raccoon does not need watching for. It will find you.' },
+    { id: 'wading', label: 'Sit with your feet in', prominence: 'available', note: 'Off the low end of the platform. The water is bath-warm and completely opaque and this is somehow fine.' },
+  ],
+  radio: {
+    stations: [
+      { id: 'wblk_1053', dial: 105.3, band: 'fm', name: 'WBLK — Late Line', character: 'lofi', reception: 0.55, note: 'Slow soul and dusty organ, hosted by a voice that sounds like it is in the same humidity you are.' },
+      { id: 'gospel_1290', dial: 1290, band: 'am', name: 'Sunday all week', character: 'community', reception: 0.44, note: 'A small congregation recorded in a room with a lot of reverb, playing at three in the morning on a Tuesday.' },
+      { id: 'river_gauge', dial: 162.525, band: 'fm', name: 'River stage report', character: 'weather-service', reception: 0.6, note: 'Gauge heights at fourteen named places, read in order, forever. One of them is the board nailed to your piling.' },
+      { id: 'the_hum_899', dial: 89.9, band: 'fm', name: 'A tone and a room', character: 'strange', reception: 0.34, note: 'A held organ note and, very faintly under it, a room with people moving around in it. No announcement in forty minutes.' },
+    ],
+    baseReception: 0.42,
+    receptionNote: 'Wet air, dense canopy, and no elevation. Everything is weak, and the weakness is part of the atmosphere rather than a frustration.',
+    betweenStations: 'Warm mushy static with a slow flutter in it, because the moss moving on the aerial genuinely changes the signal.',
+  },
+  secrets: [
+    {
+      id: 'cb_coffee_can_tackle',
+      title: 'The tackle cans',
+      discovery: 'Go through the rusted coffee cans on the platform shelf.',
+      telling:
+        'Hooks, split shot, a spark plug, and at the bottom of the third can a laminated photograph of two people on this platform holding an enormous fish, both laughing, dated eleven years ago.',
+      channels: ['strange-objects', 'notes'],
+      oneTime: false,
+      leavesEvidence: null,
+      rarity: 0.45,
+      optional: true,
+      gatesNothing: true,
+    },
+    {
+      id: 'cb_gauge_reading',
+      title: 'The gauge board reads high',
+      discovery: 'The water gauge nailed to the piling reads a level well above the actual water.',
+      telling:
+        'There is a dark tide line on every trunk at exactly that height, three metres up. Whatever happened, happened, and the trees are still carrying the mark of it. The boardwalk was rebuilt afterwards; that is why three boards are newer.',
+      channels: ['campsite-changes', 'notes'],
+      oneTime: false,
+      leavesEvidence: null,
+      rarity: 0.35,
+      optional: true,
+      gatesNothing: true,
+    },
+    {
+      id: 'cb_the_far_light_goes_out',
+      title: 'The far light goes out',
+      discovery: 'The single yellow light across the water, which has been there every visit, is not there.',
+      telling:
+        'Nothing else changes. The insects are the same. It comes back on about twenty minutes later, and you will spend those twenty minutes glancing at where it was.',
+      channels: ['recurring-figures', 'campsite-changes'],
+      oneTime: false,
+      leavesEvidence: null,
+      rarity: 0.18,
+      optional: true,
+      gatesNothing: true,
+    },
+    {
+      id: 'cb_boat_name',
+      title: 'The name on the sunken boat',
+      discovery: 'From the very end of the boardwalk with a light, at low water, the transom of the jon boat is readable.',
+      telling:
+        'A name and a home port. The home port is a town that the river-stage report reads out every night, sixth on the list.',
+      channels: ['strange-objects', 'radio'],
+      oneTime: true,
+      leavesEvidence: 'Afterward the name is legible from the platform on every visit, because someone has scraped the algae off it.',
+      rarity: 0.2,
+      optional: true,
+      gatesNothing: true,
+    },
+  ],
+  machine: {
+    quirkWeights: { 'rough-fan': 3, 'warm-latch': 3, 'loud-compressor': 2.5, 'sticky-door': 2 },
+    flavourNote:
+      'The humidity is the enemy here and the unit knows it. The compressor runs long, the condenser fan works audibly hard, and there is a permanent puddle of condensate under the left rear foot that has stained the decking a darker grey in the exact shape of the machine.',
+    stickerHint: 'THIS UNIT RUNS QUIET, which is a lie in this climate and everybody knows it.',
+    frostNote: 'Frost fights the wet air and wins, then loses immediately — the door sheds it in dripping sheets the moment it opens, and the deck steams.',
+  },
+  procedural: {
+    seedStreams: ['scatter', 'weather', 'wildlife', 'radio', 'water', 'insects', 'machine'],
+    variations: [
+      { id: 'water_level', label: 'Water level', range: { min: 0.2, max: 0.9 }, unit: 'normalised', note: 'Changes how much of the cypress knees, the sunken boat and the boardwalk posts are showing.' },
+      { id: 'firefly_count', label: 'Firefly population', range: { min: 40, max: 400 }, unit: 'individuals', note: 'Never zero. Peak nights are genuinely startling.' },
+      { id: 'insect_pulse_period', label: 'Cicada band period', range: { min: 8, max: 15 }, unit: 'seconds', note: 'The rhythm of the whole soundscape.' },
+      { id: 'moss_density', label: 'Spanish moss coverage', range: { min: 0.7, max: 1.3 }, unit: 'multiplier', note: 'How much of the canopy is veiled, and therefore how enclosed the site reads.' },
+      { id: 'duckweed_coverage', label: 'Duckweed coverage', range: { min: 0, max: 0.8 }, unit: 'fraction of surface', note: 'Full coverage kills the fire reflection entirely and changes the look of the environment more than anything else here.' },
+    ],
+    invariants: [
+      'The platform, its two chairs and the lantern hook.',
+      'The rusted-through spot in the drum that leaks a bar of light.',
+      'The sunken jon boat with a tree growing out of it.',
+      'The far yellow light.',
+    ],
+  },
+  discovery: {
+    weight: 9,
+    affinities: { 'humid-subtropical': 2.6, 'continental-interior': 1, 'maritime-east': 1.2, mediterranean: 0.9, unknown: 1.1, boreal: 0.5, highland: 0.6, 'arid-interior': 0.5, 'maritime-west': 0.8 },
+    note: 'The warm-wet corner of the catalogue and the one with the highest eeriness that still reads as entirely cozy. Reachable from anywhere.',
+  },
+  performance: {
+    cost: 'heavy',
+    midTierDrawCalls: 96,
+    midTierTriangles: 47000,
+    dynamicLights: 5,
+    lowTierCuts: [
+      'Firefly count caps at 90 and they become camera-facing sprites in one batch rather than individually lit points.',
+      'Duckweed becomes a texture on the water surface rather than instanced geometry.',
+      'Palmetto scatter drops to 30%. Spanish moss is explicitly protected from cuts — it is the identity of the place.',
+      'Water reflection drops to a half-resolution planar pass; at this draw distance the difference is nearly invisible.',
+    ],
+    note: 'The most expensive environment in the catalogue: transparent moss, alpha-tested foliage, a reflective plane and hundreds of small lights. The 34m draw distance is what buys it back, and the fog is doing real work rather than just being a look.',
+  },
+};

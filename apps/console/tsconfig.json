@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist-types",
+    "rootDir": ".",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "paths": {
+      "@somemore/sim": ["../../packages/sim/src/index.ts"],
+      "@somemore/content": ["../../packages/content/src/index.ts"],
+      "@somemore/protocol": ["../../packages/protocol/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "references": [{ "path": "../../packages/sim" }, { "path": "../../packages/content" }, { "path": "../../packages/protocol" }]
+}

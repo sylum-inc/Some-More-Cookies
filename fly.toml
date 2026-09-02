@@ -1,0 +1,44 @@
+# fly.io. Copy, change `app`, then:
+#
+#     fly launch --no-deploy --copy-config
+#     fly postgres create --name some-more-db
+#     fly postgres attach some-more-db          # sets DATABASE_URL
+#     fly secrets set AUTH_TOKEN_SECRET="$(openssl rand -base64 32)"
+#     fly secrets set CORS_ALLOWED_ORIGINS="https://<account>.github.io"
+#     fly deploy
+#
+# `CORS_ALLOWED_ORIGINS` is the one people forget. Without the origin of the
+# hosted client in it, the browser refuses every call before this service sees
+# them, and the client reports an ordinary network failure — which looks
+# exactly like the service being down.
+app = 'some-more-api'
+primary_region = 'lhr'
+
+[build]
+  dockerfile = 'services/api/Dockerfile'
+
+# Migrations as a release step, so they run once per deploy rather than once
+# per machine. Two machines racing through the same migration is a bad first
+# minute, and it is the kind that only ever happens in production.
+[deploy]
+  release_command = 'npm run migrate'
+
+[env]
+  PORT = '8080'
+  HOST = '0.0.0.0'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Not zero. The campfire is a WebSocket: scaling to zero drops everybody at
+  # the fire, and the first person back pays a cold start while the socket
+  # times out. One machine is the honest minimum for a shared campsite.
+  auto_stop_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '15s'
+    method = 'GET'
+    path = '/health'

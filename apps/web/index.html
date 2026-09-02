@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <!-- The night from `ui/styles.ts`. It was #0b0d10 here and #0a0d12 there,
+         which is a two-value difference nobody can see in isolation and a
+         visible seam between an iOS status bar and the sky under it. -->
+    <meta name="theme-color" content="#0a0d12" />
+    <meta name="description" content="Some More — arrive at the campsite, roast a marshmallow, and run the SM-01." />
+    <title>Some More</title>
+    <!--
+      The manifest, the icons, the Apple meta tags and the launch images are
+      injected by the build (`vite.config.ts`), because they are generated from
+      the same specs that decide what files exist. Everything below is what has
+      to be true before a single byte of JavaScript has run.
+    -->
+    <style>
+      /*
+       * The first paint.
+       *
+       * The stylesheet the interface injects arrives after React mounts, which
+       * on a phone is several hundred milliseconds of white — the one thing a
+       * product that opens on a dark trail cannot afford. Painting the night
+       * here costs nothing and removes the flash on every cold boot, installed
+       * or not.
+       */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0d12;
+        color-scheme: dark;
+      }
+
+      /*
+       * The address-bar dance, and the marshmallow.
+       *
+       * `overscroll-behavior: none` stops pull-to-refresh reloading the world
+       * mid-roast; `touch-action: none` on the document stops the page itself
+       * scrolling while a finger is turning a stick over the coals. The canvas
+       * already sets the latter, but a drag that starts on the HUD and travels
+       * over the canvas is a document-level gesture and was not covered.
+       */
+      html {
+        overscroll-behavior: none;
+        touch-action: none;
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        overscroll-behavior: none;
+        touch-action: none;
+        /* A long press over the fire is how you hold a marshmallow still. It
+           is not how you ask for a share sheet or select the word "SOME". */
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      /* Except where a person is genuinely typing: the terminal takes an
+         address, and an address you cannot select is a bad address. */
+      input,
+      textarea,
+      [contenteditable='true'] {
+        -webkit-user-select: text;
+        user-select: text;
+        -webkit-touch-callout: default;
+      }
+
+      /*
+       * `100dvh` rather than `100vh`.
+       *
+       * `vh` on a phone is the height with the browser chrome collapsed, which
+       * is not the height you have while it is expanded — the classic hundred
+       * pixels of world hidden under the address bar. `dvh` is the live one,
+       * and `svh` is the honest floor for anything that must never be covered.
+       */
+      #root {
+        height: 100%;
+        min-height: 100svh;
+      }
+
+      @supports (height: 100dvh) {
+        #root {
+          height: 100dvh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

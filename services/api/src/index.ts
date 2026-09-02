@@ -1,0 +1,12 @@
+export { createApp, type App, type AppOptions } from './app.js';
+export { buildRoutes, describeRoutes } from './routes/index.js';
+export { createInMemoryRepositories } from './repos/memory/index.js';
+export { createFakePaymentProvider, FAKE_DECLINE_AMOUNT_MINOR, FAKE_DECLINE_TOKEN } from './payments/fake.js';
+export { createStripePaymentProvider } from './payments/stripe.js';
+export { createManualClock, systemClock, type Clock } from './clock.js';
+export { loadConfig, type ApiConfig } from './config.js';
+export { ApiError } from './errors.js';
+export type { PaymentProvider } from './payments/types.js';
+export type { Repositories } from './repos/interfaces.js';
+export type { ServiceRegistry, Capabilities } from './services.js';
+export { seedProducts, seedPromotions, seedRewards, FLAGSHIP_PRODUCT_ID, FOUR_PACK_VARIANT_ID, EIGHT_PACK_VARIANT_ID } from './domain/seed.js';

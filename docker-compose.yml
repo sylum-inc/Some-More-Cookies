@@ -1,0 +1,69 @@
+# The whole back end on one machine: Postgres, the migrations, and the service.
+#
+#     docker compose up --build
+#
+# Then the campsite is at http://localhost:8080/health, and a web build pointed
+# at it with `VITE_API_URL=http://localhost:8080` shares a fire between two
+# browsers. This is also the shape of a small production deployment; the two
+# things it deliberately does not do are TLS and backups.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: somemore_dev
+      POSTGRES_DB: somemore
+    # Health-gated rather than waited on with a sleep, so `migrate` starts the
+    # moment the database is genuinely ready and not a fixed guess afterwards.
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d somemore']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - campsite-db:/var/lib/postgresql/data
+
+  # A one-shot release step, not something the service does to itself at boot.
+  # Two replicas racing each other through the same migration is a bad first
+  # minute, and it is the kind that only happens in production.
+  migrate:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    command: ['npm', 'run', 'migrate']
+    environment:
+      DATABASE_URL: postgres://postgres:somemore_dev@db:5432/somemore?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: services/api/Dockerfile
+    ports:
+      - '8080:8080'
+    environment:
+      DATABASE_URL: postgres://postgres:somemore_dev@db:5432/somemore?sslmode=disable
+      # The image sets NODE_ENV=production, and the service refuses to start in
+      # production with a development token secret rather than quietly signing
+      # sessions with a known key. `:?` so compose fails with this sentence
+      # rather than leaving a container crash-looping:
+      #
+      #     AUTH_TOKEN_SECRET=$(openssl rand -base64 32) docker compose up --build
+      AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:?generate one, e.g. AUTH_TOKEN_SECRET=$(openssl rand -base64 32)}
+      # The origins a browser may call this from. Without it a hosted client is
+      # refused by the browser before the service ever sees the request, and
+      # the symptom is an opaque network error rather than a CORS message.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:4173,http://127.0.0.1:4173}
+      # Unset by default on purpose: with no token the content service is
+      # read-only and every authoring route answers 503 naming this variable.
+      LIVE_OPS_TOKEN: ${LIVE_OPS_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  campsite-db:

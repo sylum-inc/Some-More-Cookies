@@ -1,0 +1,21 @@
+{
+  "name": "@somemore/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "start": "node --import ./runtime/ts-resolve.mjs src/main.ts",
+    "dev": "node --import ./runtime/ts-resolve.mjs src/main.ts",
+    "migrate": "node --import ./runtime/ts-resolve.mjs src/db/migrate.ts up",
+    "migrate:status": "node --import ./runtime/ts-resolve.mjs src/db/migrate.ts status",
+    "migrate:reset": "node --import ./runtime/ts-resolve.mjs src/db/migrate.ts reset",
+    "build": "tsc -b",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@somemore/content": "*",
+    "@somemore/protocol": "*",
+    "zod": "^4.5.0"
+  }
+}

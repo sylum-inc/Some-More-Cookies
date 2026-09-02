@@ -1,0 +1,46 @@
+{
+  "name": "some-more",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Some More \u2014 a cross-platform interactive campfire world.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @somemore/web",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "tsc -b --pretty false && tsc -p test/integration/tsconfig.json --pretty false",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "api": "npm run dev --workspace @somemore/api",
+    "test:tools": "vitest run --config tools/vitest.config.mjs",
+    "e2e:acceptance": "playwright test --project=acceptance",
+    "e2e:access": "playwright test --project=access",
+    "e2e:suite": "playwright test --project",
+    "perf": "npm run perf:sim && npm run perf:render && npm run perf:report",
+    "perf:sim": "node --expose-gc --max-semi-space-size=64 tools/perf/sim-bench.mjs",
+    "perf:render": "playwright test --project=perf",
+    "perf:report": "node tools/perf/report.mjs",
+    "visual": "playwright test --project=visual",
+    "visual:update": "playwright test --project=visual --update-snapshots",
+    "visual:measure": "node tools/visual/measure.mjs",
+    "audio:analyse": "node tools/audio/analyse.mjs",
+    "ci:local": "node tools/ci/local.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^3.2.7",
+    "typescript": "^5.9.0",
+    "vite": "^7.3.0",
+    "vitest": "^3.2.0"
+  }
+}

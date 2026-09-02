@@ -1,0 +1,38 @@
+# Render. `render.yaml` at the repository root is a Blueprint: point Render at
+# the repo and it creates both services.
+#
+# After the first deploy, set the client's origin so the browser will let it
+# call this:  CORS_ALLOWED_ORIGINS = https://<account>.github.io
+services:
+  - type: web
+    name: some-more-api
+    runtime: docker
+    dockerfilePath: ./services/api/Dockerfile
+    # The repository root, because the service imports its workspace packages
+    # and a context of `services/api` cannot see them.
+    dockerContext: .
+    healthCheckPath: /health
+    # Once per deploy, before the new instance takes traffic.
+    preDeployCommand: npm run migrate
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: HOST
+        value: 0.0.0.0
+      - key: AUTH_TOKEN_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: some-more-db
+          property: connectionString
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      # Absent ⇒ the content service is read-only and every authoring route
+      # answers 503 naming this variable. That is the correct default.
+      - key: LIVE_OPS_TOKEN
+        sync: false
+
+databases:
+  - name: some-more-db
+    databaseName: somemore
+    plan: basic-256mb

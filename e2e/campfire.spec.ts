@@ -318,17 +318,19 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
    */
   await page.bringToFront();
   /*
-   * The first frame, paid for up front.
+   * The first frame, measured.
    *
-   * On the software renderer the first picture of a campsite is the expensive
-   * one: every material in the scene is compiled the first time it is drawn,
-   * and on CI that is twenty to thirty seconds during which the page is
-   * joined, the socket is live, `arrive` has been applied, and nothing has
-   * ticked. Both two-browser tests failed there, in their *first* `walkIn`,
-   * while the third test — the same helper, a warm GPU process — passed every
-   * time. So the first tick gets a cold-start budget of its own, once, and
-   * every later wait for frames stays short enough to mean something. The
-   * cost is measured and printed rather than assumed.
+   * Both two-browser tests were failing in the *first* page of a fresh
+   * browser: joined, socket live, `arrive` applied, and twenty seconds in
+   * which a wait polled on animation frames never saw the tick move — while
+   * the same helper passed on every later page. Measured under a wait polled
+   * on an interval (`frameAdvances`), that first page's first tick arrives
+   * 1.6–3.3 s after joining on CI, and the second page's anywhere from 3 to
+   * 16 s, because it shares the runner with a page that is still drawing.
+   * So the page was ticking; the wait was reporting on itself. This one keeps
+   * a generous budget because the second page's number varies fivefold from
+   * run to run, and prints what it measured so the next surprise is a number
+   * rather than a timeout.
    */
   const coldStart = await firstFrame(page, 90_000);
   console.log(`  ${player.name} drew a first frame ${(coldStart / 1000).toFixed(1)} s after joining`);

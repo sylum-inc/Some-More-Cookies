@@ -677,6 +677,7 @@ test.describe('two at the same fire', () => {
      */
     const logsBefore = await two.evaluate(() => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.fire.logs.length);
     await one.evaluate(() => window.__someMore!.campfire!.tendFire({ type: 'add-log', woodId: 'oak' }));
+    await two.bringToFront();
     await two.waitForFunction(
       (before) => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.fire.logs.length > (before as number),
       logsBefore,
@@ -693,6 +694,7 @@ test.describe('two at the same fire', () => {
      * rule refuses it before a message is even sent (spec §9).
      */
     await one.evaluate(() => window.__someMore!.campfire!.beginRoast());
+    await two.bringToFront();
     await two.waitForFunction(
       (id) => window.__someMore!.campfire!.authority.holderOf('obj_marshmallow_1') === (id as string),
       host.accountId,
@@ -714,6 +716,7 @@ test.describe('two at the same fire', () => {
       (id) => window.__someMore!.campfire!.offer('obj_marshmallow_1', 'marshmallow', id as string),
       guest.accountId,
     );
+    await two.bringToFront();
     await two.waitForFunction(
       (id) => window.__someMore!.campfire!.authority.holderOf('obj_marshmallow_1') === (id as string),
       guest.accountId,
@@ -761,12 +764,14 @@ test.describe('two at the same fire', () => {
     expect(['idle', 'text_and_gesture']).toContain(voice.status);
 
     await one.evaluate(() => window.__someMore!.campfire!.say('pull up a log'));
+    await two.bringToFront();
     await two.waitForFunction(
       () => window.__someMore!.campfire!.chat.some((line) => line.text === 'pull up a log'),
       undefined,
       { timeout: 15_000 },
     );
     await two.evaluate(() => window.__someMore!.campfire!.gesture('wave', null));
+    await one.bringToFront();
     await one.waitForFunction(
       () => window.__someMore!.campfire!.gestures.some((g) => g.gesture === 'wave'),
       undefined,
@@ -788,6 +793,7 @@ test.describe('two at the same fire', () => {
      * them on the trail for a few seconds before the trees take them.
      */
     await two.evaluate(() => window.__someMore!.campfire!.depart('walk_off'));
+    await one.bringToFront();
     await one.waitForFunction(
       (id) => (window.__someMore!.campfire!.roster.get(id as string)?.phase ?? 'gone') === 'leaving',
       guest.accountId,
@@ -795,6 +801,7 @@ test.describe('two at the same fire', () => {
     );
     await lookAt(one, guest.accountId);
     await one.screenshot({ path: `${SHOTS}/campfire-departure.png` });
+    await one.bringToFront();
     await one.waitForFunction(
       (id) => window.__someMore!.campfire!.roster.get(id as string) === null,
       guest.accountId,
@@ -817,6 +824,7 @@ test.describe('two at the same fire', () => {
     const { host, guest, sessionId } = await openACampfire();
     const one = await walkIn(browser, host, sessionId);
     const two = await walkIn(browser, guest, sessionId);
+    await one.bringToFront();
     await one.waitForFunction(
       (id) => (window.__someMore!.campfire!.roster.get(id as string)?.phase ?? '') === 'here',
       guest.accountId,
@@ -862,6 +870,7 @@ test.describe('two at the same fire', () => {
     const { host, guest, sessionId } = await openACampfire();
     const one = await walkIn(browser, host, sessionId);
     const two = await walkIn(browser, guest, sessionId);
+    await one.bringToFront();
     await one.waitForFunction(
       (id) => (window.__someMore!.campfire!.roster.get(id as string)?.phase ?? '') === 'here',
       guest.accountId,
@@ -872,6 +881,7 @@ test.describe('two at the same fire', () => {
     // The guest's world reaches the roast because the intent travelled, not
     // because the guest did anything.
     await awaitFrames(two);
+    await two.bringToFront();
     await two.waitForFunction(
       () => (window.__someMore!.store.state as { ritual: PageRitual }).ritual.stage === 'roasting',
       undefined,

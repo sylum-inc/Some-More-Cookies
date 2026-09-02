@@ -100,6 +100,13 @@ export type ApiFailure =
 
 export type ApiResult<T> = { ok: true; value: T } | { ok: false; error: ApiFailure };
 
+/** Where a campfire invite leads. */
+export interface InviteDestination {
+  campsiteId: string;
+  campsiteName: string;
+  sessionId: string | null;
+}
+
 const DEFAULT_TIMEOUT = 8000;
 
 /** Deterministic-enough idempotency keys without pulling in a uuid library. */
@@ -278,6 +285,16 @@ export class ApiClient {
 
   fetchCampsite(campsiteId: string): Promise<ApiResult<Campsite>> {
     return this.request('GET', `/v1/campsites/${encodeURIComponent(campsiteId)}`, CampsiteSchema, {});
+  }
+
+  /** Where an invite leads. The token is the credential; membership is not required. */
+  resolveInvite(token: string): Promise<ApiResult<InviteDestination>> {
+    return this.request(
+      'GET',
+      `/v1/invites/${encodeURIComponent(token)}`,
+      z.object({ campsiteId: z.string(), campsiteName: z.string(), sessionId: z.string().nullable() }),
+      {},
+    );
   }
 
   // --- Campsite memory ---------------------------------------------------

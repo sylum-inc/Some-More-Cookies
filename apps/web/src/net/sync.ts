@@ -437,6 +437,11 @@ export class SyncEngine {
   }
 
   /** Links an account, keeping everything already recorded. */
+  /** Where a scanned invite leads, asked of the service with this device's session. */
+  resolveInvite(token: string): ReturnType<ApiClient['resolveInvite']> {
+    return this.client.resolveInvite(token);
+  }
+
   async link(provider: 'apple' | 'google' | 'email', credential: string): Promise<boolean> {
     const result = await this.client.link(provider, credential);
     if (!result.ok) {

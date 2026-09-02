@@ -455,16 +455,23 @@ export function Campsite({
     };
     for (const patch of fuelPatches ?? []) {
       if (byWood[patch.woodId]) continue;
+      // Paler than the standing tree: dead wood is, and it has to clear the
+      // 5-bit floor by torchlight or it is not there.
+      const pale = new THREE.Color(WOOD_TYPES[patch.woodId]?.bark ?? 0x5a4632).lerp(new THREE.Color(0xcfc3a6), 0.45);
       byWood[patch.woodId] = createPs1Material({
         settings,
         map: getTexture('bark', { size: 64, seed }),
-        color: WOOD_TYPES[patch.woodId]?.bark ?? 0x5a4632,
+        color: pale.getHex(),
         roughness: 1,
       });
     }
     return byWood;
   }, [fuelPatches, settings, seed]);
 
+  const litterMaterial = useMemo(
+    () => createPs1Material({ settings, map: getTexture('bark', { size: 64, seed }), color: 0xb9a98a, roughness: 1 }),
+    [settings, seed],
+  );
   const logGeometry = useMemo(() => createLogGeometry(1.9, 0.19), []);
   const woodpileGeometry = useMemo(() => createLogGeometry(0.55, 0.07), []);
 
@@ -479,8 +486,11 @@ export function Campsite({
   const deadfallGeometries = useMemo(
     () => ({
       log: createLogGeometry(0.72, 0.085),
-      kindling: createLogGeometry(0.46, 0.022),
-      tinder: createLogGeometry(0.2, 0.012),
+      // Thicker than life, on purpose: at internal resolution a
+      // finger-thick stick twenty metres from the fire is under one pixel,
+      // and the frame that exists to show "here is the wood" was black.
+      kindling: createLogGeometry(0.5, 0.035),
+      tinder: createLogGeometry(0.32, 0.024),
     }),
     [],
   );
@@ -501,7 +511,7 @@ export function Campsite({
         const z = patch.z + Math.sin(angle) * distance;
         items.push({
           x,
-          y: terrainHeight(x, z, seed, 0.7, basin) + (patch.grade === 'log' ? 0.085 : 0.016),
+          y: terrainHeight(x, z, seed, 0.7, basin) + (patch.grade === 'log' ? 0.085 : patch.grade === 'kindling' ? 0.035 : 0.024),
           rotationY: rng() * Math.PI * 2,
           scale: 0.75 + rng() * 0.5,
           z,
@@ -812,17 +822,29 @@ export function Campsite({
         that slope's moisture, exactly as reaching into the pile means the pile.
       */}
       {deadfallGroups.map(({ patch, items }) => (
-        <Scatter
-          key={patch.id}
-          name={patch.id}
-          geometry={deadfallGeometries[patch.grade]}
-          material={
-            deadfallMaterials[patch.woodId] ?? (deadfallMaterials['__fallback'] as THREE.Material)
-          }
-          items={items}
-          receiveShadow
-          {...(onGather ? { onPick: () => onGather(patch.id) } : {})}
-        />
+        <group key={patch.id}>
+          {/* A low heap of litter under the sticks, so the patch reads as a
+              place from a distance and the sticks read as lying on something. */}
+          {patch.grade !== 'log' && (
+            <mesh
+              position={[patch.x, terrainHeight(patch.x, patch.z, seed, 0.7, basin) + 0.01, patch.z]}
+              material={litterMaterial}
+              receiveShadow
+            >
+              <coneGeometry args={[(patch.grade === 'kindling' ? 0.55 : 0.4) * 0.8, 0.07, 7]} />
+            </mesh>
+          )}
+          <Scatter
+            name={patch.id}
+            geometry={deadfallGeometries[patch.grade]}
+            material={
+              deadfallMaterials[patch.woodId] ?? (deadfallMaterials['__fallback'] as THREE.Material)
+            }
+            items={items}
+            receiveShadow
+            {...(onGather ? { onPick: () => onGather(patch.id) } : {})}
+          />
+        </group>
       ))}
 
       {woodpileBySpecies.map((group) => (

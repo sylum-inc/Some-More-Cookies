@@ -90,6 +90,18 @@ export function campsiteRoutes(services: ServiceRegistry): AnyRoute[] {
     }),
 
     defineRoute({
+      method: 'GET',
+      path: '/v1/invites/:token',
+      auth: 'required',
+      summary: 'Where an invite leads: the campsite, and its live session if one is open.',
+      params: z.object({ token: z.string().min(1) }),
+      async handle(ctx) {
+        ctx.requireAuth();
+        return { status: 200, body: await campsites.resolveInvite(ctx.params.token) };
+      },
+    }),
+
+    defineRoute({
       method: 'POST',
       path: '/v1/campsites/join',
       auth: 'required',

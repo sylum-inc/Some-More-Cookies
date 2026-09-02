@@ -551,11 +551,38 @@ export function App({ store }: AppProps): React.ReactElement {
     bindCampfire(fire);
     store.campfire = fire;
     setCampfire(fire);
-    fire.connect();
+    /*
+     * The socket opens after the first frame, not before it.
+     *
+     * The first draw compiles every material in the scene, and on a slow
+     * device that is a stall of several seconds during which nothing else on
+     * the main thread runs — including the handler that answers the socket
+     * opening with the join message. The service closes a socket that has
+     * not joined within ten seconds, reasonably, so a page whose first frame
+     * took eleven was told "no join message arrived" and reached its own
+     * campsite alone. Two animation frames after mount is after that draw.
+     */
+    let cancelled = false;
+    const connectAfterFirstFrame = (): void => {
+      if (typeof requestAnimationFrame !== 'function') {
+        fire.connect();
+        return;
+      }
+      let frames = 0;
+      const tick = (): void => {
+        if (cancelled) return;
+        frames += 1;
+        if (frames >= 2) fire.connect();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    };
+    connectAfterFirstFrame();
     const handle = window.__someMore;
     if (handle) handle.campfire = fire;
 
     return () => {
+      cancelled = true;
       if (subtitleTimer !== null) clearTimeout(subtitleTimer);
       bindCampfire(null);
       store.campfire = null;
@@ -2013,17 +2040,30 @@ export function App({ store }: AppProps): React.ReactElement {
           onClose={() => store.setOverlay('none')}
           onCampInvite={(token) => {
             /*
-             * The seam. A `camp` code is a campfire invitation, and its
-             * signature has already been checked on this device — so a forged
-             * QR never reaches the invite table. What happens next (opening a
-             * session, presenting the token on the realtime handshake, showing
-             * somebody else's fire) belongs to the multiplayer client, which is
-             * being built separately. Recording it is where this stops.
+             * A `camp` code is a campfire invitation, and its signature has
+             * already been checked on this device — so a forged QR never
+             * reaches the invite table. Then the service is asked where it
+             * leads, and if a fire is lit there this page walks down the link
+             * to it, invite in hand for the handshake. This used to stop at a
+             * subtitle and a console line.
              */
             store.setSubtitle('[an invitation to someone else’s fire]');
-            if (typeof console !== 'undefined') {
-              console.info('[some-more] verified camp invite token', token.slice(0, 8), '…');
-            }
+            void (async () => {
+              const result = await syncRef.current?.resolveInvite(token);
+              if (result === undefined || !result.ok) {
+                store.setNotice('That invitation leads to a fire this campsite cannot reach tonight.');
+                return;
+              }
+              if (result.value.sessionId === null) {
+                store.setNotice(`${result.value.campsiteName} has no fire lit tonight. Try again when they are there.`);
+                return;
+              }
+              const url = new URL(location.href);
+              url.search = '';
+              url.searchParams.set('fire', result.value.sessionId);
+              url.searchParams.set('invite', token);
+              location.assign(url.toString());
+            })();
           }}
         />
       )}

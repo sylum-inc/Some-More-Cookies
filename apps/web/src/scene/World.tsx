@@ -61,7 +61,7 @@ export { LAYOUT, machineToWorld, hashSeed, campFurniture };
 import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
-import { AssemblyTable, RoastingStick, Sandwich } from './RitualObjects.js';
+import { AssemblyTable, PlacedStack, RoastingStick, Sandwich } from './RitualObjects.js';
 import { Radio } from './Radio.js';
 import { Wildlife } from './Wildlife.js';
 import { Shore } from './Shore.js';
@@ -70,6 +70,7 @@ import { NightSky } from './NightSky.js';
 import { reclineLift, skyAzimuth } from './skyAim.js';
 import type { Vec3 } from '@somemore/sim';
 import { arrangementNote, describeArrangement } from '@somemore/sim';
+import { MARSHMALLOW_OBJECT_ID } from '../net/authority.js';
 import { QUALITY, type QualityTier, type RenderSettings } from '../render/ps1.js';
 import { createPs1Material } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
@@ -213,6 +214,9 @@ const EXPLORE_FOV = 68;
 const CLOSE_WORK_FOV = 48;
 /** The reveal's own lens. See the note above; chosen by looking, not by arithmetic. */
 const REVEAL_FOV = 30;
+/** How close the marshmallow has to come to somebody, and for how long, to be offered. */
+const HOLD_OUT_M = 1.0;
+const HOLD_OUT_SECONDS = 0.6;
 /** The same reveal on a frame taller than it is wide. */
 const REVEAL_FOV_PORTRAIT = 44;
 /** Roughly 7x glasses. Eyes only: the camera does not move. */
@@ -721,6 +725,44 @@ export function World({
     if (lastReach.current === id) onUse?.(id);
   };
 
+  /*
+   * Handing the stick over by holding it out.
+   *
+   * The only way to pass the marshmallow was a panel button next to "Block".
+   * Now the drag is the act: bring the marshmallow to within arm's reach of
+   * somebody standing beside you and keep it there for a moment, and it is
+   * offered — the same `offer` the panel makes, through the same authority
+   * rule, so it can still be refused. Once per person until the stick moves
+   * away again.
+   */
+  const heldOutSeconds = useRef(0);
+  const heldOutTo = useRef<string | null>(null);
+  const holdOut = (dt: number): void => {
+    const fire = store.campfire;
+    if (fire === null || !fire.joined || fire.authority.holderOf(MARSHMALLOW_OBJECT_ID) !== fire.accountId) return;
+    const mm = ritual.marshmallow.position;
+    let near: { accountId: string; name: string } | null = null;
+    for (const person of fire.roster.everyone) {
+      if (person.phase !== 'here') continue;
+      if (Math.hypot(mm.x - person.position.x, mm.z - person.position.z) < HOLD_OUT_M) {
+        near = person;
+        break;
+      }
+    }
+    if (near === null) {
+      heldOutSeconds.current = 0;
+      heldOutTo.current = null;
+      return;
+    }
+    if (near.accountId === heldOutTo.current) return;
+    heldOutSeconds.current += dt;
+    if (heldOutSeconds.current < HOLD_OUT_SECONDS) return;
+    heldOutTo.current = near.accountId;
+    if (fire.offer(MARSHMALLOW_OBJECT_ID, 'marshmallow', near.accountId)) {
+      store.setSubtitle(`[you hold it out to ${near.name}]`);
+    }
+  };
+
   const landed = useRef(false);
   const landAtTheFire = (): void => {
     const bearing = LAYOUT.playerBearing;
@@ -843,6 +885,7 @@ export function World({
           bearingFromFire(player),
           state.accessibility.autoRotate <= 0,
         );
+        holdOut(dt);
       }
       // The torch is aimed where the player is looking. This is the *real*
       // light sweep: the model measures how fast the beam is moving and the
@@ -1294,6 +1337,15 @@ export function World({
       )}
 
       {showAssembly && <AssemblyTable assembly={ritual.assembly} settings={settings} position={LAYOUT.assemblyTable} />}
+
+      {/* The s'more on the tray, from the moment it is put in until the door
+          opens on what it became. Visible through the smoked window while the
+          machine works on it. */}
+      {ritual.stage === 'machine' && ritual.machine.stage !== 'idle' && (
+        <group position={machineToWorld([0, 0.372, 0.14])} rotation={[0, LAYOUT.machineRotation, 0]}>
+          <PlacedStack components={ritual.assembly.components} settings={settings} scale={0.85} />
+        </group>
+      )}
 
       {showSandwichOnTray && ritual.sandwich && (
         <group

@@ -29,6 +29,12 @@ import type { DomainDeps } from './types.js';
  * private by default, owns exactly one serialized SM-01, and accumulates world
  * traces that decay (see worldState.ts).
  */
+export interface InviteDestination {
+  campsiteId: string;
+  campsiteName: string;
+  sessionId: string | null;
+}
+
 export interface CampsiteService {
   create(accountId: string, request: CreateCampsiteRequest): Promise<Campsite>;
   get(accountId: string, campsiteId: string): Promise<Campsite>;
@@ -36,6 +42,14 @@ export interface CampsiteService {
   listForAccount(accountId: string): Promise<CampsiteSummary[]>;
   createInvite(accountId: string, campsiteId: string, request: CreateInviteRequest): Promise<CampsiteInvite>;
   join(accountId: string, request: JoinCampsiteRequest): Promise<{ campsite: Campsite; role: MemberRole }>;
+  /**
+   * Where an invite leads: the campsite, and its live session if one is open.
+   *
+   * The token is the credential, so membership is not required — a scanned
+   * camp QR used to stop dead at "an invitation to somebody else's fire"
+   * because a stranger had no way to learn which fire.
+   */
+  resolveInvite(token: string): Promise<InviteDestination>;
   getMachine(accountId: string, campsiteId: string): Promise<SM01>;
   recordMaintenance(accountId: string, campsiteId: string, request: RecordMaintenanceRequest): Promise<SM01>;
   /** Shared with worldState/sessions: throws unless the caller is a member. */
@@ -261,6 +275,19 @@ export function createCampsiteService(
         grantsRole: request.grantsRole,
       };
       return repos.invites.create(invite);
+    },
+
+    async resolveInvite(token) {
+      const invite = await repos.invites.findByToken(token);
+      if (invite === null) throw notFound('That invite is not valid.');
+      const nowIso = clock.isoNow();
+      if (invite.revokedAt !== null) throw forbidden('That invite was revoked.');
+      if (invite.expiresAt <= nowIso) throw forbidden('That invite has expired.');
+      if (invite.uses >= invite.maxUses) throw forbidden('That invite has been used up.');
+      const campsite = await load(invite.campsiteId);
+      if (campsite === null) throw notFound('No such campsite.');
+      const open = await repos.sessions.findActiveByCampsite(campsite.id);
+      return { campsiteId: campsite.id, campsiteName: campsite.name, sessionId: open?.id ?? null };
     },
 
     async join(accountId, request) {

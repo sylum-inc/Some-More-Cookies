@@ -264,3 +264,31 @@ describe('the SM-01', () => {
     expect(response.status).toBe(404);
   });
 });
+
+describe('where an invite leads', () => {
+  it('names the campsite and its live session, for anyone holding the token', async () => {
+    const owner = await bootstrap(api);
+    const stranger = await bootstrap(api);
+    const campsite = await createCampsite(api, owner);
+    const invite = await mintInvite(owner, campsite.id, { grantsRole: 'guest' });
+
+    // Not a member, and does not need to be: the token is the credential.
+    const before = await api.request(`/v1/invites/${invite.invite.token}`, { token: stranger.token });
+    expect(before.status).toBe(200);
+    expect(before.body.campsiteId).toBe(campsite.id);
+    expect(before.body.sessionId).toBeNull();
+
+    const session = await api.request(`/v1/campsites/${campsite.id}/sessions`, {
+      method: 'POST',
+      token: owner.token,
+      body: { idempotencyKey: key('ses') },
+    });
+    expect(session.status).toBe(201);
+
+    const after = await api.request(`/v1/invites/${invite.invite.token}`, { token: stranger.token });
+    expect(after.body.sessionId).toBe(session.body.id);
+
+    const bogus = await api.request('/v1/invites/not-a-token', { token: stranger.token });
+    expect(bogus.status).toBe(404);
+  });
+});

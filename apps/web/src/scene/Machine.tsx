@@ -54,6 +54,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
   const indicatorRef = useRef<THREE.Mesh>(null);
   const indicatorLightRef = useRef<THREE.PointLight>(null);
   const frostRef = useRef<THREE.Mesh>(null);
+  const windowFrostRef = useRef<THREE.Mesh>(null);
   const vapourRef = useRef<THREE.Points>(null);
   const displayRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState<string | null>(null);
@@ -101,6 +102,18 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
     [decalTexture, settings],
   );
 
+  const windowFrostMaterial = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        map: getTexture('frost', { size: 64, seed: `${machine.identity.serial}-window` }),
+        transparent: true,
+        opacity: 0,
+        roughness: 0.9,
+        metalness: 0,
+        depthWrite: false,
+      }),
+    [machine.identity.serial],
+  );
   const frostMaterial = useMemo(
     () =>
       new THREE.MeshStandardMaterial({
@@ -193,6 +206,11 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       // machine out to a white slab and buries the chamber behind it.
       material.opacity = Math.min(0.5, machine.frost * 0.62);
       frostRef.current.visible = machine.frost > 0.01;
+    }
+    if (windowFrostRef.current) {
+      const material = windowFrostRef.current.material as THREE.MeshStandardMaterial;
+      material.opacity = Math.min(0.88, machine.frost * 1.25);
+      windowFrostRef.current.visible = machine.frost > 0.01;
     }
 
     // --- Vapour -----------------------------------------------------------
@@ -479,6 +497,13 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
         {/* Smoked window — you can watch the transformation happen */}
         <mesh material={smokedPlastic} position={[0.29, 0.03, 0.042]}>
           <boxGeometry args={[0.34, 0.24, 0.012]} />
+        </mesh>
+        {/* Rime on the glass. The shell's frost sheet is capped so the
+            cabinet does not wash out to a white slab, which left "complete"
+            indistinguishable from "freezing" except for the readout. The
+            window is where frost is legible, and where it grows first. */}
+        <mesh ref={windowFrostRef} material={windowFrostMaterial} position={[0.29, 0.03, 0.0495]}>
+          <planeGeometry args={[0.34, 0.24]} />
         </mesh>
         {/* Door gasket */}
         <mesh material={rubber} position={[0.29, 0, -0.016]}>

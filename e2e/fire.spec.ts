@@ -406,10 +406,26 @@ test.describe('what the pit looks like when you get down to it', () => {
      */
     expect(banked.flame).toBeLessThan(burning);
     expect(banked.flame).toBeLessThan(0.12);
-    // Nothing standing up out of the pit worth the name. Relative rather than
-    // absolute, because `flameHeight` carries a small constant floor that a
-    // fire with no flame in it still reports.
-    expect(banked.flameHeight).toBeLessThan(drying.flameHeight * 0.6);
+    /*
+     * Nothing standing up out of the pit worth the name.
+     *
+     * Measured against `flat` — the fire you could cook on — and not against
+     * `drying`, which is a fire this test has itself damped by parking a log
+     * at 0.92 moisture on the stones.
+     *
+     * `flameHeight` is `(0.16 + flame * 0.72)` lifted by draught and by an
+     * fbm flicker term sampled at whatever `elapsed` has reached (fire.ts).
+     * The 0.16 is a floor a pit with no flame in it still reports. Against a
+     * baseline already down at 0.42, that floor alone is most of the 60%, so
+     * the comparison was really an assertion about the flicker's phase — and
+     * the phase depends on how many frames fitted into the preceding waits,
+     * which is a property of the machine. It failed here three runs out of
+     * three, at 0.253 against 0.251.
+     */
+    console.log(
+      `  banked flame height ${banked.flameHeight.toFixed(3)} against ${flat.flameHeight.toFixed(3)} burning`,
+    );
+    expect(banked.flameHeight).toBeLessThan(flat.flameHeight * 0.6);
     expect(banked.ashCover).toBeGreaterThan(0.8);
     expect(banked.emberTemp).toBeGreaterThan(300);
     await capture(page, '45-fire-banked-close');

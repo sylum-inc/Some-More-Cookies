@@ -10,7 +10,7 @@
  * anywhere in this file.
  */
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import {
@@ -22,6 +22,7 @@ import {
   type MachineState,
 } from '@somemore/sim';
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
+import { mergePlaced, type PlacedPart } from '../render/geometry.js';
 import { createMachineDecal, getTexture } from '../render/textures.js';
 
 export interface MachineProps {
@@ -63,6 +64,142 @@ const DOOR: Slab = { x: 0.29, y: 0, width: 0.58, height: 0.48, z: 0.012, depth: 
 const GASKET: Slab = { x: 0.29, y: 0, width: 0.56, height: 0.46, z: -0.016, depth: 0.012 };
 /** The smoked window cut through both. */
 const WINDOW = { x: 0.29, y: 0.03, width: 0.34, height: 0.24 };
+
+/* -------------------------------------------------------------------------- */
+/* The static shell                                                           */
+/*                                                                            */
+/* Built once and merged by material. Nothing below moves, nothing below is    */
+/* a raycast target, and everything below is flat-shaded — which is why the    */
+/* merge is expected to be pixel-identical (see `mergePlaced`).                */
+/* -------------------------------------------------------------------------- */
+
+const box = (w: number, h: number, d: number): THREE.BufferGeometry => new THREE.BoxGeometry(w, h, d);
+
+/** Merges the parts and disposes the sources, which exist only to be merged. */
+function bake(parts: readonly PlacedPart[]): THREE.BufferGeometry {
+  const merged = mergePlaced(parts);
+  for (const part of parts) part.geometry.dispose();
+  return merged;
+}
+
+/**
+ * The enamel cabinet: back, sides, top, bottom, and the front face built as a
+ * frame around the chamber mouth.
+ *
+ * Built as a shell with a real opening rather than one solid box. A single box
+ * has no hole in it, so opening the door revealed the machine's own front
+ * panel with the sandwich sealed inside the geometry — the reveal could not
+ * work until the chamber had a mouth.
+ */
+function buildEnamelShell(): THREE.BufferGeometry {
+  const z = BODY.depth / 2 - CHAMBER.frontDepth / 2;
+  const sideWidth = (BODY.width - CHAMBER.width) / 2;
+  const above = BODY.height - (CHAMBER.centreY + CHAMBER.height / 2);
+  const below = CHAMBER.centreY - CHAMBER.height / 2;
+  const parts: PlacedPart[] = [
+    { geometry: box(BODY.width, BODY.height, CHAMBER.shell), position: [0, BODY.height / 2, -BODY.depth / 2 + CHAMBER.shell / 2] },
+    { geometry: box(BODY.width, CHAMBER.shell, BODY.depth), position: [0, BODY.height - CHAMBER.shell / 2, 0] },
+    { geometry: box(BODY.width, CHAMBER.shell, BODY.depth), position: [0, CHAMBER.shell / 2, 0] },
+    { geometry: box(CHAMBER.width, above, CHAMBER.frontDepth), position: [0, BODY.height - above / 2, z] },
+    { geometry: box(CHAMBER.width, below, CHAMBER.frontDepth), position: [0, below / 2, z] },
+  ];
+  for (const side of [-1, 1]) {
+    parts.push({ geometry: box(CHAMBER.shell, BODY.height, BODY.depth), position: [side * (BODY.width / 2 - CHAMBER.shell / 2), BODY.height / 2, 0] });
+    parts.push({ geometry: box(sideWidth, BODY.height, CHAMBER.frontDepth), position: [side * (BODY.width / 2 - sideWidth / 2), BODY.height / 2, z] });
+  }
+  return bake(parts);
+}
+
+/**
+ * Everything aluminium: plinth, top cap, chamber bezel, condenser fins,
+ * corner posts and the grille surround.
+ *
+ * The front used to be one large enamel plane with everything on it lying
+ * flush: the decal, the readout, the door. A flat plane facing the camera has
+ * no internal form no matter how it is lit or what material it wears — which
+ * is why this cabinet rendered as a single beige silhouette despite being
+ * built from twenty-three boxes in four materials, and why relighting the
+ * campsite did nothing for it. Everything here faces a different way from the
+ * panel behind it, or is made of something with a different roughness, or
+ * both. That is what a surface needs in order to be read as a surface.
+ */
+function buildAluminiumTrim(): THREE.BufferGeometry {
+  const lip = 0.038;
+  const bezelZ = BODY.depth / 2 + 0.014;
+  const halfW = CHAMBER.width / 2 + lip / 2;
+  const halfH = CHAMBER.height / 2 + lip / 2;
+  const parts: PlacedPart[] = [
+    { geometry: box(BODY.width + 0.03, 0.09, BODY.depth + 0.03), position: [0, 0.045, 0] },
+    { geometry: box(BODY.width + 0.04, 0.05, BODY.depth + 0.04), position: [0, BODY.height + 0.025, 0] },
+    // The grille surround, low on the back where the cold plant breathes.
+    { geometry: box(0.6, 0.2, 0.012), position: [0, 0.16, -BODY.depth / 2 - 0.004] },
+  ];
+  // A bezel standing proud around the chamber mouth, so the door reads as set
+  // into a frame rather than painted onto a wall.
+  for (const sy of [1, -1]) {
+    parts.push({ geometry: box(CHAMBER.width + lip * 2, lip, 0.03), position: [0, CHAMBER.centreY + sy * halfH, bezelZ] });
+  }
+  for (const sx of [1, -1]) {
+    parts.push({ geometry: box(lip, CHAMBER.height, 0.03), position: [sx * halfW, CHAMBER.centreY, bezelZ] });
+  }
+  /*
+   * Condenser fins, low on the front where the cold plant would sit.
+   * Horizontal edges against a vertical panel: the one arrangement that
+   * catches a low moon and a fire at the same time.
+   */
+  for (let i = 0; i < 7; i++) {
+    parts.push({ geometry: box(0.34, 0.011, 0.022), position: [0, 0.15 + i * 0.026, BODY.depth / 2 + 0.009] });
+  }
+  /*
+   * Corner posts down the front edges. They break the silhouette, which is
+   * the only thing that reads at all once you are more than a couple of
+   * metres away and the panel detail has gone.
+   */
+  for (const sx of [-1, 1]) {
+    parts.push({ geometry: box(0.03, BODY.height - 0.14, 0.03), position: [sx * (BODY.width / 2 - 0.012), BODY.height / 2 + 0.03, BODY.depth / 2 - 0.012] });
+  }
+  return bake(parts);
+}
+
+/**
+ * The rubber: a shadow gap under the top cap, and four feet.
+ *
+ * A recess reads as a seam between two pressings; without one the cabinet is
+ * a single extrusion.
+ */
+function buildRubberTrim(): THREE.BufferGeometry {
+  const parts: PlacedPart[] = [
+    { geometry: box(BODY.width - 0.05, 0.014, 0.02), position: [0, BODY.height - 0.055, BODY.depth / 2 - 0.006] },
+  ];
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      parts.push({
+        geometry: new THREE.CylinderGeometry(0.04, 0.045, 0.024, 8),
+        position: [sx * (BODY.width / 2 - 0.08), 0.012, sz * (BODY.depth / 2 - 0.08)],
+      });
+    }
+  }
+  return bake(parts);
+}
+
+/** The seven grille slats over the vent, which share one dark plastic. */
+function buildGrilleSlats(): THREE.BufferGeometry {
+  const parts: PlacedPart[] = [];
+  for (let i = 0; i < 7; i++) {
+    parts.push({ geometry: box(0.56, 0.008, 0.006), position: [0, 0.09 + i * 0.026, -BODY.depth / 2 - 0.012] });
+  }
+  return bake(parts);
+}
+
+/** A door slab's four enamel pieces, or its gasket's four, as one geometry. */
+function buildSlabFrame(slab: Slab, hole: { x: number; y: number; width: number; height: number }): THREE.BufferGeometry {
+  return bake(
+    doorFrame(slab, hole).map((piece) => ({
+      geometry: box(piece.width, piece.height, slab.depth),
+      position: [piece.x, piece.y, slab.z] as const,
+    })),
+  );
+}
 
 /**
  * A slab with a rectangular hole in it, as four boxes: a band above the hole,
@@ -170,6 +307,35 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       }),
     [machine.identity.serial],
   );
+
+  /*
+   * The cabinet's static geometry, merged by material.
+   *
+   * Empty dependency arrays because every input is a module constant: this is
+   * built once per mount and the shape never varies by campsite or by
+   * settings. Disposed on unmount, because unlike a JSX `<boxGeometry>` —
+   * which react-three-fiber owns and cleans up — geometry passed in through
+   * the `geometry` prop belongs to whoever made it, and the machine remounts
+   * whenever the campsite changes.
+   */
+  const enamelShell = useMemo(() => buildEnamelShell(), []);
+  const aluminiumTrim = useMemo(() => buildAluminiumTrim(), []);
+  const rubberTrim = useMemo(() => buildRubberTrim(), []);
+  const grilleSlats = useMemo(() => buildGrilleSlats(), []);
+  const doorLeaf = useMemo(() => buildSlabFrame(DOOR, WINDOW), []);
+  const doorGasket = useMemo(() => buildSlabFrame(GASKET, WINDOW), []);
+  /** One material for the seven slats, which used to carry seven identical ones. */
+  const grillePlastic = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x2c2e31, roughness: 0.9 }),
+    [],
+  );
+  useEffect(() => {
+    const owned = [enamelShell, aluminiumTrim, rubberTrim, grilleSlats, doorLeaf, doorGasket];
+    return () => {
+      for (const geometry of owned) geometry.dispose();
+      grillePlastic.dispose();
+    };
+  }, [enamelShell, aluminiumTrim, rubberTrim, grilleSlats, doorLeaf, doorGasket, grillePlastic]);
 
   const indicatorMaterial = useMemo(
     () => new THREE.MeshBasicMaterial({ color: 0x111111, toneMapped: false }),
@@ -339,146 +505,21 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           machine's own front panel with the sandwich sealed inside the
           geometry — the reveal could not work until the chamber had a
           mouth. */}
-      {/* Back, sides, top and bottom */}
-      <mesh material={enamel} position={[0, BODY.height / 2, -BODY.depth / 2 + CHAMBER.shell / 2]} castShadow receiveShadow>
-        <boxGeometry args={[BODY.width, BODY.height, CHAMBER.shell]} />
-      </mesh>
-      {[-1, 1].map((side) => (
-        <mesh
-          key={side}
-          material={enamel}
-          position={[side * (BODY.width / 2 - CHAMBER.shell / 2), BODY.height / 2, 0]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[CHAMBER.shell, BODY.height, BODY.depth]} />
-        </mesh>
-      ))}
-      <mesh material={enamel} position={[0, BODY.height - CHAMBER.shell / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[BODY.width, CHAMBER.shell, BODY.depth]} />
-      </mesh>
-      <mesh material={enamel} position={[0, CHAMBER.shell / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[BODY.width, CHAMBER.shell, BODY.depth]} />
-      </mesh>
+      {/*
+        The cabinet's static shell, merged.
 
-      {/* Front face, as a frame around the chamber mouth */}
-      {(() => {
-        const z = BODY.depth / 2 - CHAMBER.frontDepth / 2;
-        const sideWidth = (BODY.width - CHAMBER.width) / 2;
-        const above = BODY.height - (CHAMBER.centreY + CHAMBER.height / 2);
-        const below = CHAMBER.centreY - CHAMBER.height / 2;
-        return (
-          <group>
-            {[-1, 1].map((side) => (
-              <mesh
-                key={side}
-                material={enamel}
-                position={[side * (BODY.width / 2 - sideWidth / 2), BODY.height / 2, z]}
-                castShadow
-              >
-                <boxGeometry args={[sideWidth, BODY.height, CHAMBER.frontDepth]} />
-              </mesh>
-            ))}
-            <mesh material={enamel} position={[0, BODY.height - above / 2, z]} castShadow>
-              <boxGeometry args={[CHAMBER.width, above, CHAMBER.frontDepth]} />
-            </mesh>
-            <mesh material={enamel} position={[0, below / 2, z]} castShadow>
-              <boxGeometry args={[CHAMBER.width, below, CHAMBER.frontDepth]} />
-            </mesh>
-          </group>
-        );
-      })()}
-
-      {/* Aluminium plinth and top cap */}
-      <mesh material={aluminium} position={[0, 0.045, 0]} castShadow>
-        <boxGeometry args={[BODY.width + 0.03, 0.09, BODY.depth + 0.03]} />
-      </mesh>
-      <mesh material={aluminium} position={[0, BODY.height + 0.025, 0]} castShadow>
-        <boxGeometry args={[BODY.width + 0.04, 0.05, BODY.depth + 0.04]} />
-      </mesh>
-
-      {/* --- Relief ------------------------------------------------------
-          The front used to be one large enamel plane with everything on it
-          lying flush: the decal, the readout, the door. A flat plane facing
-          the camera has no internal form no matter how it is lit or what
-          material it wears — which is why this cabinet rendered as a single
-          beige silhouette despite being built from twenty-three boxes in four
-          materials, and why relighting the campsite did nothing for it.
-
-          Everything below faces a different way from the panel behind it, or
-          is made of something with a different roughness, or both. That is
-          what a surface needs in order to be read as a surface. */}
-
-      {/* A bezel standing proud around the chamber mouth, so the door reads
-          as set into a frame rather than painted onto a wall. */}
-      {(() => {
-        const lip = 0.038;
-        const z = BODY.depth / 2 + 0.014;
-        const halfW = CHAMBER.width / 2 + lip / 2;
-        const halfH = CHAMBER.height / 2 + lip / 2;
-        const outerW = CHAMBER.width + lip * 2;
-        return (
-          <group>
-            {[1, -1].map((sy) => (
-              <mesh key={`h${sy}`} material={aluminium} position={[0, CHAMBER.centreY + sy * halfH, z]} castShadow>
-                <boxGeometry args={[outerW, lip, 0.03]} />
-              </mesh>
-            ))}
-            {[1, -1].map((sx) => (
-              <mesh key={`v${sx}`} material={aluminium} position={[sx * halfW, CHAMBER.centreY, z]} castShadow>
-                <boxGeometry args={[lip, CHAMBER.height, 0.03]} />
-              </mesh>
-            ))}
-          </group>
-        );
-      })()}
-
-      {/* Condenser fins, low on the front where the cold plant would sit.
-          Horizontal edges against a vertical panel: the one arrangement that
-          catches a low moon and a fire at the same time. */}
-      {Array.from({ length: 7 }, (_, i) => (
-        <mesh
-          key={`fin${i}`}
-          material={aluminium}
-          position={[0, 0.15 + i * 0.026, BODY.depth / 2 + 0.009]}
-          castShadow
-        >
-          <boxGeometry args={[0.34, 0.011, 0.022]} />
-        </mesh>
-      ))}
-
-      {/* Corner posts down the front edges. They break the silhouette, which
-          is the only thing that reads at all once you are more than a couple
-          of metres away and the panel detail has gone. */}
-      {[-1, 1].map((sx) => (
-        <mesh
-          key={`post${sx}`}
-          material={aluminium}
-          position={[sx * (BODY.width / 2 - 0.012), BODY.height / 2 + 0.03, BODY.depth / 2 - 0.012]}
-          castShadow
-        >
-          <boxGeometry args={[0.03, BODY.height - 0.14, 0.03]} />
-        </mesh>
-      ))}
-
-      {/* A shadow gap under the top cap. A recess reads as a seam between two
-          pressings; without one the cabinet is a single extrusion. */}
-      <mesh material={rubber} position={[0, BODY.height - 0.055, BODY.depth / 2 - 0.006]}>
-        <boxGeometry args={[BODY.width - 0.05, 0.014, 0.02]} />
-      </mesh>
-
-      {/* Rubber feet */}
-      {[-1, 1].map((sx) =>
-        [-1, 1].map((sz) => (
-          <mesh
-            key={`${sx}${sz}`}
-            material={rubber}
-            position={[sx * (BODY.width / 2 - 0.08), 0.012, sz * (BODY.depth / 2 - 0.08)]}
-          >
-            <cylinderGeometry args={[0.04, 0.045, 0.024, 8]} />
-          </mesh>
-        )),
-      )}
+        This was thirty-seven separate boxes on three shared materials — the
+        single largest draw-call spender in the product, at a measured 117 of
+        a 120 budget for the arrival frame. Every one of them has a fixed
+        transform inside this group and none of them is a pointer target, so
+        they are three meshes now. What moves (the door, the latch, the
+        lever), what is touched (the tray, the programmes, the confirm) and
+        what is transparent (the frost, the window, the hints) is untouched
+        below.
+      */}
+      <mesh material={enamel} geometry={enamelShell} castShadow receiveShadow />
+      <mesh material={aluminium} geometry={aluminiumTrim} castShadow />
+      <mesh material={rubber} geometry={rubberTrim} />
 
       {/* Frost shell, grown during freezing */}
       <mesh ref={frostRef} material={frostMaterial} position={[0, BODY.height / 2, 0]}>
@@ -541,18 +582,13 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           behind it, which was a second solid sheet. Both are cut the way the
           chamber mouth is cut into the front face above.
         */}
-        {doorFrame(DOOR, WINDOW).map((piece, i) => (
-          <mesh
-            key={`door-${i}`}
-            material={enamel}
-            position={[piece.x, piece.y, DOOR.z]}
-            castShadow
-            onClick={canClose ? act({ type: 'close-door' }) : canOpen ? act({ type: 'open-door' }) : undefined}
-            {...pointerProps('door')}
-          >
-            <boxGeometry args={[piece.width, piece.height, DOOR.depth]} />
-          </mesh>
-        ))}
+        <mesh
+          material={enamel}
+          geometry={doorLeaf}
+          castShadow
+          onClick={canClose ? act({ type: 'close-door' }) : canOpen ? act({ type: 'open-door' }) : undefined}
+          {...pointerProps('door')}
+        />
         {/* Smoked window, set into the hole: you can watch the transformation happen */}
         <mesh
           material={smokedPlastic}
@@ -570,11 +606,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           <planeGeometry args={[WINDOW.width, WINDOW.height]} />
         </mesh>
         {/* Door gasket, a rubber frame with the same hole in it */}
-        {doorFrame(GASKET, WINDOW).map((piece, i) => (
-          <mesh key={`gasket-${i}`} material={rubber} position={[piece.x, piece.y, GASKET.z]}>
-            <boxGeometry args={[piece.width, piece.height, GASKET.depth]} />
-          </mesh>
-        ))}
+        <mesh material={rubber} geometry={doorGasket} />
         {/* Handle */}
         <mesh material={aluminium} position={[0.53, 0, 0.06]} castShadow>
           <boxGeometry args={[0.035, 0.2, 0.035]} />
@@ -694,12 +726,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       <mesh material={aluminium} position={[0, 0.16, -BODY.depth / 2 - 0.004]}>
         <boxGeometry args={[0.6, 0.2, 0.012]} />
       </mesh>
-      {Array.from({ length: 7 }, (_, i) => (
-        <mesh key={i} position={[0, 0.09 + i * 0.026, -BODY.depth / 2 - 0.012]}>
-          <boxGeometry args={[0.56, 0.008, 0.006]} />
-          <meshStandardMaterial color={0x2c2e31} roughness={0.9} />
-        </mesh>
-      ))}
+      <mesh geometry={grilleSlats} material={grillePlastic} />
 
       {/* Chamber lamp. A freezer lights its own interior when the door opens —
           functional, diegetic, and the only reason the tray and the sandwich

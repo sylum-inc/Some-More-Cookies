@@ -396,6 +396,11 @@ jobs:
   # whoever happened to remember them. A suite nothing enforces is a suite that
   # is already broken and has not been told yet.
   #
+  # Two were missed when that was written — `fire` and `place` were in neither
+  # the matrix nor a job of their own — and the sentence came true on schedule:
+  # `fire` was found red, on main, by somebody running it by hand. It is eleven
+  # now, and the count is checked by a test rather than by whoever is reading.
+  #
   # A matrix rather than eight hand-written jobs, and `fail-fast: false` so one
   # red project does not hide the state of the other seven. Each still names
   # itself in the job list, which is the whole reason the projects are split by
@@ -421,6 +426,8 @@ jobs:
           - redeem       # the physical bridge stopped connecting
           - console      # whoever schedules a meteor shower is back on curl
           - subpath      # it works everywhere except where it is published
+          - fire         # the fire stopped being a thing you tend
+          - place        # the campsite stopped being anywhere in particular
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

@@ -109,7 +109,19 @@ test.describe('the named things', () => {
     const landmarks = await readLandmarks(page);
     expect(landmarks.length).toBeGreaterThan(2);
 
-    const walkable = await page.evaluate(() => window.__someMore!.store.state.ritual.options.walkableRadiusM ?? 13);
+    /*
+     * The fence the player is actually inside, not the number the placement
+     * was computed from.
+     *
+     * This read `ritual.options.walkableRadiusM` — the radius handed to the
+     * simulation — and so compared the landmarks against the very value that
+     * decided where they went, which is a comparison that cannot fail. It
+     * passed for the whole time the client was fencing the player at 16 m
+     * while the simulation placed at up to 70, and 38 of 58 landmarks across
+     * the catalogue stood somewhere nobody could walk. `walkable.radius` is
+     * the client's own bound, so the two have to genuinely agree.
+     */
+    const walkable = await page.evaluate(() => window.__someMore!.walkable?.radius ?? 13);
     for (const landmark of landmarks) {
       const distance = Math.hypot(landmark.x, landmark.z);
       expect(distance, `${landmark.id} is in the fire`).toBeGreaterThan(2.2);

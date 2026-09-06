@@ -1098,6 +1098,8 @@ export function World({
         // The environment's own draw distance, capped by the quality tier so
         // a generous site cannot blow the budget on a weak device.
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
+        // The world is drawn at least as far as it can be walked.
+        walkableRadius={walkable.radius}
         fuelPatches={ritual.gathering.patches}
         landmarks={ritual.landmarks}
         onVisitLandmark={(id) => {

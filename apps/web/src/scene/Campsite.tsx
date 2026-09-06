@@ -70,6 +70,13 @@ export interface CampsiteProps {
   weather: WeatherState;
   settings: RenderSettings;
   drawDistance: number;
+  /**
+   * How far the player may walk from the fire, in metres.
+   *
+   * Drawn from the same number the fence uses, so the world is drawn at least
+   * as far as it can be walked. See `campsiteRadiusM`.
+   */
+  walkableRadius: number;
   /** Night palette, hex strings from the environment manifest. */
   palette?: {
     ground: string;
@@ -117,6 +124,7 @@ export function Campsite({
   weather,
   settings,
   drawDistance,
+  walkableRadius,
   palette = DEFAULT_PALETTE,
   treeCount = 54,
   understorey = [],
@@ -132,12 +140,36 @@ export function Campsite({
   const starsRef = useRef<THREE.Points>(null);
   const rainRef = useRef<THREE.Points>(null);
 
-  // A finer grid where there is water: a two-metre creek channel is invisible
-  // at 1.8 m per segment, and the shore is the one edge that has to read.
-  const terrain = useMemo(
-    () => createTerrainGeometry(46, basin ? 44 : 26, seed, 0.7, basin),
-    [seed, basin],
-  );
+  /*
+   * How far the drawn world has to go.
+   *
+   * The ground was a fixed 46 m square, which is 23 m from the fire in any
+   * direction — fine while the fence was 16 m, and not fine now that it is
+   * the campsite's authored radius. Past the edge `terrainHeight` keeps
+   * answering, so the player does not fall; the ground simply stops being
+   * drawn under them. It is sized from whichever is further, the fog or the
+   * fence, plus a margin so the edge itself is never the thing you are
+   * looking at.
+   */
+  const extent = Math.max(drawDistance, walkableRadius);
+
+  /*
+   * A finer grid where there is water: a two-metre creek channel is invisible
+   * at 1.8 m per segment, and the shore is the one edge that has to read.
+   *
+   * Segments follow the size so that metres-per-vertex stays where it was
+   * rather than the grid coarsening as the world grows — the drawn ground and
+   * the walked ground are the same analytic function, and they stop agreeing
+   * when the mesh gets too loose to follow it. Capped, because the cost is
+   * quadratic and a 70 m basin at the fine spacing is 26,000 triangles on its
+   * own.
+   */
+  const terrain = useMemo(() => {
+    const size = Math.max(46, extent * 2 + 12);
+    const metresPerSegment = basin ? 46 / 44 : 46 / 26;
+    const segments = Math.min(basin ? 72 : 48, Math.round(size / metresPerSegment));
+    return createTerrainGeometry(size, segments, seed, 0.7, basin);
+  }, [seed, basin, extent]);
 
   const groundMaterial = useMemo(
     () =>
@@ -204,9 +236,28 @@ export function Campsite({
     const trailAngle = Math.atan2(6.2, 7.5);
     // A treeless salt flat and a closed-canopy forest are the same code path,
     // differing only in this number from the manifest.
-    for (let i = 0; i < treeCount; i++) {
+    /*
+     * The ring reaches as far as the world does. It used to stop at 21 m
+     * whatever the campsite was, so raising the fence would have walked the
+     * player out through the last of the trees and into open fog.
+     *
+     * `sqrt` because a uniform roll on the radius crowds the middle: the area
+     * of a ring grows with its distance, so the same count spread evenly by
+     * radius reads as a thicket around the fire and parkland beyond it.
+     */
+    const CLEARING = 6;
+    const treeline = Math.max(CLEARING + 15, extent);
+    /*
+     * The count follows the ring's area, or the same trees spread over a
+     * bigger world would read as a thinning forest rather than a larger one —
+     * `treeCount` is the manifest's canopy density, not a fixed population.
+     * Capped so a 34 m closed canopy cannot alone spend the triangle budget.
+     */
+    const area = (treeline * treeline - CLEARING * CLEARING) / (21 * 21 - CLEARING * CLEARING);
+    const wanted = Math.min(240, Math.round(treeCount * Math.max(1, area)));
+    for (let i = 0; i < wanted; i++) {
       const angle = rng() * Math.PI * 2;
-      const distance = 6 + rng() * 15;
+      const distance = CLEARING + Math.sqrt(rng()) * (treeline - CLEARING);
       let delta = Math.abs(angle - trailAngle) % (Math.PI * 2);
       if (delta > Math.PI) delta = Math.PI * 2 - delta;
       // Widen the gap nearer the camera's start so nothing clips the lens.
@@ -225,7 +276,7 @@ export function Campsite({
       });
     }
     return result;
-  }, [seed, treeCount, basin]);
+  }, [seed, treeCount, basin, extent]);
 
   const treeGeometries = useMemo(
     () => Array.from({ length: 4 }, (_, i) => createTreeGeometry(seed + i * 977, 4.2)),

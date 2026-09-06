@@ -80,7 +80,7 @@ import { World, isAnchored } from './scene/World.js';
 import { LAYOUT, campFurniture, hashSeed } from './scene/layout.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
 import { getEnvironment, inWorld } from '@somemore/content';
-import { worldContentFor } from './state/worldContent.js';
+import { campsiteRadiusM, worldContentFor } from './state/worldContent.js';
 import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
@@ -143,7 +143,7 @@ export function App({ store }: AppProps): React.ReactElement {
   const walkable = useMemo(() => {
     const environment = getEnvironment(state.environmentId);
     const seed = hashSeed(state.campsiteSeed);
-    const radius = Math.max(8, Math.min(16, environment?.scene.walkableRadiusM ?? 13));
+    const radius = campsiteRadiusM(environment);
     // Where the water is, if this campsite has any. Everything at the water —
     // the shore you walk to, the stones you reach down for, the rod leaning on
     // the bank — hangs off this one point, and it is derived from the seed so
@@ -510,7 +510,7 @@ export function App({ store }: AppProps): React.ReactElement {
           ...(environment
             ? {
                 world: worldContentFor(environment),
-                walkableRadiusM: environment.scene.walkableRadiusM,
+                walkableRadiusM: campsiteRadiusM(environment),
               }
             : {}),
         };

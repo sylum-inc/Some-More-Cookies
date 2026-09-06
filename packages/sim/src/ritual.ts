@@ -710,6 +710,15 @@ export function createRitual(options: RitualOptions): RitualState {
       campsiteSeed: seed,
       roster: varyRoster(world.wildlife ?? [], variations),
       priorVisits: options.priorVisits,
+      /*
+       * Animals arrive from outside the campsite and leave by going out of
+       * it. The default 30 m was chosen when nowhere was bigger than that,
+       * and a campsite you can walk 34 m across would have had deer
+       * materialising and evaporating within arm's reach of a standing
+       * player. The margin keeps the edge of the world and the edge of the
+       * roster from being the same circle.
+       */
+      departureRadiusM: Math.max(30, walkableRadiusM * 1.35),
     }),
     radio: createRadio(varyRadioProfile(world.radio ?? SILENT_DIAL, variations), {
       campsiteSeed: seed,

@@ -9,7 +9,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getEnvironment, listEnvironments, selectEnvironment } from '@somemore/content';
-import { worldContentFor } from './state/worldContent.js';
+import { campsiteRadiusM, worldContentFor } from './state/worldContent.js';
 import {
   arrive,
   beginRoasting,
@@ -115,7 +115,7 @@ const store = new Store({
   ...(environment
     ? {
         world: worldContentFor(environment),
-        walkableRadiusM: environment.scene.walkableRadiusM,
+        walkableRadiusM: campsiteRadiusM(environment),
       }
     : {}),
 });

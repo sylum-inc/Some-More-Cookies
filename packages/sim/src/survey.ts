@@ -45,8 +45,16 @@ const NAMES: Record<string, string> = {
   rod: 'the fishing rod',
 };
 
-function nameOf(id: string): string {
-  return NAMES[id] ?? id.replace(/-/g, ' ');
+function nameOf(thing: { readonly id: string; readonly label?: string }): string {
+  /*
+   * The catalogue's own word for it wins.
+   *
+   * Landmarks and curios are named by the environment that wrote them, so
+   * there is no fixed phrasing here to look up and the fallback would read
+   * an identifier aloud. `NAMES` still covers the fixed furniture.
+   */
+  if (thing.label !== undefined && thing.label.length > 0) return thing.label.toLowerCase();
+  return NAMES[thing.id] ?? thing.id.replace(/-/g, ' ');
 }
 
 /**
@@ -129,9 +137,9 @@ export function surveySurroundings(
   const inReach = reachable(player, world).map((r) => r.interactable);
   const here = focused(player, world);
   if (here !== null) {
-    lines.push(`You are standing at ${nameOf(here.id)}.`);
+    lines.push(`You are standing at ${nameOf(here)}.`);
   } else if (inReach.length > 0) {
-    lines.push(`Within reach: ${inReach.map((i) => nameOf(i.id)).join(', ')}.`);
+    lines.push(`Within reach: ${inReach.map((i) => nameOf(i)).join(', ')}.`);
   }
 
   // 2. The fire, because it is why anybody is here.
@@ -150,7 +158,7 @@ export function surveySurroundings(
     .slice(0, 5);
   for (const entry of near) {
     lines.push(
-      `${capitalise(nameOf(entry.i.id))} is ${relativeBearing(player, entry.i.x, entry.i.z)}, ${paces(entry.d)}.`,
+      `${capitalise(nameOf(entry.i))} is ${relativeBearing(player, entry.i.x, entry.i.z)}, ${paces(entry.d)}.`,
     );
   }
 

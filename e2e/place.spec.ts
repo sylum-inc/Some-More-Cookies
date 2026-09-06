@@ -590,3 +590,157 @@ test.describe('the trail out', () => {
     expect(after, 'walking out led back into the same campsite').not.toBe(before);
   });
 });
+
+/**
+ * The twenty-eight secrets that could not be found.
+ *
+ * `defaultConditions` infers `{ kind: 'inspecting', targetId: secret.id }` for
+ * every `notes` and `strange-objects` secret, and until the curios were placed
+ * nothing in the product ever wrote `presence.inspecting`. A shelf of shift
+ * entries stopping mid-sentence with the pencil still in the fold was written,
+ * validated, shipped, and impossible to reach. The unit tests cover the
+ * placement and the hold; this covers the part only a browser can answer —
+ * whether the thing is offered, whether it is *on screen* when it is offered,
+ * and whether crouching over it ends with the catalogue's own sentence in
+ * front of the player.
+ */
+/**
+ * A curio whose secret asks for nothing but the look.
+ *
+ * Some of them also want a second visit, or a particular weather, and picking
+ * the first in the list would make the test a coin toss on content it is not
+ * about. This picks one the browser can actually finish tonight, and fails
+ * loudly if the campsite has none.
+ */
+async function firstVisitCurio(
+  page: import('@playwright/test').Page,
+): Promise<{ secretId: string; label: string; x: number; z: number }> {
+  const curio = await page.evaluate(() => {
+    const ritual = window.__someMore!.store.state.ritual as unknown as {
+      curios: { secretId: string; label: string; x: number; z: number }[];
+      discovery: { secrets: { secret: { id: string }; conditions: { kind: string }[] }[] };
+    };
+    const onlyLooking = new Set(
+      ritual.discovery.secrets
+        .filter((runtime) => runtime.conditions.every((condition) => condition.kind === 'inspecting'))
+        .map((runtime) => runtime.secret.id),
+    );
+    return ritual.curios.find((c) => onlyLooking.has(c.secretId)) ?? null;
+  });
+  expect(curio, 'no curio here can be found on a first visit').not.toBeNull();
+  return curio!;
+}
+
+test.describe('the things you find by looking', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?camp=curio-camp&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1200);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(500);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+  });
+
+  test('are each somewhere you can walk to, and each offered by name', async ({ page }) => {
+    const curios = await page.evaluate(() => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as {
+        curios: { secretId: string; label: string; x: number; z: number }[];
+      };
+      const world = window.__someMore!.walkable!;
+      return {
+        curios: ritual.curios,
+        radius: world.radius,
+        offered: world.interactables.filter((i) => i.id.startsWith('look:')).map((i) => i.id),
+      };
+    });
+
+    expect(curios.curios.length, 'this campsite has nothing to look at').toBeGreaterThan(0);
+    for (const curio of curios.curios) {
+      const distance = Math.hypot(curio.x, curio.z);
+      expect(distance, `${curio.secretId} is in the fire`).toBeGreaterThan(2.2);
+      expect(distance, `${curio.secretId} is outside the fence`).toBeLessThan(curios.radius);
+      // Offered under its own name, which is the title the catalogue wrote.
+      expect(curios.offered).toContain(`look:${curio.secretId}`);
+      expect(curio.label.length, `${curio.secretId} has nothing to call it`).toBeGreaterThan(0);
+    }
+  });
+
+  test('are on screen when the prompt for them is', async ({ page }) => {
+    /*
+     * The failure this exists to catch: the eye is at a metre and a half and a
+     * tin on its side is sixteen centimetres tall, so from standing, at the
+     * range that offers the prompt, the thing is a good twenty degrees *below*
+     * the bottom of the frame. The first build of this shipped a button
+     * reading "Look closely at the tin in the creek" over an empty patch of
+     * ground. Coming within reach now stoops the body, which is what brings it
+     * into shot — so this asserts the stoop, in metres, at the moment the
+     * button appears.
+     */
+    const curio = await firstVisitCurio(page);
+
+    const standing = await page.evaluate(() => window.__someMore!.player!.stance);
+    expect(standing, 'the player did not start on their feet').toBeGreaterThan(0.9);
+
+    await stand(page, curio.x, curio.z);
+    await expect(
+      page.getByRole('button', { name: `Look closely at ${curio.label.toLowerCase()}` }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const stooped = await page.evaluate(() => window.__someMore!.player!.stance);
+    expect(stooped, 'the prompt appeared but the body never went down to it').toBeLessThan(0.75);
+  });
+
+  test('tell you what they are when you crouch and hold', async ({ page }) => {
+    const curio = await firstVisitCurio(page);
+
+    await stand(page, curio.x, curio.z);
+    await page.getByRole('button', { name: `Look closely at ${curio.label.toLowerCase()}` }).click();
+
+    // Latched, and the prompt is now the way back out of it.
+    await expect(page.getByRole('button', { name: 'Straighten up' })).toBeVisible({ timeout: 5_000 });
+    expect(await page.evaluate(() => window.__someMore!.store.state.ritual.presence.inspecting)).toBe(
+      curio.secretId,
+    );
+
+    // A rare secret asks about eleven seconds of a held look; twenty-five is
+    // past the longest of them with room for a slow frame.
+    await page.waitForFunction(
+      (id) => {
+        const ritual = window.__someMore!.store.state.ritual as unknown as {
+          discovery: { records: { secretId: string }[] };
+        };
+        return ritual.discovery.records.some((record) => record.secretId === id);
+      },
+      curio.secretId,
+      { timeout: 25_000 },
+    );
+
+    // And the find reaches the player as the sentence somebody wrote for it,
+    // not as a log line or a counter (§5.3).
+    const telling = await page.evaluate(() => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as {
+        discoveryEvents: { kind: string; secretId: string; telling: string }[];
+      };
+      return ritual.discoveryEvents.find((event) => event.kind === 'discovered')?.telling ?? '';
+    });
+    expect(telling.length, 'the secret was found and never told').toBeGreaterThan(20);
+    await expect(page.getByText(telling.slice(0, 40), { exact: false })).toBeVisible({ timeout: 5_000 });
+
+    /*
+     * Found, so you are back on your feet: the look does not stay latched on a
+     * thing that has nothing left to say. Waited for rather than asserted flat
+     * — the record lands inside the simulation step and the crouch is released
+     * by the client reading the event afterwards, so a bare read here catches
+     * the one frame in between and fails on a product that is behaving.
+     */
+    await page.waitForFunction(
+      () => window.__someMore!.store.state.ritual.presence.inspecting === null,
+      null,
+      { timeout: 5_000 },
+    );
+    await expect(page.getByRole('button', { name: 'Straighten up' })).toHaveCount(0);
+  });
+});

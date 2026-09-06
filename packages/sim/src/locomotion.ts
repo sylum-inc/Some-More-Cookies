@@ -156,6 +156,15 @@ export interface Interactable {
   readonly reach: number;
   /** Facing tolerance in radians; omit to allow any facing. */
   readonly arc?: number;
+  /**
+   * What this is called out loud.
+   *
+   * The survey reads the reach set to a player who cannot see it, and an id
+   * with no phrasing behind it gets mangled into English — "Within reach:
+   * look:ph_carved_initials". Anything whose name comes from the catalogue
+   * rather than from a fixed table carries it here.
+   */
+  readonly label?: string;
 }
 
 export interface WalkableWorld {

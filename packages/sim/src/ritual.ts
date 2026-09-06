@@ -76,6 +76,7 @@ import {
   type PlaceState,
   type PlaceConditions,
 } from './place.js';
+import { placeCurios, curioAt, type PlacedCurio } from './curios.js';
 import {
   placeLandmarks,
   landmarkAt,
@@ -507,6 +508,8 @@ export interface RitualState {
   gathering: GatheringState;
   /** The named things at this campsite, and where they turned out to be. */
   landmarks: PlacedLandmark[];
+  /** Things you find by crouching over them (see `curios.ts`). */
+  curios: PlacedCurio[];
   /** The campsite's own voice: what it has said about itself, and when. */
   place: PlaceState;
   weather: WeatherState;
@@ -671,6 +674,7 @@ export function createRitual(options: RitualOptions): RitualState {
    */
   const returning = (options.visitIndex ?? 1) > 1;
   const fire = returning ? createBankedFire(fireConfig) : createEstablishedFire(fireConfig);
+
   // Built before the state object so the landmarks can be put at the water.
   const water = world.water
     ? createWater(varyWater(world.water, variations), {
@@ -680,20 +684,40 @@ export function createRitual(options: RitualOptions): RitualState {
       })
     : null;
 
+  const landmarks = placeLandmarks({
+    landmarks: world.landmarks ?? [],
+    radius: walkableRadiusM,
+    trailBearing: world.trailBearing ?? 0.69,
+    // Stepping stones go at the water, which means the water has to exist
+    // before the things that stand beside it are placed.
+    ...(water ? { shore: { bearing: water.shore.bearing, distanceM: water.shore.distanceM } } : {}),
+    ...(world.occupied ? { occupied: world.occupied } : {}),
+    rng: rng.split('landmarks'),
+  });
+
+  /*
+   * And the small things you only find by crouching over them.
+   *
+   * After the landmarks, and handed them, because most of these secrets
+   * describe something that sits on or under a thing the manifest already
+   * names — so a curio has to know where those ended up in order to stand
+   * beside one rather than inside it.
+   */
+  const curios = placeCurios({
+    secrets: world.secrets ?? [],
+    radius: walkableRadiusM,
+    trailBearing: world.trailBearing ?? 0.69,
+    landmarks,
+    ...(world.occupied ? { occupied: world.occupied } : {}),
+    rng: rng.split('curios'),
+  });
+
   return {
     stage: 'arriving',
     fire,
     place: createPlace(),
-    landmarks: placeLandmarks({
-      landmarks: world.landmarks ?? [],
-      radius: walkableRadiusM,
-      trailBearing: world.trailBearing ?? 0.69,
-      // Stepping stones go at the water, which means the water has to exist
-      // before the things that stand beside it are placed.
-      ...(water ? { shore: { bearing: water.shore.bearing, distanceM: water.shore.distanceM } } : {}),
-      ...(world.occupied ? { occupied: world.occupied } : {}),
-      rng: rng.split('landmarks'),
-    }),
+    landmarks,
+    curios,
     gathering: createGathering({
       sources: world.fuel ?? [],
       radius: walkableRadiusM,
@@ -1589,6 +1613,35 @@ export function setPresence(ritual: RitualState, update: Partial<PresenceInput>)
   if (update.seated !== undefined) presence.seated = update.seated;
   if (update.seatId !== undefined) presence.seatId = update.seatId;
   if (update.photographed) presence.photographed = [...presence.photographed, ...update.photographed];
+}
+
+/**
+ * Crouches over one of the campsite's small things, or straightens up again.
+ *
+ * The whole of the discovery model's `inspecting` condition, which nothing in
+ * the product could satisfy before this existed. It is a *posture*, not a
+ * press: `stepDiscovery` wants the condition held continuously for five to
+ * twelve seconds depending on how rare the thing is, and lets it drain at one
+ * and a half times that rate when it lapses. A verb that set `inspecting` for
+ * one frame would discover nothing, ever, and would have shipped green.
+ *
+ * So the client latches it and keeps writing it through `setPresence` until
+ * the player walks away, stands up, or looks at something else — and this
+ * only says which thing is being looked at.
+ *
+ * Returns the curio, so the caller can say its name.
+ */
+export function lookCloser(ritual: RitualState, secretId: string): PlacedCurio | null {
+  const curio = curioAt(ritual.curios, secretId);
+  if (!curio) return null;
+  curio.looked = true;
+  ritual.presence.inspecting = secretId;
+  return curio;
+}
+
+/** Straightens up. Anything held stops being held. */
+export function stopLooking(ritual: RitualState): void {
+  ritual.presence.inspecting = null;
 }
 
 /**

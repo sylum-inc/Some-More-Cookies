@@ -47,7 +47,9 @@ import {
   toggleRadio,
   vec3,
   canPerform,
+  lookCloser,
   photograph,
+  stopLooking,
   type Interactable,
   type MachineAction,
   type MachineEvent,
@@ -191,6 +193,7 @@ export function App({ store }: AppProps): React.ReactElement {
           z: Math.sin(TRAIL_BEARING) * (radius - 1.4),
           reach: 1.6,
           arc: 1.5,
+          label: 'the trail out',
         },
         { id: 'fire', x: 0, z: 0, reach: 1.45 },
         // An arc, so "Take a log" is offered only while facing the pile: it
@@ -259,12 +262,31 @@ export function App({ store }: AppProps): React.ReactElement {
           x: landmark.x,
           z: landmark.z,
           reach: landmark.kind === 'natural' ? 2 : 1.5,
+          label: landmark.label,
+        })),
+        /*
+         * And the small things you only find by crouching over them.
+         *
+         * Prefixed, because a curio's id is its *secret's* id and the id space
+         * has to stay disjoint from the landmarks, the fuel patches and the
+         * fixed names above. An arc, because a thing this size is not
+         * something you notice with your back to it.
+         */
+        ...ritual.curios.map((curio) => ({
+          id: `look:${curio.secretId}`,
+          x: curio.x,
+          z: curio.z,
+          // Matches `CURIO_STOOP_M` in World, which is what makes the prompt
+          // and the stoop that brings the thing into frame arrive together.
+          reach: 1.35,
+          arc: 1.3,
+          label: curio.label,
         })),
       ],
     });
     // Patch positions are fixed for the life of a campsite, so this stays a
     // function of the seed even though it reads the simulation.
-  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches, ritual.landmarks]);
+  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches, ritual.landmarks, ritual.curios]);
 
   const player = useMemo(() => {
     // Starts out on the trail, walking in.
@@ -315,6 +337,14 @@ export function App({ store }: AppProps): React.ReactElement {
     camera: THREE.Camera;
   } | null>(null);
   const audioRef = useRef<AudioBridge | null>(null);
+  /**
+   * The thing being crouched over, if any.
+   *
+   * A ref rather than state because it is written into the simulation from
+   * the render loop every step, and a re-render per frame is not a price a
+   * posture should cost.
+   */
+  const inspectingRef = useRef<string | null>(null);
   /** Frames the render loop has reported, and who is waiting on the second. */
   const framesDrawn = useRef(0);
   const onDrawn = useRef<(() => void) | null>(null);
@@ -803,6 +833,35 @@ export function App({ store }: AppProps): React.ReactElement {
      * because which ones exist is decided by the environment and not by this
      * file.
      */
+    /*
+     * Crouching over one of the campsite's small things — and standing up.
+     *
+     * A latch rather than a press, because `stepDiscovery` wants the
+     * `inspecting` condition held continuously for five to twelve seconds and
+     * drains it at one and a half times that rate when it lapses. Setting it
+     * for one frame on a tap would find nothing, ever, and would have looked
+     * exactly like a working feature.
+     *
+     * The ref is what World writes into presence every step; this only
+     * decides which thing, and pressing again straightens you up.
+     */
+    if (id.startsWith('look:')) {
+      const secretId = id.slice(5);
+      if (inspectingRef.current === secretId) {
+        inspectingRef.current = null;
+        stopLooking(ritual);
+        store.setSubtitle('[you straighten up]');
+        return;
+      }
+      const curio = lookCloser(ritual, secretId);
+      if (!curio) return;
+      inspectingRef.current = secretId;
+      store.setSubtitle(`[you crouch over ${curio.label.toLowerCase()}]`);
+      audioRef.current?.playFoley('stick');
+      store.touch();
+      return;
+    }
+
     /*
      * Walking out.
      *
@@ -1497,6 +1556,7 @@ export function App({ store }: AppProps): React.ReactElement {
   const listenerScratch = useRef({ eye: vec3(), look: vec3() });
   /** The last weather change already announced, so it is said once. */
   const lastWeatherAt = useRef(-1);
+  const lastDiscoveryAt = useRef(-1);
   /** Whether this site's unit has introduced itself yet. */
   const metTheMachine = useRef(false);
   /** Which of this campsite's activities have introduced themselves. */
@@ -1624,6 +1684,32 @@ export function App({ store }: AppProps): React.ReactElement {
       if (weatherEvent && weatherEvent.at !== lastWeatherAt.current) {
         lastWeatherAt.current = weatherEvent.at;
         store.setNotice(weatherEvent.telling);
+      }
+      /*
+       * What the campsite gives up when somebody looks properly.
+       *
+       * `ritual.discoveryEvents` had no reader anywhere in the client: the
+       * simulation had been accumulating finds and trimming them off the back
+       * of the log, unread, since discovery was built. Twenty-eight of the
+       * catalogue's secrets could not fire at all and the other nineteen fired
+       * into nothing.
+       *
+       * `noticing` is deliberately quiet — the world leaning in at 60% of the
+       * hold, which is the player's only sign that staying put is working. It
+       * is a subtitle, not a marker and not a meter (§5.3).
+       */
+      const discovery = r.discoveryEvents[r.discoveryEvents.length - 1];
+      if (discovery && discovery.at !== lastDiscoveryAt.current) {
+        lastDiscoveryAt.current = discovery.at;
+        if (discovery.kind === 'discovered') {
+          store.setNotice(discovery.telling);
+          // The look is over: it has been seen. Straightening up here rather
+          // than leaving the crouch latched means the next thing you walk to
+          // is offered normally.
+          inspectingRef.current = null;
+        } else {
+          store.setSubtitle('[there is more here than you first thought]');
+        }
       }
       if (r.marshmallow.ignitedThisStep) {
         lastSubtitle.current = { text: '[the marshmallow catches fire]', at: performance.now() };
@@ -1917,6 +2003,7 @@ export function App({ store }: AppProps): React.ReactElement {
           roastControl={roastControl}
           onLiftSandwich={handleTakeSandwich}
           quality={quality}
+          inspectingRef={inspectingRef}
           onFrame={onFrame}
           arrivalRef={arrivalRef}
           onSimStep={onSimStep}
@@ -1981,6 +2068,7 @@ export function App({ store }: AppProps): React.ReactElement {
         onOpenSettings={() => store.setOverlay('settings')}
         onFinishRoasting={handleFinishRoasting}
         onTakeSandwich={handleTakeSandwich}
+        inspecting={inspectingRef.current}
         onPhoto={handlePhoto}
         onOpenTerminal={() => store.setOverlay('terminal')}
       />

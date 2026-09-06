@@ -30,6 +30,8 @@ export interface HudProps {
   /** Whether the player is sitting down, so the log can offer the opposite. */
   seated?: boolean;
   /** Who has the roasting stick at a shared fire, when it is not you. */
+  /** What the player is crouched over, so the prompt can offer to end it. */
+  inspecting?: string | null;
   stickHolder?: string | null;
   /** The acts that have no object to touch: posture, glasses, the beam, the survey. */
   onLieBack?: () => void;
@@ -82,7 +84,7 @@ const REACH_LABELS: Record<string, string> = {
  * up" once you are on it, the torch says "switch it off" once it is in your
  * hand, and the water says "throw it" once there is a stone in the other one.
  */
-export function reachLabel(id: string, ritual?: RitualState, seated = false): string {
+export function reachLabel(id: string, ritual?: RitualState, seated = false, inspecting: string | null = null): string {
   if (ritual) {
     /*
      * Somewhere there is wood.
@@ -110,6 +112,15 @@ export function reachLabel(id: string, ritual?: RitualState, seated = false): st
      * trail out" is a thing you do, where "Travel" or "Leave campsite" would
      * be a menu item wearing a sentence.
      */
+    /*
+     * One of the campsite's small things. The label is the secret's own
+     * title, which the catalogue already wrote for a player to read, and the
+     * verb says it is a posture you are holding rather than a button.
+     */
+    if (id.startsWith('look:')) {
+      const curio = ritual.curios.find((c) => `look:${c.secretId}` === id);
+      if (curio) return inspecting === curio.secretId ? 'Straighten up' : `Look closely at ${curio.label.toLowerCase()}`;
+    }
     if (id === 'trailhead') return 'Follow the trail out';
     // Hands full of wood means putting wood on, not poking the coals.
     if (id === 'fire' && ritual.gathering.armful.length > 0) return 'Lay it on';
@@ -507,7 +518,7 @@ export function Hud(props: HudProps): React.ReactElement {
           borderRadius: 2,
         }}
       >
-        {reachLabel(reach.id, ritual, props.seated ?? false)}
+        {reachLabel(reach.id, ritual, props.seated ?? false, props.inspecting ?? null)}
       </button>
     ) : null;
 

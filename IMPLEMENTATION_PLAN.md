@@ -703,6 +703,50 @@ verification either, until somebody opens it.
 
 ---
 
+### Session 9: four things the product had already built and could not reach
+
+Not defects found by looking at the screen, but by reading the simulation
+against the client and asking which of its outputs a player can actually
+arrive at. Four systems were complete, tested, and wired to nothing.
+
+| # | What the build already had | What a player could do with it | Now |
+| --- | --- | --- | --- |
+| G1 | `photograph(ritual, subjects)`, the discovery model's `photographed` channel, and every secret that depends on having taken a picture of a thing | Nothing. The Photo button opened the Passport and never told the simulation what was in the frame, so the channel was fed by a test hook only | `subjectsInFrame(camera, ritual)` tests the render camera's own frustum against the animals, the landmarks, the water and the sky, and `handlePhoto` passes what it finds. Nine unit tests, including the cases where a subject is genuinely out of shot |
+| G2 | Twelve authored environments, `§5.4`'s promise that every player can eventually reach every one of them | Nothing. The campsite id was a constant: one device, one environment, forever. Eleven of the twelve were unreachable except by hand-editing a query string | A root seed minted once per device, a campsite derived from it, and a **trail out** at the edge of the clearing — `state/journey.ts`, with `nextCampsite` preferring somewhere you have not been. Nine unit tests walk the trail from twenty-four different devices and assert all twelve are reached from every one |
+| G3 | Environment manifests specifying walkable radii up to 34 m, and landmarks placed against them | Two thirds of the authored landmarks stood outside a hard 16 m clamp — placed, named, described, and behind an invisible fence | `campsiteRadiusM` caps at 34 m and is the single reader of `scene.walkableRadiusM`; the terrain, treeline and wildlife departure radius all follow it. Paid for with `mergePlaced`, which cut the SM-01 from 45 static meshes to 6 — the merge is pixel-identical because `createPs1Material` flat-shades per fragment, and the visual baselines say so |
+| G4 | Twenty-eight of the catalogue's forty-seven secrets, each carrying a `notes` or `strange-objects` channel, for which `defaultConditions` infers `{ kind: 'inspecting' }` | Nothing, and nothing was even possible: no code anywhere in the product wrote `presence.inspecting`. A shelf of shift entries stopping mid-sentence with the pencil still in the fold had been written, validated, shipped, and made unreachable by construction | `placeCurios` stands each of them somewhere — from the campsite's own seed, out of the fire, clear of the landmarks — and `lookCloser`/`stopLooking` latch the posture the condition wants. All 28 now have a place; 23 are findable on a first visit and every campsite has at least one |
+
+Three things about G4 were only found by running it rather than by testing it:
+
+- **The condition asked for a hold nobody would ever survive.** Left at the
+  witnessing rate, a deliberate look wanted twenty-six seconds of crouching
+  *and* then had to win a rarity roll. `stepDiscovery` now recognises a
+  deliberate secret — one whose conditions include `inspecting` — and asks
+  five to twelve seconds with no roll: you looked, so you found it. Being
+  there when something happens is luck; crouching over a thing is not.
+- **The prop was off screen at the moment it was offered.** The eye is at
+  1.58 m and a tin on its side is 0.16 m tall, so at the reach that offers
+  the prompt the thing is about twenty degrees *below* the bottom of the
+  frame. The first build put a button reading "Look closely at the tin in
+  the creek" over an empty patch of ground — the same failure the curios
+  exist to fix, moved one step later. Coming within reach now stoops the
+  body, the way standing at the pit already did, and crouching over one
+  kneels and aims the head at it. `e2e/place.spec.ts` asserts the stance in
+  metres at the moment the button appears, and fails without the stoop.
+- **The shape has to match the words.** Picking it from the channel alone
+  put a plank shelf under a label reading *tin*. `SHAPE_WORDS` reads the
+  nouns out of titles somebody already wrote — "The tackle cans", "The
+  sixth cairn", "The thirty-second stake" — and 24 of the 28 now look like
+  what they are called. The draw is still taken from the campsite's stream
+  whether or not a word matches, so renaming one secret cannot move
+  another's curio.
+
+None of the four needed new content, and none of them was a bug a test could
+have caught: every test passed before and after, because in each case the
+thing being tested worked and had no caller.
+
+---
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

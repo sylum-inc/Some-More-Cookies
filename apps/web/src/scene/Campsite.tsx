@@ -16,6 +16,7 @@ import {
   WOOD_TYPES,
   type FuelPatch,
   type PlacedLandmark,
+  type PlacedCurio,
   type WaterBasin,
   type WeatherState,
 } from '@somemore/sim';
@@ -32,6 +33,7 @@ const CLEARING_RADIUS = 3.4;
 import { createPs1Material, type RenderSettings } from '../render/ps1.js';
 import { getTexture } from '../render/textures.js';
 import { createLandmarkGeometry, isPlaceable } from '../render/landmarks.js';
+import { createCurioGeometry, curioMaterial } from '../render/curios.js';
 import {
   createLogGeometry,
   createRockGeometry,
@@ -63,6 +65,16 @@ export interface CampsiteProps {
    * can see across the clearing but cannot reach is worse than no landmark.
    */
   landmarks?: readonly PlacedLandmark[];
+  /**
+   * The campsite's small findable things.
+   *
+   * Placed by the simulation for the same reason the landmarks are: the list
+   * that decides where they are drawn is the list that decides where you can
+   * crouch over them.
+   */
+  curios?: readonly PlacedCurio[];
+  /** Crouching over one, or straightening up. */
+  onLookCloser?: (secretId: string) => void;
   /** Walking up to one. */
   onVisitLandmark?: (id: string) => void;
   /** Which fuels this campsite offers, in order of what the pile shows. */
@@ -132,6 +144,8 @@ export function Campsite({
   fuelPatches,
   onGather,
   landmarks,
+  curios,
+  onLookCloser,
   onVisitLandmark,
   fuelIds = ['oak'],
   basin,
@@ -468,6 +482,22 @@ export function Campsite({
         y: terrainHeight(landmark.x, landmark.z, seed, 0.7, basin),
       }));
   }, [landmarks, seed, basin]);
+
+  /*
+   * And the small things you find by crouching over them.
+   *
+   * Built beside the landmarks and wearing the same three materials, so the
+   * whole campsite is dressed from one palette and the draw-call budget pays
+   * for three materials rather than six.
+   */
+  const curioProps = useMemo(() => {
+    if (!curios || curios.length === 0) return [];
+    return curios.map((curio) => ({
+      curio,
+      geometry: createCurioGeometry(curio.shape, curio.seed),
+      y: terrainHeight(curio.x, curio.z, seed, 0.7, basin),
+    }));
+  }, [curios, seed, basin]);
 
   /** Weathered wood and dulled metal. Nothing here is new. */
   const landmarkMaterials = useMemo(
@@ -851,6 +881,40 @@ export function Campsite({
                   // decides, and lets the movement layer have it if it is a
                   // walk. See `onGather` for the same rule about firewood.
                   onVisitLandmark(landmark.id);
+                  void event;
+                },
+                onPointerOver: (event: { stopPropagation: () => void }) => {
+                  event.stopPropagation();
+                  if (typeof document !== 'undefined') document.body.style.cursor = 'pointer';
+                },
+                onPointerOut: () => {
+                  if (typeof document !== 'undefined') document.body.style.cursor = 'auto';
+                },
+              }
+            : {})}
+        />
+      ))}
+
+      {/*
+        The small things. Drawn dull and low on purpose: a landmark is what you
+        pick out of the dark from across a clearing, and one of these is what
+        you only notice once you are standing over it. A tap walks you there,
+        the same rule the landmarks and the firewood follow.
+      */}
+      {curioProps.map(({ curio, geometry, y }) => (
+        <mesh
+          key={curio.secretId}
+          name={`look:${curio.secretId}`}
+          geometry={geometry}
+          material={landmarkMaterials[curioMaterial(curio.shape)]}
+          position={[curio.x, y, curio.z]}
+          rotation={[0, curio.rotation, 0]}
+          castShadow
+          receiveShadow
+          {...(onLookCloser
+            ? {
+                onClick: (event: { stopPropagation: () => void }) => {
+                  onLookCloser(curio.secretId);
                   void event;
                 },
                 onPointerOver: (event: { stopPropagation: () => void }) => {

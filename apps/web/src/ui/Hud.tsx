@@ -105,6 +105,12 @@ export function reachLabel(id: string, ritual?: RitualState, seated = false): st
     // what a landmark is: the thing you would point at and call something.
     const landmark = ritual.landmarks.find((l) => l.id === id);
     if (landmark) return landmark.introduced ? landmark.label : `Look at ${landmark.label.toLowerCase()}`;
+    /*
+     * The way out says where it goes, not that it is an exit: "Follow the
+     * trail out" is a thing you do, where "Travel" or "Leave campsite" would
+     * be a menu item wearing a sentence.
+     */
+    if (id === 'trailhead') return 'Follow the trail out';
     // Hands full of wood means putting wood on, not poking the coals.
     if (id === 'fire' && ritual.gathering.armful.length > 0) return 'Lay it on';
     // And a pit under ash wants the ash off before it wants anything else.

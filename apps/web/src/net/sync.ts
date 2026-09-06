@@ -174,7 +174,17 @@ export class SyncEngine {
    * campsite rather than accumulating one per visit.
    */
   async ensureCampsite(name: string, environmentId: string, seed: number): Promise<string | null> {
-    const KEY = `some-more/campsite-id/v1:${environmentId}`;
+    /*
+     * Keyed by campsite, not by environment.
+     *
+     * It was `…/v1:${environmentId}`, which was correct only while a device
+     * could ever be at one campsite. Now that the trail leads somewhere, two
+     * campsites in the same environment — yours and one you arrived at from a
+     * link — would have shared a server record and one would have overwritten
+     * the other's memory. Bumped to v2 so stale v1 entries are simply ignored
+     * rather than migrated into the wrong place.
+     */
+    const KEY = `some-more/campsite-id/v2:${environmentId}:${seed}`;
     try {
       const existing = localStorage.getItem(KEY);
       if (existing) return existing;

@@ -81,6 +81,7 @@ import { LAYOUT, campFurniture, hashSeed } from './scene/layout.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
 import { getEnvironment, inWorld } from '@somemore/content';
 import { campsiteRadiusM, worldContentFor } from './state/worldContent.js';
+import { nextCampsite, rootSeed, settleAt } from './state/journey.js';
 import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
@@ -166,6 +167,31 @@ export function App({ store }: AppProps): React.ReactElement {
         { id: 'woodpile', x: 1.7, z: -0.9, radius: 0.35 },
       ],
       interactables: [
+        /*
+         * The way out, which is the way you came in.
+         *
+         * §5.4 says every player must eventually be able to discover every
+         * core environment and that region never locks content; the device
+         * was pinned to one of twelve for the life of a localStorage entry.
+         * It needed a diegetic exit, and the spec forbids the obvious ones —
+         * no menus, no maps, no level select, no quest markers. Cedar
+         * Switchback's own manifest is explicit that the trail sign carries
+         * "distances in miles to places you will not be going. The game never
+         * shows those places."
+         *
+         * So you leave the way you arrived: up the trail, at the edge of the
+         * clearing, on the bearing the arrival walk brought you down. It sits
+         * at the fence rather than at a fixed distance, so it moves outward
+         * with the campsite's authored radius instead of standing in the
+         * middle of a larger world.
+         */
+        {
+          id: 'trailhead',
+          x: Math.cos(TRAIL_BEARING) * (radius - 1.4),
+          z: Math.sin(TRAIL_BEARING) * (radius - 1.4),
+          reach: 1.6,
+          arc: 1.5,
+        },
         { id: 'fire', x: 0, z: 0, reach: 1.45 },
         // An arc, so "Take a log" is offered only while facing the pile: it
         // was offered with the pile behind you and out of the frame.
@@ -777,6 +803,41 @@ export function App({ store }: AppProps): React.ReactElement {
      * because which ones exist is decided by the environment and not by this
      * file.
      */
+    /*
+     * Walking out.
+     *
+     * The night is folded into this campsite's memory first, and then the
+     * page is reloaded into the next one. A reload rather than an in-place
+     * swap because leaving genuinely is a boot: the live-ops overlay, the
+     * server campsite registration and the SM-01's introduction all happen
+     * once at module scope, and a world rebuilt around them mid-session
+     * would be a world where three things quietly still belonged to the
+     * campsite you left. Fading out as you walk up a trail is the one moment
+     * in this product where a reload is not a seam.
+     */
+    if (id === 'trailhead') {
+      const next = nextCampsite(
+        rootSeed(() => state.campsiteSeed),
+        store.foundEnvironments(),
+        state.environmentId,
+      );
+      settleAt(next);
+      store.setSubtitle('[you walk back up the trail]');
+      audioRef.current?.playFoley('stick');
+      /*
+       * The interval and `pagehide` both fold the night away, and this is the
+       * one path that leaves deliberately — so it writes locally now rather
+       * than relying on the browser to fire an event during a navigation.
+       * The service half is best-effort and is not waited on: a campsite you
+       * walked out of is kept whether or not there is any signal.
+       */
+      const memory = store.rememberCampsite();
+      const campsiteId = campsiteIdRef.current;
+      if (campsiteId !== null) void syncRef.current?.syncCampsiteMemory(campsiteId, memory);
+      window.setTimeout(() => location.assign(location.pathname), 900);
+      return;
+    }
+
     const met = visitLandmark(ritual, id);
     if (met) {
       if (met.telling) store.setNotice(met.telling);
@@ -2237,6 +2298,15 @@ export function App({ store }: AppProps): React.ReactElement {
 }
 
 /** Shared, never mutated: the simulation only ever reads a look rate. */
+/**
+ * The bearing the trail runs on, from the fire out.
+ *
+ * The same value `worldContent.ts` hands the simulation, so the trailhead,
+ * the arrival walk and the landmark placement that keeps the signage facing
+ * whoever is arriving all agree about which way "out" is.
+ */
+const TRAIL_BEARING = Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]);
+
 const NO_LOOK = { yaw: 0, pitch: 0 } as const;
 
 function SideButton({ label, onClick, textScale }: { label: string; onClick: () => void; textScale: number }): React.ReactElement {

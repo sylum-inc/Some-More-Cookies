@@ -506,3 +506,87 @@ test.describe('the treeline is as closed as the manifest says', () => {
     expect(canopy).toBeLessThan(60_000);
   });
 });
+
+/**
+ * The way out.
+ *
+ * A device was pinned to one of twelve environments for the life of a
+ * localStorage entry, which §5.4 forbids: "every player must eventually be
+ * able to discover every core environment", and region "may only weight
+ * discovery, never lock it". The exit had to be diegetic — the spec rules out
+ * menus, maps, level select and quest markers — so it is the trail you walked
+ * in along, at the edge of the clearing, on the bearing the arrival brought
+ * you down.
+ */
+/** Stands the player a metre short of a point, facing it. */
+async function stand(page: import('@playwright/test').Page, x: number, z: number): Promise<void> {
+  await page.evaluate((at) => {
+    const player = window.__someMore!.player!;
+    const bearing = Math.atan2(at.z, at.x);
+    const distance = Math.hypot(at.x, at.z) - 1;
+    player.position.x = Math.cos(bearing) * distance;
+    player.position.z = Math.sin(bearing) * distance;
+    player.facing = bearing;
+    player.pitch = -0.05;
+  }, { x, z });
+  await page.waitForTimeout(900);
+}
+
+test.describe('the trail out', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?camp=trail-out&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1200);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(500);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+  });
+
+  test('is somewhere you can walk to, and says where it goes', async ({ page }) => {
+    const trailhead = await page.evaluate(() => {
+      const world = window.__someMore!.walkable!;
+      const found = world.interactables.find((i) => i.id === 'trailhead');
+      return found ? { x: found.x, z: found.z, radius: world.radius } : null;
+    });
+    expect(trailhead, 'there is no way out of this campsite').not.toBeNull();
+
+    // Inside the fence, or it is a way out you cannot reach.
+    const distance = Math.hypot(trailhead!.x, trailhead!.z);
+    expect(distance).toBeLessThan(trailhead!.radius);
+    // And out at the edge rather than beside the fire, or it is not a trail.
+    expect(distance).toBeGreaterThan(trailhead!.radius * 0.75);
+
+    // Standing at it offers it, in words that are a thing you do.
+    // A metre short of it, facing out — where you would be standing having
+    // walked up. A fraction of the radius is not the same thing: six per cent
+    // of 33 m is two metres, which is outside the reach.
+    await stand(page, trailhead!.x, trailhead!.z);
+    await expect(page.getByRole('button', { name: 'Follow the trail out' })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('takes you somewhere else, and remembers that it did', async ({ page }) => {
+    const before = await page.evaluate(() => window.__someMore!.store.state.environmentId);
+
+    const trailhead = await page.evaluate(
+      () => window.__someMore!.walkable!.interactables.find((i) => i.id === 'trailhead')!,
+    );
+    await stand(page, trailhead.x, trailhead.z);
+
+    // The keyboard route, because §12 says every verb has one.
+    await page.getByRole('button', { name: 'Follow the trail out' }).waitFor({ timeout: 10_000 });
+    await page.keyboard.press('e');
+
+    // Where the device is camped has moved on, and not back onto itself.
+    await page.waitForFunction(
+      () => localStorage.getItem('some-more/campsite/where/v1') !== null,
+      null,
+      { timeout: 10_000 },
+    );
+    const after = await page.evaluate(() => localStorage.getItem('some-more/campsite/where/v1'));
+    expect(after).not.toBeNull();
+    expect(after, 'walking out led back into the same campsite').not.toBe(before);
+  });
+});

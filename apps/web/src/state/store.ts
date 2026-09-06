@@ -666,6 +666,20 @@ export class Store {
    * the render loop can call it on a slow cadence and the unload handler can
    * call it once more without producing duplicates.
    */
+  /**
+   * Every environment this device has actually camped in.
+   *
+   * Read off the campsite memories rather than kept as its own counter,
+   * because the record of where you have been already exists and a second
+   * one would be a second thing to keep true. It is passed to
+   * `selectEnvironment` as `discoveredIds`, so the trail out draws from the
+   * places you have not seen. It is never shown as a set to complete: §5.3
+   * forbids checklists, and this is a filter, not a score.
+   */
+  foundEnvironments(): readonly string[] {
+    return [...new Set(Object.values(this.state.passport.campsites).map((camp) => camp.environmentId))];
+  }
+
   rememberCampsite(): CampsiteMemory {
     const ritual = this.state.ritual;
     const seed = this.state.campsiteSeed;

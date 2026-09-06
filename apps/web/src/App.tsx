@@ -47,6 +47,7 @@ import {
   toggleRadio,
   vec3,
   canPerform,
+  photograph,
   type Interactable,
   type MachineAction,
   type MachineEvent,
@@ -95,6 +96,7 @@ import {
   screenToTableOffset,
 } from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
+import { subjectsInFrame } from './interaction/subjects.js';
 import { AudioBridge, type AudioCue } from './audio/bridge.js';
 import { apiBaseUrl } from './net/client.js';
 import { MARSHMALLOW_OBJECT_ID } from './net/authority.js';
@@ -1668,6 +1670,18 @@ export function App({ store }: AppProps): React.ReactElement {
       stage: ritual.stage,
       caption: ritual.sandwich ? ritual.sandwich.caption : describeMoment(ritual),
     });
+    /*
+     * Tell the simulation what was in the frame.
+     *
+     * This is the call `photograph` was written for and never got. Made
+     * before the Passport opens, so the world has already recorded the
+     * sighting by the time the player is looking at the picture of it — and
+     * made from the same camera that produced the pixels, so what the sim is
+     * told matches what the photograph actually shows.
+     */
+    const subjects = subjectsInFrame(renderer.camera, ritual);
+    if (subjects.length > 0) photograph(ritual, subjects);
+
     if (photo) {
       store.addPhoto(photo);
       store.setOverlay('passport');

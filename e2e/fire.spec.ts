@@ -723,6 +723,84 @@ test.describe('a fire that outlives the tab', () => {
     expect(lost.emberMass).toBeLessThan(kept.emberMass);
   });
 
+  test('a pit that went out can be brought back', async ({ page }) => {
+    /*
+     * The dead end this nearly shipped with.
+     *
+     * `stepFire` has exactly one route to ignition — heat already in the pit —
+     * and until a night could be lost there was always some. Once a hearth
+     * could genuinely go out, a player could arrive at a cold pit, gather
+     * every stick in the wood, lay all of it on, and watch nothing happen.
+     * Found by opening a screenshot of a cold pit and reading the button under
+     * it, which said "Poke the coals".
+     */
+    await nightsApart(page);
+    await arrive(page, 'hearth-relight');
+    await comeBackTomorrow(page, 'hearth-relight');
+
+    const cold = await pit(page);
+    expect(cold.emberMass, 'this pit did not go out, so it proves nothing').toBeLessThan(0.03);
+
+    // What a cold pit offers is not poking it.
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      player.position.x = 1;
+      player.position.z = 0;
+    });
+    await expect(page.getByTestId('reach')).toHaveText('Lay a new fire', { timeout: 10_000 });
+
+    // Go and get something fine and dry, and lay it on.
+    const patch = await page.evaluate(() => {
+      const patches = (window.__someMore!.actions['fuelPatches'] as () => {
+        id: string;
+        grade: string;
+        x: number;
+        z: number;
+      }[])();
+      return patches.find((p) => p.grade === 'tinder') ?? patches[0]!;
+    });
+    await page.evaluate((p) => {
+      const player = window.__someMore!.player!;
+      player.position.x = p.x;
+      player.position.z = p.z;
+      (window.__someMore!.actions['gather'] as (id: string) => unknown)(p.id);
+    }, patch);
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      player.position.x = 1;
+      player.position.z = 0;
+    });
+    await page.getByTestId('reach').click();
+
+    // Now there is something in it to light, and the prompt says so.
+    await expect(page.getByTestId('reach')).toHaveText('Put a light to it', { timeout: 10_000 });
+    await page.getByTestId('reach').click();
+
+    /*
+     * Struck — and read the answer the world gives, not the pit's temperature.
+     *
+     * Whether it catches is a real roll against how damp the tinder is, so
+     * this tries again rather than asserting the first match takes: that is
+     * the mechanic, not a flake. And what it waits for is the line the product
+     * says, because an armful of tinder with nothing above it burns out in
+     * twenty seconds — the first version of this polled `emberTemp > 200`,
+     * passed alone, and failed in the suite by sampling after the tinder was
+     * gone. It was asserting a moment rather than an event.
+     */
+    let caught = false;
+    for (let attempt = 0; attempt < 8 && !caught; attempt++) {
+      const said = (await page.getByTestId('notice').textContent()) ?? '';
+      if (said.startsWith('It catches')) {
+        caught = true;
+        break;
+      }
+      await page.getByTestId('reach').click();
+      await page.waitForTimeout(500);
+      caught = ((await page.getByTestId('notice').textContent()) ?? '').startsWith('It catches');
+    }
+    expect(caught, 'eight matches and a cold pit never took a light').toBe(true);
+  });
+
   test('says what it finds, and never counts anything', async ({ page }) => {
     await nightsApart(page);
     await arrive(page, 'hearth-said');

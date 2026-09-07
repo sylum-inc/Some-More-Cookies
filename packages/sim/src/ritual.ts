@@ -19,6 +19,7 @@ import {
   fireSignals,
   rakeEmbers,
   bankFire,
+  strikeSpark,
   createBankedFire,
   repositionLog,
   type FuelGrade,
@@ -1457,6 +1458,7 @@ export type FireAction =
   | { type: 'rake' }
   /** Raking ash up over the coals, against rain or against tomorrow. */
   | { type: 'bank'; strength?: number }
+  | { type: 'strike' }
   | { type: 'fan'; strength?: number };
 
 export function tendFire(ritual: RitualState, action: FireAction): void {
@@ -1477,6 +1479,16 @@ export function tendFire(ritual: RitualState, action: FireAction): void {
     rakeEmbers(ritual.fire, 1);
   } else if (action.type === 'bank') {
     bankFire(ritual.fire, action.strength ?? 1);
+  } else if (action.type === 'strike') {
+    /*
+     * A light held to whatever is in the pit.
+     *
+     * Only reachable when nothing is alight, and it needs tinder — so the
+     * verb is the end of a sequence (find dry fuel, lay it, light it) rather
+     * than a button that produces fire. `strikeSpark` decides whether it
+     * catches, from how wet the driest thing in there is.
+     */
+    strikeSpark(ritual.fire, stream(ritual, 'strike'));
   } else {
     fanFire(ritual.fire, action.strength ?? 1);
   }

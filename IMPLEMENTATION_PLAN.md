@@ -911,6 +911,51 @@ Nothing here is a meter. Familiarity reaches the player as an animal standing
 its ground where it would have run, and §7's "not collectible pets" is tested
 directly: both layers at maximum still leave a shy species shy.
 
+---
+
+### Session 13: the dead end the fire spine nearly shipped with
+
+Found by opening a screenshot of a cold pit and reading the button under it,
+which said **"Poke the coals"** over a pit with no coals in it.
+
+That was the small half. `stepFire` has exactly one route to ignition — heat
+already in the pit — and until a night could be lost there was always some: the
+opening fire is established, and every return was a banked bed holding two
+hundred degrees. The moment the hearth made a genuinely cold pit possible, a
+player could arrive at one, gather every stick in the wood, lay all of it on,
+and watch nothing happen for as long as they cared to wait. Measured: tinder,
+kindling and a log in a cold pit, two minutes of simulation, `flame=0.000`.
+
+`strikeSpark` is the missing verb. It needs tinder in the pit, it can fail, and
+what decides whether it fails is how wet that tinder is — 37 strikes in 40 at
+five per cent moisture, 7 in 40 at ninety. So a hearth that took rain while you
+were away is harder to bring back, which is the lesson the rest of the model
+already teaches. Anybody camping has a means of lighting a fire; the
+interesting part was never the match.
+
+A cold pit now offers **"Lay a new fire"**, and once there is tinder in it,
+**"Put a light to it"**. The whole loop is walked in the browser: cold pit,
+gather tinder, lay it on, strike, and the clearing is lit.
+
+Three things worth recording, all of them mine:
+
+- **I twice concluded the fire model was broken when my test was.** The first
+  attempt put oak straight onto a match and established 0/20; a realistic
+  sequence — tinder, kindling on top, more kindling as it takes, then wood —
+  establishes 20/20. The model was right the whole time.
+- **The success message read the wrong signal.** `strikeSpark` seeds the ember
+  bed; `flame` is computed by `stepFire` and is still exactly what it was until
+  the next step. Comparing flame reported "The light does not take. Damp,
+  probably." over a fire visibly going up.
+- **The e2e asserted a moment rather than an event.** It polled
+  `emberTemp > 200`, passed alone, and failed in the suite — an armful of
+  tinder with nothing above it burns out in twenty seconds, so under load the
+  poll sampled after it was gone. It waits for the line the product says now.
+
+A fire verb also has to cross the wire, or two people at one fire desync: the
+strike is in `TendFireActionSchema`, the client's mapping, the replication path
+and the server's replay.
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

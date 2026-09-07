@@ -250,6 +250,8 @@ export const TendFireActionSchema = z.discriminatedUnion('action', [
     spot: LogSpotSchema.partial(),
   }),
   z.object({ action: z.literal('rake') }),
+  /** Putting a light to a pit that has nothing alight in it. */
+  z.object({ action: z.literal('strike') }),
   z.object({ action: z.literal('bank'), strength: UnitIntervalSchema.default(1) }),
   z.object({ action: z.literal('fan'), strength: UnitIntervalSchema.default(1) }),
 ]);

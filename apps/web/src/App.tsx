@@ -967,6 +967,37 @@ export function App({ store }: AppProps): React.ReactElement {
           layFuel(ritual);
           audioRef.current?.playFoley('stick');
           store.setNotice(describeArmful(ritual.gathering));
+        } else if (ritual.fire.flame <= 0.02 && ritual.fire.emberMass <= 0.03) {
+          /*
+           * A pit with nothing in it. Raking does nothing here — there is
+           * nothing under the ash to uncover — so the same reach puts a light
+           * to whatever has been laid instead.
+           *
+           * The answer is said plainly either way. A strike that does not take
+           * is the most confusing thing this verb can do, and the difference
+           * between "there is nothing dry in there" and "it did not catch this
+           * time" is the difference between going to look for better tinder
+           * and simply trying again.
+           */
+          /*
+           * Read the bed, not the flame.
+           *
+           * `strikeSpark` puts heat into the coals and lights the tinder; the
+           * flame itself is computed by `stepFire` and is still exactly what
+           * it was until the next step runs. Comparing flame here reported
+           * "the light does not take" over a fire visibly going up.
+           */
+          const before = ritual.fire.emberTemp;
+          tendFire(ritual, { type: 'strike' });
+          const tinder = ritual.fire.logs.some((log) => log.grade === 'tinder' && log.mass > 0);
+          if (!tinder) {
+            store.setNotice('Nothing in the pit will take a light. It wants something fine and dry.');
+          } else if (ritual.fire.emberTemp > before + 1) {
+            audioRef.current?.playFoley('stick');
+            store.setNotice('It catches, and goes up quick. Feed it while it is hungry.');
+          } else {
+            store.setNotice('The light does not take. Damp, probably.');
+          }
         } else {
           tendFire(ritual, { type: 'rake' });
         }

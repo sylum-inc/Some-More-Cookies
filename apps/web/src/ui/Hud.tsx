@@ -103,6 +103,19 @@ const REACH_LABELS: Record<string, string> = {
 export function reachLabel(id: string, ritual?: RitualState, seated = false, inspecting: string | null = null): string {
   if (ritual) {
     /*
+     * A pit with nothing in it is not a pit you poke.
+     *
+     * "Poke the coals" over a cold hearth is the interface promising something
+     * the world cannot do — there are no coals, poking does nothing, and a
+     * player who has just been told the fire went out is handed the verb for a
+     * fire that did not. What a cold pit offers is the other end of the same
+     * mechanic: lay something dry in it and put a light to it.
+     */
+    if (id === 'fire' && ritual.fire.flame <= 0.02 && ritual.fire.emberMass <= 0.03) {
+      const tinder = ritual.fire.logs.some((log) => log.grade === 'tinder' && log.mass > 0);
+      return tinder ? 'Put a light to it' : 'Lay a new fire';
+    }
+    /*
      * Somewhere there is wood.
      *
      * Named by the campsite, not by the table above: which places exist and

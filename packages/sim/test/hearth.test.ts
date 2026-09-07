@@ -5,13 +5,17 @@ import {
   Rng,
   bankHearth,
   createBankedFire,
+  addLog,
   createFire,
   describeHearth,
   isWarm,
   restHearth,
   spendCold,
+  stepFire,
+  strikeSpark,
   wakeFire,
   wetnessOf,
+  type FireState,
   type Hearth,
 } from '../src/index.js';
 
@@ -235,5 +239,91 @@ describe('the fire you come back to', () => {
     // in. A hearth nobody has used must not quietly turn that into a cold pit.
     expect(isWarm(NEW_HEARTH)).toBe(false);
     expect(NEW_HEARTH.cold).toBe(0);
+  });
+});
+
+/**
+ * Getting a cold pit going again.
+ *
+ * The dead end this nearly shipped with. `stepFire` has exactly one route to
+ * ignition — heat already in the pit — and until a night could be lost there
+ * was always some: the opening fire is established, and a return was always a
+ * banked bed holding two hundred degrees. The moment a hearth could genuinely
+ * go out, a player could arrive at a cold pit, gather every stick in the wood,
+ * lay all of it on, and watch nothing happen for as long as they cared to
+ * wait. It was found by opening a screenshot of a cold pit and reading the
+ * button under it, which said "Poke the coals".
+ */
+describe('lighting a cold pit', () => {
+  function coldPit(ashCover = 0.3): FireState {
+    const fire = createFire({ ambientC: 10 });
+    fire.emberMass = 0;
+    fire.emberTemp = 10;
+    fire.ashCover = ashCover;
+    return fire;
+  }
+
+  it('needs something fine and dry in it', () => {
+    // A match held to an empty pit, and to a pit with nothing but a log in it.
+    expect(strikeSpark(coldPit(), new Rng('empty'))).toBe(false);
+
+    const logsOnly = coldPit();
+    addLog(logsOnly, 'oak', { grade: 'log', moisture: 0.1 });
+    expect(strikeSpark(logsOnly, new Rng('logs'))).toBe(false);
+  });
+
+  it('takes far more often when the tinder is dry', () => {
+    const struck = (moisture: number): number => {
+      let lit = 0;
+      for (let seed = 0; seed < 40; seed++) {
+        const fire = coldPit();
+        addLog(fire, 'pine', { grade: 'tinder', moisture });
+        if (strikeSpark(fire, new Rng(`s${seed}`))) lit += 1;
+      }
+      return lit;
+    };
+    const dry = struck(0.05);
+    const sodden = struck(0.9);
+    expect(dry).toBeGreaterThan(30);
+    expect(sodden).toBeLessThan(15);
+    // Never quite never: a fire lit from wet tinder on the fourth attempt is a
+    // real evening, and a zero here would be a wall rather than a difficulty.
+    expect(sodden).toBeGreaterThan(0);
+  });
+
+  it('will not light something that is already going', () => {
+    const going = createBankedFire({ ambientC: 10 });
+    addLog(going, 'pine', { grade: 'tinder', moisture: 0.05 });
+    expect(strikeSpark(going, new Rng('going'))).toBe(false);
+  });
+
+  it('gets a real fire going, laid the way a fire is laid', () => {
+    /*
+     * The whole recovery loop, and the assertion that the night is genuinely
+     * not lost: tinder and kindling in the pit, a light to it, more kindling
+     * as it takes, then wood.
+     *
+     * Tinder straight under a log does *not* do this, and should not — the
+     * first attempt at this test put oak on a match, concluded the model was
+     * broken, and was wrong about it.
+     */
+    let established = 0;
+    for (let seed = 0; seed < 20; seed++) {
+      const fire = coldPit(0.1);
+      const rng = new Rng(`b${seed}`);
+      addLog(fire, 'pine', { grade: 'tinder', moisture: 0.08 });
+      addLog(fire, 'pine', { grade: 'tinder', moisture: 0.08 });
+      addLog(fire, 'pine', { grade: 'kindling', moisture: 0.08 });
+      addLog(fire, 'pine', { grade: 'kindling', moisture: 0.08 });
+      if (!strikeSpark(fire, rng)) continue;
+      for (let s = 0; s < 15 * 30; s++) stepFire(fire, 1 / 30, rng);
+      addLog(fire, 'pine', { grade: 'kindling', moisture: 0.08 });
+      addLog(fire, 'pine', { grade: 'kindling', moisture: 0.08 });
+      for (let s = 0; s < 20 * 30; s++) stepFire(fire, 1 / 30, rng);
+      addLog(fire, 'pine', { grade: 'log', moisture: 0.12 });
+      for (let s = 0; s < 60 * 30; s++) stepFire(fire, 1 / 30, rng);
+      if (fire.flame > 0.15 || fire.emberMass > 0.12) established += 1;
+    }
+    expect(established, 'a cold pit could not be brought back at all').toBeGreaterThan(15);
   });
 });

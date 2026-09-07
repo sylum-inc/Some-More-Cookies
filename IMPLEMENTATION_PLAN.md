@@ -776,6 +776,42 @@ respecting the safe area properly. The file already contains
 reads off that. Proved by dropping `safe-area-inset-bottom` from the new row:
 it fails.
 
+---
+
+### Session 10, part two: the pad you walk with
+
+The product had a virtual joystick and no player would ever have found it:
+invisible, floating to wherever the finger first landed on the canvas, behind
+an accessibility toggle that defaults off. What actually arrived on a phone was
+tap-to-move — a fine way to cross a clearing and a poor way to stand at the
+edge of a fire and turn around, which is most of what there is to do here.
+
+There is a drawn pad in the bottom-left corner now, on any device whose primary
+pointer is coarse, and dragging anywhere else still looks around: left thumb
+walks, right thumb looks. The vector lives in `interaction/thumbStick.ts` with
+nine tests, because the parts worth getting wrong — the dead zone, the clamp,
+which way is forward — are the parts a browser test would only catch by
+accident.
+
+Two things the e2e found that the unit tests could not:
+
+- **A pad taken away mid-drag left the player walking.** Its own pointer
+  handlers cannot catch that: an overlay opens, the pad unmounts, and the last
+  thing it wrote to the movement intent is left standing — full speed, no
+  input, until the fence. It stops on unmount now, and on a window `pointerup`,
+  `pointercancel` or `blur` while held, because a release can go missing for
+  reasons that have nothing to do with this code.
+- **The first version of that test could not tell the difference.** Asserting
+  "stopped six seconds later" is true either way, because a player left walking
+  eventually stops anyway — by reaching the fence. What differs is the ground
+  covered in between: 0.12 m with the guard, 1.25 m without. The test measures
+  drift now.
+
+Both stick tests also had to stop measuring the runner. They passed alone and
+failed in the suite with `speed` frozen at exactly its last value, which is
+what a starved render loop looks like rather than a stuck control; distance and
+stopping are polled rather than read once after a fixed wait.
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

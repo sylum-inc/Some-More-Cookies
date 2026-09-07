@@ -121,6 +121,7 @@ import { CampfirePanel } from './ui/Campfire.js';
 import { PwaNotices } from './pwa/PwaNotices.js';
 import { pwa } from './pwa/register.js';
 import { useViewportSize, useWakeLock } from './pwa/viewport.js';
+import { ThumbStick } from './ui/ThumbStick.js';
 
 export interface AppProps {
   store: Store;
@@ -135,6 +136,31 @@ export function App({ store }: AppProps): React.ReactElement {
   const movement = useMemo(() => new MovementController(), []);
   const keyboard = useMemo(() => new KeyboardMovement(), []);
   const intentRef = useRef<MoveIntent>({});
+  /*
+   * Whether this device has a thumb.
+   *
+   * Read once rather than watched: a machine does not grow a touchscreen
+   * mid-session, and a media query listener for something that cannot change
+   * is a subscription to nothing. `pointer: coarse` rather than sniffing the
+   * user agent, and rather than `ontouchstart`, which a laptop with a
+   * touchscreen also reports — the question is what the *primary* pointer is,
+   * because that is what decides whether a drawn pad helps or is furniture.
+   */
+  const [coarsePointer] = useState(
+    () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+  );
+  /*
+   * The pad writes straight into the movement intent the frame loop reads.
+   *
+   * Not through React state: this fires on every pointer move while a thumb is
+   * down, and a re-render of the whole application per frame of walking is how
+   * a phone game gets a reputation. The pad keeps its own knob position in
+   * state because that is one small element; where the player is going is a
+   * ref, like every other per-frame input here.
+   */
+  const handleStick = useCallback((forward: number, strafe: number) => {
+    intentRef.current.move = { forward, strafe };
+  }, []);
 
   /**
    * The walkable campsite.
@@ -1143,7 +1169,16 @@ export function App({ store }: AppProps): React.ReactElement {
       // Exploring: one finger serves both looking and walking. The gesture
       // stays undecided until it either travels (look) or lifts (tap).
       if (!isAnchored(ritual.stage)) {
-        movement.useJoystick = state.accessibility.virtualJoystick;
+        /*
+         * The old floating joystick, only where there is no drawn pad.
+         *
+         * They are two answers to one question and they write to the same
+         * movement intent: with both live, a canvas drag and a thumb on the
+         * pad take turns overwriting each other, and letting go of one leaves
+         * whatever the other last said standing. The drawn pad wins wherever
+         * it exists, because a control you can see beats one you cannot.
+         */
+        movement.useJoystick = state.accessibility.virtualJoystick && !coarsePointer;
         movement.begin(event.clientX, event.clientY, performance.now());
         (event.target as Element).setPointerCapture?.(event.pointerId);
         return;
@@ -2064,6 +2099,20 @@ export function App({ store }: AppProps): React.ReactElement {
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}
+        {...(/* Exactly when walking is live, which is not the same as
+                `exploring` above: that one also hides while a sandwich is in
+                hand, and you can absolutely walk around eating one. This is
+                the condition the pointer handler uses to decide whether
+                movement input means anything, so the pad is on screen if and
+                only if it would do something. */
+        coarsePointer &&
+        !isAnchored(state.stage) &&
+        state.stage !== 'arriving' &&
+        state.overlay === 'none'
+          ? {
+              stick: <ThumbStick onMove={handleStick} textScale={state.accessibility.textScale} />,
+            }
+          : {})}
         {...((state.stage === 'eating' || state.stage === 'after') && ritual.sandwich && state.overlay === 'none'
           ? {
               bottomCentre: (

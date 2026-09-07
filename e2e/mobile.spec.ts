@@ -487,3 +487,190 @@ for (const device of DEVICES) {
     });
   });
 }
+
+/**
+ * The thumb pad.
+ *
+ * Walking was tap-to-move on a phone, plus a virtual joystick that was
+ * invisible, floated to wherever the finger first landed, and lived behind an
+ * accessibility toggle that defaults off. Tap-to-move is a fine way to cross a
+ * clearing and a poor way to stand at the edge of a fire and turn round, which
+ * is most of what there is to do here.
+ *
+ * One device rather than all three: this is about whether the pad moves the
+ * player, and that does not vary by screen size. Where it *sits* does, and the
+ * three-device sweep above already checks that nothing runs off an edge or
+ * lands on anything else.
+ */
+test.describe('the pad you walk with', () => {
+  test.use({ viewport: { width: 393, height: 852 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true });
+
+  test('is drawn on a phone, walks you while held, and stops when let go', async ({ page }) => {
+    await page.goto('/?camp=camp-stick&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1000);
+    await page.locator('canvas').tap({ position: { x: 180, y: 300 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').tap({ position: { x: 180, y: 300 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 25_000,
+    });
+    await page.waitForTimeout(800);
+
+    const pad = await page.getByTestId('stick').boundingBox();
+    expect(pad, 'a phone with no pad to walk with').not.toBeNull();
+    // Big enough for a thumb. Apple asks 44pt, Android 48dp, and this is a
+    // control a person rests a thumb on for minutes at a time.
+    expect(Math.min(pad!.width, pad!.height)).toBeGreaterThanOrEqual(80);
+
+    const before = await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      return { x: player.position.x, z: player.position.z };
+    });
+
+    const cx = pad!.x + pad!.width / 2;
+    const cy = pad!.y + pad!.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    // Up the screen is forward. Held, not flicked: this is a posture.
+    await page.mouse.move(cx, cy - 45, { steps: 6 });
+
+    /*
+     * Polled, for the same reason the stop below is: this project shares one
+     * worker with three device sweeps, and how far a body gets in a fixed 1.2
+     * seconds is partly a measurement of how busy the machine was. Whether
+     * holding the pad forward walks you is not.
+     */
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            (from) => {
+              const player = window.__someMore!.player!;
+              return Math.hypot(player.position.x - from.x, player.position.z - from.z);
+            },
+            before,
+          ),
+        { message: 'holding the pad forward moved nobody', timeout: 6_000 },
+      )
+      .toBeGreaterThan(0.4);
+
+    const during = await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      return { x: player.position.x, z: player.position.z, speed: player.speed };
+    });
+    // eslint-disable-next-line no-console
+    console.log(
+      `  pad held forward: walked ${Math.hypot(during.x - before.x, during.z - before.z).toFixed(2)} m ` +
+        `at ${during.speed.toFixed(2)} m/s`,
+    );
+    expect(during.speed, 'walked, but is not still walking').toBeGreaterThan(0.3);
+
+    await page.mouse.up();
+    /*
+     * Letting go stops you. Without the release writing zeroes back into the
+     * movement intent, the player walks until they hit the fence.
+     *
+     * Polled rather than read once after a fixed wait. Coming to a stop is the
+     * simulation decelerating over frames, and this project shares one worker
+     * with three full device sweeps — under that load the render loop is
+     * starved often enough that a fixed 700 ms measures the runner rather than
+     * the product. Both of these tests passed alone and failed in the suite,
+     * with `speed` frozen at exactly its last value, which is what a stalled
+     * loop looks like and not what a stuck control looks like.
+     */
+    await expect
+      .poll(async () => page.evaluate(() => window.__someMore!.player!.speed), { timeout: 6_000 })
+      .toBeLessThan(0.05);
+  });
+
+  test('stops you when it disappears out from under your thumb', async ({ page }) => {
+    /*
+     * The worst failure this control has, and the one its own pointer handlers
+     * cannot catch: the pad is taken off the screen while a thumb is still on
+     * it — an overlay opening, the stage changing — and the last thing it wrote
+     * to the movement intent is left standing. Nothing is listening any more,
+     * so the player walks at full speed, with no input, until the fence.
+     */
+    await page.goto('/?camp=camp-stick&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1000);
+    await page.locator('canvas').tap({ position: { x: 180, y: 300 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').tap({ position: { x: 180, y: 300 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 25_000,
+    });
+    await page.waitForTimeout(800);
+
+    const pad = (await page.getByTestId('stick').boundingBox())!;
+    const cx = pad.x + pad.width / 2;
+    const cy = pad.y + pad.height / 2;
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx, cy - 45, { steps: 6 });
+    await page.waitForTimeout(600);
+    expect(await page.evaluate(() => window.__someMore!.player!.speed)).toBeGreaterThan(0.3);
+
+    /*
+     * Take the pad away with the thumb still down.
+     *
+     * Through the store rather than by pressing Passport, because pressing
+     * anything means letting go first, and letting go is the case this test is
+     * not about. The overlay is what the product itself does here.
+     */
+    const at = await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      return { x: player.position.x, z: player.position.z };
+    });
+    await page.evaluate(() => window.__someMore!.store.setOverlay('passport'));
+    await expect(page.getByTestId('stick')).toHaveCount(0);
+
+    /*
+     * How far they travel *after* the pad goes, rather than how fast they are
+     * going some fixed moment later.
+     *
+     * Speed alone cannot tell this apart: left walking with nothing listening,
+     * the player eventually stops anyway — by reaching the fence — so "they are
+     * stopped six seconds later" is true either way and proves nothing. What
+     * differs is the ground covered in between. A body that was told to stop
+     * covers centimetres decelerating; one that was not covers the rest of the
+     * campsite.
+     */
+    await expect
+      .poll(async () => page.evaluate(() => window.__someMore!.player!.speed), { timeout: 6_000 })
+      .toBeLessThan(0.05);
+    const drift = await page.evaluate((from) => {
+      const player = window.__someMore!.player!;
+      return Math.hypot(player.position.x - from.x, player.position.z - from.z);
+    }, at);
+    // eslint-disable-next-line no-console
+    console.log(`  pad taken away mid-walk: drifted ${drift.toFixed(2)} m`);
+    expect(drift, 'the pad vanished and left the player walking').toBeLessThan(0.5);
+  });
+
+});
+
+test.describe('and no pad where there is no thumb', () => {
+  /*
+   * A pad on a laptop is furniture: it takes a corner of the screen and does
+   * nothing a mouse can use comfortably. None of the desktop projects would
+   * catch one appearing there, because none of them would think to look.
+   */
+  test.use({ viewport: { width: 1280, height: 720 }, hasTouch: false, isMobile: false });
+
+  test('a mouse gets the whole corner back', async ({ page }) => {
+    await page.goto('/?camp=camp-stick&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1000);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 25_000,
+    });
+    await page.waitForTimeout(600);
+    expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(false);
+    await expect(page.getByTestId('stick')).toHaveCount(0);
+  });
+});

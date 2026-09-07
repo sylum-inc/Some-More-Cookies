@@ -62,6 +62,13 @@ export interface HudProps {
    * is how the HUD kept landing on itself.
    */
   bottomCentre?: React.ReactNode;
+  /**
+   * The thumb pad, when there is a thumb. Handed in for the same reason as
+   * `bottomCentre`: App owns whether this device has one, and the HUD owns
+   * where everything at the bottom of the screen is relative to everything
+   * else at the bottom of the screen.
+   */
+  stick?: React.ReactNode;
   onOpenPassport: () => void;
   onOpenSettings: () => void;
   onFinishRoasting: () => void;
@@ -542,6 +549,7 @@ export function Hud(props: HudProps): React.ReactElement {
           letterSpacing: '0.08em',
           borderRadius: 3,
           textAlign: 'right',
+          maxWidth: '100%',
           pointerEvents: 'auto',
         }}
       >
@@ -690,9 +698,8 @@ export function Hud(props: HudProps): React.ReactElement {
           right: 'env(safe-area-inset-right, 0px)',
           bottom: 'env(safe-area-inset-bottom, 0px)',
           display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'space-between',
-          gap: scale(8),
+          flexDirection: 'column',
+          alignItems: 'stretch',
           pointerEvents: 'none',
         }}
       >
@@ -714,9 +721,7 @@ export function Hud(props: HudProps): React.ReactElement {
           // Shrinks to whatever the two ends leave it, and never past zero:
           // without `minWidth`, a flex item refuses to go below its longest
           // word and pushes the thumb column off the screen instead.
-          flex: '1 1 auto',
-          minWidth: 0,
-          maxWidth: '38ch',
+          maxWidth: 'min(38ch, 100%)',
           pointerEvents: 'none',
         }}
       >
@@ -861,18 +866,57 @@ export function Hud(props: HudProps): React.ReactElement {
       </div>
 
       {/*
+        And beneath the words, the controls: pad on the left, bite targets in
+        the middle, thumb cluster on the right.
+
+        Its own row rather than the same one. Sharing a row with the lane meant
+        a 393 px phone gave the words whatever the buttons left over — about
+        150 px — and "The reflector on the site post answers from anywhere in
+        the site" came out one word per line. Text gets a row, controls get a
+        row, and neither has to be told how wide the other is.
+      */}
+      {/*
+        The bite targets, on a row of their own.
+
+        Eight 44 px targets are 352 px and they have to fit a 375 px phone, so
+        there is no width left over for a thumb pad on one side and a stack of
+        buttons on the other: sharing a row with them put "Bite from side 8"
+        squarely over "Photo". It is a targeting control rather than a corner
+        control, and it gets the width it needs.
+      */}
+      {props.bottomCentre !== undefined && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            padding: `0 ${scale(12)} ${scale(8)}`,
+            pointerEvents: 'auto',
+          }}
+        >
+          {props.bottomCentre}
+        </div>
+      )}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: scale(8),
+          pointerEvents: 'none',
+        }}
+      >
+        {/* Always present, even with no pad in it: `space-between` needs a
+            first child or the thumb cluster walks to the left. */}
+        <div style={{ flexShrink: 0, padding: scale(12), paddingTop: 0 }}>{props.stick}</div>
+
+      {/*
         Up the right: what your thumb can do.
 
         The one contextual verb sits lowest, where a thumb already is, and
         everything optional stacks above it. Right-aligned so the row a button
         is on cannot change how far it is from the corner.
       */}
-      {/* The bite targets, when there is a sandwich to bite. Handed in rather
-          than fixed to the viewport, so it is one of the row's three slots. */}
-      {props.bottomCentre !== undefined && (
-        <div style={{ flexShrink: 0, pointerEvents: 'auto', paddingBottom: scale(12) }}>{props.bottomCentre}</div>
-      )}
-
       <div
         style={{
           padding: scale(12),
@@ -880,7 +924,14 @@ export function Hud(props: HudProps): React.ReactElement {
           flexDirection: 'column',
           alignItems: 'flex-end',
           gap: scale(8),
-          flexShrink: 0,
+          /*
+           * Shrinks, and its rows wrap inside it. Refusing to shrink read fine
+           * on a laptop and ran "What is around me?", "Photo" and "Take a
+           * marshmallow" straight off the right-hand edge of a 393 px phone:
+           * `space-between` will happily push a rigid child past the end of
+           * the row it is in.
+           */
+          minWidth: 0,
           pointerEvents: 'none',
         }}
       >
@@ -911,6 +962,7 @@ export function Hud(props: HudProps): React.ReactElement {
             menu (spec: contextual direct manipulation), so this appears only
             when the player has actually walked up to something. */}
         {reachButton}
+      </div>
       </div>
       </div>
 

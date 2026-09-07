@@ -571,10 +571,24 @@ test.describe('going and getting firewood', () => {
     const before = await readFire(page);
     await expect(page.getByTestId('reach')).toContainText('Lay it on');
     await page.getByTestId('reach').click();
-    await page.waitForTimeout(300);
 
-    const after = await readFire(page);
-    expect(after.logs.length).toBe(before.logs.length + 1);
+    /*
+     * A *new* log, by id, rather than one more log than there was.
+     *
+     * `stepFire` drops a log the moment its mass falls under four grams, and
+     * the walk out to the wood is now as long as the campsite is wide — up to
+     * 34 m each way since the walkable radius stopped being clamped at 16.
+     * The fire burns for all of it, so by the time the armful comes back a
+     * log can burn through between the two readings and the count comes back
+     * level: CI saw two logs before and two after, having taken the wood and
+     * lost an old one in the same breath. Ids come off a counter that only
+     * goes up, so a new one cannot be an old one, and this says what the test
+     * is actually about — the fire took the wood.
+     */
+    const known = new Set(before.logs.map((log) => log.id));
+    await expect
+      .poll(async () => (await readFire(page)).logs.some((log) => !known.has(log.id)), { timeout: 5_000 })
+      .toBe(true);
     const empty = (await act(page, 'armful')) as { pieces: unknown[] };
     expect(empty.pieces).toHaveLength(0);
   });

@@ -1,10 +1,26 @@
 name: CI
 
-# Every push and every pull request. Nothing merges without this having run.
+# Every push, and every pull request as it opens. Nothing merges without this
+# having run.
+#
+# `pull_request` deliberately does *not* listen for `synchronize`. Pushing to a
+# branch that has a PR open fires both events, and the two land in different
+# concurrency groups — `refs/heads/<branch>` for the push, `refs/pull/N/merge`
+# for the pull request — so they do not supersede each other and every commit
+# was running the whole browser suite twice. Worse, the two races meant one of
+# them usually cancelled the other's siblings, and the gate job below reports a
+# cancelled dependency as a failure: the PR showed a red "CI" for commits where
+# every single job had passed.
+#
+# A push covers a PR branch on its own, so the remaining pull_request types are
+# the transitions a push does not cause. Note this repository's PRs come from
+# branches in the same repository; a fork PR fires no push event here and would
+# need `synchronize` back.
 on:
   push:
     branches: ['**']
   pull_request:
+    types: [opened, reopened, ready_for_review]
 
 # One run per ref. A new push supersedes the one in flight — the browser jobs
 # here are minutes long and there is no value in finishing a run for a commit

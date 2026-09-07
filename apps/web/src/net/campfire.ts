@@ -30,6 +30,7 @@ import {
   holdComponent as simHoldComponent,
   moveComponent as simMoveComponent,
   moveMarshmallow as simMoveMarshmallow,
+  leaveSandwich as simLeaveSandwich,
   operateMachine as simOperateMachine,
   placeComponent as simPlaceComponent,
   stepRitual as simStepRitual,
@@ -848,6 +849,27 @@ export class Campfire {
     this.pendingTake = true;
     this.emit({ kind: 'machine_control', objectId: SM01_OBJECT_ID, control: 'take_sandwich' });
     return ritual.sandwich;
+  }
+
+  /**
+   * Set your own s'more down on the ground and walk away from it.
+   *
+   * Names no object and grabs no lease, because it takes nothing from anybody:
+   * the s'more is the sender's, and §9's guarantee is about not being able to
+   * touch somebody else's things. What it does do is change the object list
+   * every client's wildlife model reads, which is why it travels at all.
+   */
+  leaveOffering(x: number, z: number): boolean {
+    const ritual = this.target;
+    if (ritual === null) return false;
+    // Asked before it is sent, so a refusal (nothing in hand, already bitten,
+    // one already out there) is answered here rather than by the fire going
+    // quiet — the same shape as `blowOut` and `finishRoast`.
+    const wouldWork = ritual.sandwich !== null && ritual.offering === null && ritual.bite.bites === 0;
+    if (this.localOnly((r) => void simLeaveSandwich(r, x, z))) return wouldWork;
+    if (!wouldWork) return false;
+    this.emit({ kind: 'leave_offering', position: { x, y: 0, z } });
+    return true;
   }
 
   /** A wave, a high five, a stick tossed across the fire. Changes no world state. */

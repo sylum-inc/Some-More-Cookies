@@ -57,6 +57,17 @@ const SPECIES_SHARE = 0.2;
 const PHOTO_EARNS = 0.12;
 
 /**
+ * And what a whole s'more, left on the ground and carried off, is worth.
+ *
+ * The largest single earn in the model, and larger than a calm night on
+ * purpose: an animal that took your food knows you differently from one that
+ * only tolerated you being there. It is also the only earn that costs the
+ * player something — the thing the whole ritual was for — and it moves the
+ * individual bond alone.
+ */
+const OFFERING_EARNS = 0.3;
+
+/**
  * How shy this animal is of *this* player, given what it remembers.
  *
  * Takes the shyness the model already computed rather than the raw species
@@ -105,6 +116,22 @@ export function rememberPhotograph(
   individualId: string,
 ): Familiarity {
   return earn(familiarity, speciesId, individualId, PHOTO_EARNS);
+}
+
+/**
+ * An animal that carried food out of your camp.
+ *
+ * The individual only, and the species floor not at all. Leaving food out is
+ * not how you get good with foxes — it is how one fox learns that this
+ * particular fire is worth visiting, which is a different thing and not an
+ * unambiguously better one. §7: not collectible pets, and no feeding quest.
+ */
+export function rememberOffering(familiarity: Familiarity, individualId: string): Familiarity {
+  const bond = clamp01((familiarity.individuals[individualId] ?? 0) + OFFERING_EARNS);
+  return {
+    species: familiarity.species,
+    individuals: { ...familiarity.individuals, [individualId]: bond },
+  };
 }
 
 function earn(

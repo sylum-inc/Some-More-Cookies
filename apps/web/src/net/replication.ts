@@ -24,6 +24,7 @@ import {
   holdComponent,
   moveComponent,
   moveMarshmallow,
+  leaveSandwich,
   operateMachine,
   placeComponent,
   takeSandwich,
@@ -120,6 +121,9 @@ export function applyIntent(ritual: RitualState, intent: InputIntent): void {
       return;
     case 'place_component':
       placeComponent(ritual);
+      return;
+    case 'leave_offering':
+      leaveSandwich(ritual, intent.position.x, intent.position.z);
       return;
     case 'machine_control': {
       /*

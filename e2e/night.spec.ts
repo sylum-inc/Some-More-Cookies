@@ -209,5 +209,30 @@ test.describe('the night is dark and legible', () => {
 
     // And at no point did it become daytime.
     for (const shot of shots) expect(shot.mean).toBeLessThan(34);
+
+    /*
+     * And then it runs out.
+     *
+     * `windowAt` clamps at dawn, which used to be the end of the story: a
+     * session left running sat in a permanent sunrise, every activity
+     * available for ever. It is over an hour in, and the world says so and
+     * does not start the ritual again.
+     */
+    await advanceSeconds(page, 14 * 60);
+    await page.waitForTimeout(900);
+    const morning = await page.evaluate(() => {
+      const store = window.__someMore!.store;
+      return { over: store.state.ritual.nightOver, stage: store.state.ritual.stage };
+    });
+    expect(morning.over, 'an hour and a quarter in and it is still night').toBe(true);
+    await page.evaluate(() => window.__someMore!.actions['beginRoasting']!());
+    await page.waitForTimeout(200);
+    expect(
+      await page.evaluate(() => window.__someMore!.store.state.ritual.stage),
+      'the ritual started again in the morning',
+    ).toBe(morning.stage);
+    // Still a night scene, not a sunrise the renderer has to paint.
+    expect((await measure(page)).mean).toBeLessThan(34);
+    await page.screenshot({ path: 'artifacts/screenshots/night-arc-4-over.png' });
   });
 });

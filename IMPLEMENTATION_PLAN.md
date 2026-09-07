@@ -34,7 +34,7 @@ containing one line). Everything below was built from zero.
 | Media storage · photo upload · campsite memory sync | ✅ |
 | Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**1,755 unit, integration and seam tests across 99 files**, plus Playwright
+**1,880 unit, integration and seam tests across 109 files**, plus Playwright
 projects for acceptance, activities, accessibility, multiplayer, offline boot,
 service-worker update, mobile layout, night legibility, code redemption, the
 live-ops console, performance budgets and visual regression. 26 further tests
@@ -55,6 +55,16 @@ door into falling vapour, take out a sandwich whose appearance is derived from
 everything they just did, photograph it, save it into a scrapbook Passport,
 bite it from a chosen side, and be offered — only now — the chance to order a
 real one.
+
+Or set it down on the ground instead, and walk away, and have something come
+out of the dark for it — which is the only thing the ritual's output has ever
+been for besides being eaten, and the only place it touches the rest of the
+world.
+
+All of which now happens inside a night that ends. Roughly an hour, dusk to
+dawn, and then the sky goes grey and that is the night gone: everything spent
+away from the fire is time the fire spends burning down, and the fire says so
+once while there is still a bed under it worth saving.
 
 No step in that sentence is a placeholder button.
 
@@ -955,6 +965,81 @@ Three things worth recording, all of them mine:
 A fire verb also has to cross the wire, or two people at one fire desync: the
 strike is in `TendFireActionSchema`, the client's mapping, the replication path
 and the server's replay.
+
+### Session 14: the night ends, the fire speaks, and the s'more goes to a mouse
+
+Three things, all following from the same measurement: **nothing in this
+product cost anything, because the night could not end.** `windowAt` walks
+dusk to dawn and then clamps there for ever, so a session left running sat in
+a permanent sunrise. Every activity was available always; nothing competed
+with anything; and the fire burning down, the wood being a walk away and the
+secondary activities taking real minutes added up to nothing at all. Measured
+before touching any of it: 56 minutes of windows and then a permanent dawn; an
+untended fire loses its flame in five minutes and is a bare bed by morning;
+and fuel is 80–140 pieces per campsite, so scarcity was never the pressure.
+The trip is — and a trip only costs something once there is an ending.
+
+**Dawn closes it.** `nightIsOver` reads the start window and the elapsed time
+against the length of the whole night, plus four minutes of grace past
+daybreak. Roughly an hour, half an hour in it is still night, and the one
+thing enforced rather than described is that `beginRoasting` is refused in the
+morning. Nothing is taken out of anybody's hands: a marshmallow on a stick at
+daybreak is still theirs to finish, because ending the night and confiscating
+the evening are different acts. So tending well buys a better tomorrow and
+never a longer tonight.
+
+**The fire says when it is going.** One line, when the flame has dropped away
+over a bed that is still live — a log's worth of trouble, not a rebuild.
+Latched on the way down and released well above where it fires, so a fire
+hovering at the line does not repeat itself; measured at two remarks in
+forty-five minutes. It describes the pit and never instructs: no "add a log",
+because a person knows what a fire wants.
+
+**And the s'more can be left out.** The ritual is the deepest system here and
+it terminated in nothing — the object it produced had exactly one use,
+vanishing into the player, and no other system ever touched it. It is now an
+unattended thing that smells of food, in a model that has always known what
+animals do about those: `WildlifeObject` carries `portable` and `food`, the
+steal chance is built from both, and a whole s'more on the ground puts
+`food-smell` at 0.8, which is what half a pine campsite's roster is drawn by.
+Nothing new was needed for something to come for it. It takes between two and
+fifteen minutes, which is right: it has to be drawn in, settle, and decide it
+is brave enough.
+
+What it buys is the bond with *that animal* and nothing at all for the species
+floor. §7 is explicit that these are not collectible pets and there is no
+feeding quest, and a mechanic where food bought general tameness would be a
+feeding quest with the word filed off.
+
+Four things worth recording:
+
+- **The obvious reading of "which animal took it" is wrong.** Everything a
+  player drops is stealable, so "an animal with `tookObject`" is not the same
+  question as "the animal that took this". Two animals and a dropped bag is
+  all it takes: on one seed a squirrel makes off with the bag and is still
+  retreating with it when a mouse takes the s'more. That seed is in the test
+  because it does that.
+- **A one-step flag is a line the player may never be shown.** The first
+  version set `offeringTaken` for exactly one simulation step. The client
+  reads the world once a frame over a simulation stepping thirty times a
+  second, and its own fast-forward runs a whole evening inside one call — so
+  the notice fired sometimes and not others. It is a record that stays set
+  plus a count, read the way the discovery log has always been read.
+- **The world showed nothing.** The first screenshot of a s'more set down was
+  a picture of an empty clearing: nothing was drawn, and then, once it was,
+  it was drawn at the player's feet where a camera that pitches 49° cannot
+  see it. It is the s'more that was actually made — the record travels with
+  the offering — set a step ahead along the way you are looking, and the
+  simulation refuses to put it on the coals however the position arrives.
+- **The e2e read the notice a minute later and got the rain.** The world goes
+  on talking. The channel is recorded as it is written, not sampled.
+
+Leaving something on the ground crosses the wire, or two people at one fire
+stop seeing the same animals: `leave_offering` is in the intent schema, the
+client's mapping, the replication path and the server's replay, and the drift
+test now asserts its own claim — that the stream really is every intent kind,
+rather than every kind that existed when it was written.
+
 
 ## What the tools measured
 

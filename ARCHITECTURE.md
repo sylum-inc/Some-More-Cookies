@@ -70,7 +70,9 @@ Pure, deterministic, framework-free. Fixed-timestep, explicitly advanced by the 
 | `weather` | Evolving weather state, transitions, rare events |
 | `astronomy` | Sun/moon/star/meteor state from date + approximate latitude |
 | `significance` | Invisible memory-importance model driving persistence and landmarks |
-| `ritual` | The session state machine binding every stage together |
+| `hearth` | The pit between visits: what banking keeps, what a gap and the weather take, and how a bed is woken |
+| `familiarity` | What an animal remembers about you, in two layers — a shallow species floor that travels with the player, a deeper individual bond that stays with the campsite |
+| `ritual` | The session state machine binding every stage together, including the night's length and the s'more left on the ground |
 
 ### 3.1 Fixed timestep
 
@@ -88,6 +90,24 @@ there and then — `applyRoastPose` is called from the key handler as well as fr
 the frame loop — and the frame loop's job is only to keep up with the things
 that change on their own, such as the bearing a walking player holds the stick
 from. See defect #25 in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).
+
+### 3.1a The night has a length
+
+`WINDOW_ORDER` walks dusk → early-night → deep-night → pre-dawn → dawn at
+fourteen minutes each, and `windowAt` clamps at dawn. Clamping used to be the
+end of the story, which meant a session left running sat in a permanent
+sunrise: every activity available for ever, and therefore nothing competing
+with anything. `nightIsOver(startWindow, elapsed)` gives the clamp an end —
+the span of the windows plus four minutes of grace past daybreak — so a night
+is roughly an hour whatever it is spent on.
+
+Two rules about what that ending may do, and they are opposite on purpose. It
+**is** enforced for starting something new: `beginRoasting` is refused in the
+morning, and it is the only place in the simulation the ending is enforced
+rather than merely described. It is **not** enforced against anything already
+in flight: a marshmallow on a stick at daybreak stays on the stick. Ending the
+night and confiscating the evening are different acts, and only the first one
+belongs to a clock.
 
 ### 3.2 The heat model
 
@@ -198,6 +218,16 @@ the step, the marshmallow in your own hand is drawn where your pointer is,
 which the next step overwrites. Input-to-visible stays under the §10 limit; the
 thermal consequence lands one round trip later, which at a 45-second roast is
 invisible.
+
+**One thing a player leaves behind does travel.** `PresenceInput.objects` is
+each client's own observation and stays local — but a s'more set on the ground
+is not an observation, it is a thing in the world, and it goes into the object
+list the wildlife model investigates. An offering that existed on one client
+and not the other would be two different object lists, which is two different
+sets of animals at one fire. So `leave_offering` is a wire intent like any
+other: schema, client mapping, replication path, server replay. The s'more's
+own appearance is not sent, because every client derives the identical record
+from the same roast — which is what the deterministic core is for.
 
 **What does not converge, and is not pretended to.** The ritual core — fire,
 marshmallow, assembly, machine — is exact. The world systems (wildlife,

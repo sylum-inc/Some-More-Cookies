@@ -203,6 +203,7 @@ export const HUD_CHANNELS = [
   'survey',
   'corner-controls',
   'photo-control',
+  'leave-control',
   'stick',
 ] as const;
 

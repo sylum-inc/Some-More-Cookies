@@ -47,6 +47,9 @@ import {
   toggleRadio,
   vec3,
   canPerform,
+  describeDaybreak,
+  describeFailingFire,
+  describeOffering,
   describeHearth,
   lookCloser,
   photograph,
@@ -75,6 +78,7 @@ import {
   moveComponent,
   operateMachine,
   placeComponent,
+  leaveSandwich as leaveSandwichAction,
   takeSandwich as takeSandwichAction,
   tendFire,
   layFuel,
@@ -405,6 +409,7 @@ export function App({ store }: AppProps): React.ReactElement {
       handle.player = player;
       handle.walkable = walkable;
       handle.describeHearth = describeHearth;
+      handle.describeOffering = describeOffering;
     }
   }, [player, walkable]);
 
@@ -1319,6 +1324,35 @@ export function App({ store }: AppProps): React.ReactElement {
     }
   }, [ritual, roastControl, store, throwHeldStone]);
 
+  /*
+   * Setting the s'more down and walking away from it.
+   *
+   * Where it goes is the player's: they walked there, and where they put it is
+   * where something has to come to get it. Somebody who wants an animal to
+   * come right in to the firelight can leave it by the pit; somebody who would
+   * rather watch from a distance can leave it at the edge of the clearing.
+   * That is a real choice about how close you want something wild to come.
+   *
+   * A step ahead along the way they are looking, not underfoot. The first
+   * version put it at the player's own position, directly beneath a camera
+   * that pitches 49° and no further — so you gave something away and the world
+   * showed you nothing at all. A metre and a half out is both where a person
+   * sets something down before backing off it, and inside the frame.
+   *
+   * Declared up here rather than beside `handleTakeSandwich` where it belongs
+   * because the keyboard effect below closes over it, and a dependency array
+   * cannot name a `const` declared after it.
+   */
+  const handleLeaveSandwich = useCallback(() => {
+    const reach = 1.6;
+    const x = player.position.x + Math.cos(player.facing) * reach;
+    const z = player.position.z + Math.sin(player.facing) * reach;
+    if (!leaveSandwichAction(ritual, x, z)) return;
+    store.setNotice('You set it down on the ground and step back from it.');
+    audioRef.current?.playFoley('stick');
+    store.touch();
+  }, [ritual, player, store]);
+
   // --- Keyboard ----------------------------------------------------------
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1420,6 +1454,11 @@ export function App({ store }: AppProps): React.ReactElement {
           raiseBinoculars(ritual, !ritual.stargazing.binoculars);
           store.touch();
         }
+        // Setting the s'more down, on the keyboard (§12). Gated on the stage
+        // rather than left to the simulation's own refusal, because `l` is the
+        // SM-01's load key and the machine stage is not anchored — both
+        // branches see the same press.
+        if (event.key === 'l' && ritual.stage === 'eating') handleLeaveSandwich();
         // Winding the stone up on the keyboard: the same three numbers the
         // drag writes.
         if (ritual.skipping.held) {
@@ -1614,6 +1653,7 @@ export function App({ store }: AppProps): React.ReactElement {
     keyboard,
     movement,
     handleUse,
+    handleLeaveSandwich,
     player,
     throwHeldStone,
     campfire,
@@ -1625,6 +1665,10 @@ export function App({ store }: AppProps): React.ReactElement {
   /** The last weather change already announced, so it is said once. */
   const lastWeatherAt = useRef(-1);
   const lastDiscoveryAt = useRef(-1);
+  const offeringsTold = useRef(0);
+  /** Whether daybreak and the fire's decline have already been remarked on. */
+  const toldDaybreak = useRef(false);
+  const toldFireLow = useRef(false);
   /** The pit is remarked on once, on the way in, or not at all. */
   const saidHearth = useRef(false);
   /** Whether this site's unit has introduced itself yet. */
@@ -1800,6 +1844,45 @@ export function App({ store }: AppProps): React.ReactElement {
         saidHearth.current = true;
         const pit = describeHearth(r.hearth);
         if (pit) store.setNotice(pit);
+      }
+
+      /*
+       * The night running out, and the fire getting away from you.
+       *
+       * Both are the world observing itself, in the notice channel every other
+       * remark uses, and neither is an alarm. Both are read as a *state* the
+       * simulation holds against a remark already made, rather than from a
+       * flag true for one step: this loop runs once a frame over a simulation
+       * that may have stepped many times since it last ran, and these are the
+       * two rarest lines in the product. The fire's re-arms only once it has
+       * genuinely been brought back up; daybreak happens once a night.
+       */
+      if (r.nightOver && !toldDaybreak.current) {
+        toldDaybreak.current = true;
+        store.setNotice(describeDaybreak());
+      } else if (r.fireLow && !toldFireLow.current) {
+        toldFireLow.current = true;
+        store.setNotice(describeFailingFire(r.fire));
+      }
+      if (!r.fireLow) toldFireLow.current = false;
+
+      /*
+       * And something carrying off what you left out.
+       *
+       * The one line the offering gets. It goes in the notice channel rather
+       * than the subtitle one because it is the world reporting on itself
+       * rather than a sound being described, and it names the animal and stops
+       * — there is nothing to congratulate anybody for.
+       *
+       * Read as a count against the last one told, the way the discovery log
+       * above is read, rather than from a flag true for one simulation step.
+       * This loop runs once a frame over a simulation that steps thirty times
+       * a second, so a one-step flag is a line the player may simply never be
+       * shown — and it is the rare things, which this is, that get missed.
+       */
+      if (r.offeringTaken && r.offeringsTaken !== offeringsTold.current) {
+        offeringsTold.current = r.offeringsTaken;
+        store.setNotice(describeOffering(r.offeringTaken));
       }
 
       if (r.marshmallow.ignitedThisStep) {
@@ -2184,6 +2267,7 @@ export function App({ store }: AppProps): React.ReactElement {
         onOpenSettings={() => store.setOverlay('settings')}
         onFinishRoasting={handleFinishRoasting}
         onTakeSandwich={handleTakeSandwich}
+        onLeaveSandwich={handleLeaveSandwich}
         inspecting={inspectingRef.current}
         onPhoto={handlePhoto}
         onOpenTerminal={() => store.setOverlay('terminal')}

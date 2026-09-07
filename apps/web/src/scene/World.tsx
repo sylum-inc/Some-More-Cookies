@@ -1510,6 +1510,23 @@ export function World({
         </group>
       )}
 
+      {/*
+        And on the ground, where you left it.
+
+        Drawn from the record the offering carries rather than from a generic
+        prop, because it is the s'more you made: the same browning, the same
+        crooked stack, the same chocolate. A placeholder here would quietly
+        undo the whole reason the ritual bothers to derive an appearance.
+
+        Set down flat and not spinning — it is sitting in the duff, not being
+        presented — and it disappears the moment something takes it.
+      */}
+      {ritual.offering && (
+        <group name="offering" position={[ritual.offering.x, 0.02, ritual.offering.z]}>
+          <Sandwich sandwich={ritual.offering.sandwich} bite={null} settings={settings} />
+        </group>
+      )}
+
       {/* Ember glow reflected on the ground: a quiet cue that the coals are
           ready, which is the roasting discovery the spec wants unlabelled. */}
       {embers && (

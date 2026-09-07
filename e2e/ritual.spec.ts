@@ -697,3 +697,166 @@ test.describe('the machine can be loaded by hand', () => {
     expect(await page.evaluate(() => window.__someMore!.store.state.ritual.machine.stage)).toBe('loaded');
   });
 });
+
+/**
+ * The other thing a s'more can be for.
+ *
+ * The ritual is the deepest system here and until this existed it terminated
+ * in nothing: the object it produced had exactly one use, vanishing into the
+ * player, and no other system ever touched it. The unit tests cover what the
+ * wildlife model does with an offering. This covers the part only a browser
+ * answers — whether a person can actually do it, with a control they can see,
+ * and whether the world says so afterwards.
+ */
+test.describe('leaving the s’more out', () => {
+  test('is offered with it in hand, sets it on the ground, and something takes it', async ({
+    page,
+  }) => {
+    await page.goto('/?camp=offering-camp&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await act(page, 'arrive');
+    await act(page, 'beginRoasting');
+    await act(page, 'finishRoasting');
+    await waitForWorld(page, "r.stage === 'assembling'", 'assembling');
+    await page.evaluate(() => {
+      const a = window.__someMore!.actions;
+      for (let i = 0; i < 4; i += 1) {
+        a['holdComponent']!();
+        a['placeComponent']!();
+      }
+    });
+    await waitForWorld(page, "r.stage === 'machine'", 'machine');
+    await runMachine(page);
+
+    // Nothing to leave out while it is still on the tray: this is a thing you
+    // do with a s'more in your hands.
+    await expect(page.getByTestId('leave-control')).toHaveCount(0);
+    await act(page, 'takeSandwich');
+    await waitForWorld(page, "r.stage === 'eating'", 'eating');
+
+    const leave = page.getByRole('button', { name: 'Leave it out' });
+    await expect(leave).toBeVisible();
+    await leave.click();
+    await page.waitForTimeout(300);
+
+    const set = await page.evaluate(() => {
+      const r = window.__someMore!.store.state.ritual;
+      return { offering: r.offering, sandwich: r.sandwich !== null };
+    });
+    expect(set.offering, 'nothing was put on the ground').not.toBeNull();
+    expect(set.sandwich, 'it was left out and still in hand').toBe(false);
+    // And it cannot be left out twice.
+    await expect(page.getByTestId('leave-control')).toHaveCount(0);
+
+    /*
+     * And it is really there, as the s'more that was made rather than as a
+     * marker: the group is in the scene at the spot the simulation recorded.
+     */
+    const placed = await page.evaluate(() => {
+      const found = window.__someMore!.three!.scene.getObjectByName('offering');
+      return found ? { x: found.position.x, z: found.position.z } : null;
+    });
+    expect(placed, 'the s’more was set down and nothing was drawn there').not.toBeNull();
+    expect(Math.hypot(placed!.x - set.offering!.x, placed!.z - set.offering!.z)).toBeLessThan(0.01);
+    // Never on the coals, wherever the player was standing when they let go.
+    expect(Math.hypot(placed!.x, placed!.z), 'it went in the fire').toBeGreaterThan(0.9);
+
+    /*
+     * Then turned to look at it, with the keys a player would use.
+     *
+     * Worth doing rather than screenshotting whatever the body happened to be
+     * facing: the first version of this photographed the treeline, and the
+     * thing being examined — a s'more lying in the duff, lit by a fire a metre
+     * away — was behind the camera the whole time.
+     */
+    for (let turn = 0; turn < 30; turn++) {
+      const off = await page.evaluate(
+        ([x, z]) => {
+          const player = window.__someMore!.player!;
+          const wanted = Math.atan2((z as number) - player.position.z, (x as number) - player.position.x);
+          let delta = wanted - player.facing;
+          while (delta > Math.PI) delta -= Math.PI * 2;
+          while (delta < -Math.PI) delta += Math.PI * 2;
+          return delta;
+        },
+        [placed!.x, placed!.z] as const,
+      );
+      if (Math.abs(off) < 0.12) break;
+      await page.keyboard.down(off > 0 ? 'ArrowLeft' : 'ArrowRight');
+      await page.waitForTimeout(Math.min(400, Math.max(60, Math.abs(off) * 260)));
+      await page.keyboard.up(off > 0 ? 'ArrowLeft' : 'ArrowRight');
+      await page.waitForTimeout(90);
+    }
+    // And down, because that is where the ground is.
+    await page.keyboard.down('ArrowDown');
+    await page.waitForTimeout(1400);
+    await page.keyboard.up('ArrowDown');
+    await page.waitForTimeout(400);
+    await capture(page, 'offering-left');
+
+    /*
+     * Every line the world says, kept as it is said.
+     *
+     * Sampling the notice does not work, and the reason is worth writing down:
+     * the world goes on talking — the weather, the fire, a car on the loop
+     * road — so reading the channel a minute after the s'more went got the
+     * rain, and reading it ten seconds after was the same mistake with better
+     * odds. The channel is recorded rather than sampled.
+     */
+    await page.evaluate(() => {
+      const store = window.__someMore!.store as unknown as {
+        setNotice: (line: string | null) => void;
+      };
+      const said: string[] = [];
+      (window as unknown as { __said: string[] }).__said = said;
+      const original = store.setNotice.bind(store);
+      store.setNotice = (line: string | null): void => {
+        if (line !== null) said.push(line);
+        original(line);
+      };
+    });
+
+    /*
+     * The evening, fast-forwarded through the same `stepRitual` the render loop
+     * steps. Something coming for it is not instant and should not be: it has
+     * to be drawn in, settle, and decide it is brave enough.
+     */
+    let gone = false;
+    for (let slice = 0; slice < 40 && !gone; slice++) {
+      gone = await page.evaluate(() => {
+        window.__someMore!.actions['advanceSeconds']!(60);
+        return window.__someMore!.store.state.ritual.offering === null;
+      });
+    }
+    expect(gone, 'nothing came for it all night').toBe(true);
+
+    /*
+     * Then waited for rather than read straight away. The simulation records
+     * what took it; the interface says so on its next frame, and this loop has
+     * just run a whole evening between two of those. Reading immediately
+     * passed most times and not all, which is the worst kind of test.
+     *
+     * Matched against the line the world composes rather than a copy kept
+     * here — the same discipline the hearth test needed after its first
+     * version passed on the campsite's description of its own ground.
+     */
+    const wanted = await page.evaluate(() =>
+      window.__someMore!.describeOffering!({ label: 'a fox' }),
+    );
+    const tail = wanted.slice(wanted.indexOf(' took it'));
+    await page.waitForFunction(
+      (ending) => (window as unknown as { __said: string[] }).__said.some((line) => line.endsWith(ending)),
+      tail,
+      { timeout: 15_000 },
+    );
+    const said = (
+      await page.evaluate(() => (window as unknown as { __said: string[] }).__said)
+    ).find((line) => line.endsWith(tail))!;
+    // eslint-disable-next-line no-console
+    console.log(`  notice: ${JSON.stringify(said)}`);
+    expect(said, 'the offering reported a number').not.toMatch(/\d/);
+    expect(said.toLowerCase(), 'the world thanked the player').not.toMatch(/thank|reward|earn/);
+
+    await capture(page, 'offering-taken');
+  });
+});

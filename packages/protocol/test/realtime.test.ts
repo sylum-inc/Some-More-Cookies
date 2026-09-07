@@ -168,6 +168,8 @@ function sampleIntent(kind: (typeof InputIntentKindValues)[number]): InputIntent
       return InputIntentSchema.parse({ kind });
     case 'machine_control':
       return InputIntentSchema.parse({ kind, objectId: 'o', control: 'confirm' });
+    case 'leave_offering':
+      return InputIntentSchema.parse({ kind, position: { x: 0, y: 0, z: 0 } });
     case 'move_prop':
       return InputIntentSchema.parse({ kind, objectId: 'o', position: { x: 0, y: 0, z: 0 }, rotationY: 0 });
     case 'gesture':

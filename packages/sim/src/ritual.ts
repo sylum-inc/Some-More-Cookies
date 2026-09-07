@@ -32,7 +32,7 @@ import {
   type FireState,
 } from './fire.js';
 import { NEW_HEARTH, restHearth, wakeFire, wetnessOf, type Hearth } from './hearth.js';
-import type { Familiarity } from './familiarity.js';
+import { rememberOffering, type Familiarity } from './familiarity.js';
 import {
   createMarshmallow,
   stepRoast,
@@ -219,7 +219,7 @@ import {
   type FishingEvent,
   type FishingState,
 } from './fishing.js';
-import { createTrace, type Trace } from './significance.js';
+import { createEvidence, createTrace, type Trace } from './significance.js';
 import { rollVariations, type SeededVariationSpec, type VariationSet } from './variation.js';
 import {
   tonightsStillness,
@@ -504,6 +504,76 @@ export function nightChill(progress: number): number {
   return -7.5 * smoothstep(0, 0.82, progress) + 1.8 * smoothstep(0.84, 1, progress);
 }
 
+/**
+ * How long the light takes to come up once the last window has run.
+ *
+ * The night does not stop dead at dawn: there is a stretch where it is getting
+ * light and the camp is winding down, and then it is over. Four minutes, which
+ * is long enough to bank the coals and short enough that it is plainly an
+ * ending rather than another part of the night.
+ */
+const DAWN_GRACE_SECONDS = 4 * 60;
+
+/**
+ * Whether the night has run out.
+ *
+ * It never used to. `windowAt` walks dusk to dawn and then clamps there, so a
+ * session left running sat in a permanent sunrise — every activity available
+ * for ever, nothing competing with anything, and no evening to spend well or
+ * badly. A night that cannot end is a night in which no choice costs anything.
+ *
+ * What ends is the *night*, not the session: the player is not thrown out, the
+ * campsite does not lock, and the trail is where it was. What they cannot do
+ * is start the ritual again, because it is morning.
+ */
+export function nightIsOver(startWindow: ActivityWindow, elapsedSeconds: number): boolean {
+  const start = Math.max(0, WINDOW_ORDER.indexOf(startWindow));
+  const span = (WINDOW_ORDER.length - 1) * WINDOW_SECONDS;
+  return start * WINDOW_SECONDS + elapsedSeconds >= span + DAWN_GRACE_SECONDS;
+}
+
+/**
+ * What the world says when the fire has got away from you.
+ *
+ * An observation about the pit, not an instruction and not an alarm: a player
+ * who would rather stay at the water is allowed to, and the line does not
+ * follow them there a second time.
+ */
+export function describeFailingFire(fire: { emberMass: number; ashCover: number }): string {
+  if (fire.ashCover > 0.6) return 'The fire has gone down to a grey lid with the heat still under it.';
+  if (fire.emberMass > 0.25) return 'The flames have dropped away. There is a good bed of coals under there and nothing on top of them.';
+  return 'The fire is down to a few coals.';
+}
+
+/**
+ * What the world says as the light comes up.
+ *
+ * Never a score and never a summary of the evening. It is an observation, and
+ * it is the same observation whether you made a sandwich or spent the whole
+ * night at the water — because the world does not know which of those was the
+ * point, and neither does this.
+ */
+export function describeDaybreak(): string {
+  return 'The sky has gone grey behind the trees, and the cold has that early edge to it. That is the night gone.';
+}
+
+/**
+ * What took the s'more.
+ *
+ * Names the animal and says nothing about what it means. There is no thank
+ * you, no acknowledgement, no counter going up — an animal that took food off
+ * a stump is not grateful and does not know it has been given anything, and a
+ * line that implied otherwise would turn the one place the ritual touches the
+ * wildlife model into a transaction. §5.3: nothing here is a score.
+ */
+export function describeOffering(taken: { readonly label: string }): string {
+  return `${capitalise(taken.label)} took it, and went with it into the dark.`;
+}
+
+function capitalise(text: string): string {
+  return text.length === 0 ? text : text[0]!.toUpperCase() + text.slice(1);
+}
+
 /** Said once, as the night turns over into its next part. */
 export function describeWindow(window: ActivityWindow): string | null {
   switch (window) {
@@ -665,6 +735,67 @@ export interface RitualState {
    * again stops counting at all.
    */
   hearth: Hearth;
+  /**
+   * Whether the night has run out.
+   *
+   * Latched: once it is morning it stays morning, and nothing in a session
+   * turns it back into night.
+   */
+  nightOver: boolean;
+  /**
+   * Whether the fire has dropped to needing you, over a bed still worth
+   * saving.
+   *
+   * The fire has always burned down — left alone it loses its flame inside
+   * five minutes and is a bare bed by morning — and nothing ever said so. That
+   * was survivable while the night was endless: you would notice eventually,
+   * and eventually was free. With the night finite, a fire that went out while
+   * you were at the water is twenty minutes you cannot have back, and the
+   * difference between a mechanic and a gotcha is whether the world mentioned
+   * it.
+   *
+   * Latched, and released well above where it is set, so a fire hovering at
+   * the line is one remark rather than one every four seconds. A *state* and
+   * not a one-step flag, for the same reason `offeringTaken` is: the client
+   * reads the world once a frame over a simulation that may have stepped many
+   * times since, and a rare thing true for exactly one step is a line the
+   * player is not guaranteed to be shown.
+   */
+  fireLow: boolean;
+  /**
+   * The sandwich set down and walked away from, if there is one.
+   *
+   * The whole ritual — gather, roast, assemble, transform, reveal — produced
+   * exactly one object, and its only use was to disappear into the player.
+   * The most elaborate system in the product terminated in nothing and
+   * connected to nothing else in it.
+   *
+   * Left out, it becomes an unattended thing that smells of food, in a model
+   * that has always known what animals do about those. Cleared when something
+   * takes it.
+   */
+  offering: {
+    readonly id: string;
+    readonly x: number;
+    readonly z: number;
+    /** The s'more itself, so what is lying there is the one you made. */
+    readonly sandwich: SandwichRecord;
+  } | null;
+  /**
+   * What took the last offering, and it stays set.
+   *
+   * Not a one-step flag, and that is deliberate rather than lazy. The client
+   * reads the world once a frame while the simulation steps thirty times a
+   * second and can be fast-forwarded through a whole evening in one call — so
+   * anything true for exactly one step is a line the player is not guaranteed
+   * to be told. Every other rare thing here is read the same way, from a log
+   * or a count against a remembered one (see `discoveryEvents` in `App`).
+   */
+  offeringTaken: { readonly speciesId: string; readonly individualId: string; readonly label: string } | null;
+  /** How many have been carried off this session. Rises once each time. */
+  offeringsTaken: number;
+  /** How many of those the campsite has already written down. */
+  offeringsTraced: number;
   /** Stage-change flag for one step, consumed by audio and UI. */
   stageChangedTo: RitualStage | null;
 }
@@ -889,6 +1020,12 @@ export function createRitual(options: RitualOptions): RitualState {
       world,
     },
     hearth: rested ?? NEW_HEARTH,
+    nightOver: false,
+    fireLow: false,
+    offering: null,
+    offeringTaken: null,
+    offeringsTaken: 0,
+    offeringsTraced: 0,
     stageChangedTo: null,
   };
 }
@@ -1068,8 +1205,18 @@ export function worldCues(ritual: RitualState, out: WildlifeCueField = {}): Wild
   out.warmth = clamp01(fire.flame * 0.6 + clamp01(fire.emberMass * 1.5) * 0.4);
   // Sugar that is browning is sugar you can smell from thirty metres.
   out['marshmallow-smell'] = ritual.stage === 'roasting' ? browningSmell(ritual.marshmallow) : 0;
+  /*
+   * A whole s'more sitting on the ground outsmells everything else here, and
+   * `food-smell` is what half this roster is `attractedBy`. This is the line
+   * that makes leaving one out an act rather than a discard: the camp starts
+   * smelling of food to exactly the animals that care about that.
+   */
   out['food-smell'] = clamp01(
-    Math.max(out['marshmallow-smell'] ?? 0, ritual.stage === 'assembling' ? 0.45 : 0),
+    Math.max(
+      out['marshmallow-smell'] ?? 0,
+      ritual.stage === 'assembling' ? 0.45 : 0,
+      ritual.offering ? 0.8 : 0,
+    ),
   );
   out.crumbs = ritual.stage === 'eating' || ritual.stage === 'after' ? 0.6 : 0;
   // The torch is the real source now. `presence.lightSweep` is still honoured
@@ -1158,6 +1305,20 @@ function stepWorld(ritual: RitualState, dt: number): void {
   ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
   ritual.windowChangedTo = ritual.window === previousWindow ? null : ritual.window;
 
+  // And the night running out. Latched: once it is morning it stays morning.
+  ritual.nightOver = nightIsOver(ritual.options.startWindow, ritual.elapsed);
+
+  /*
+   * And the fire asking for you.
+   *
+   * Set while there is still something to save — a bed this warm takes a log,
+   * not a rebuild — which is the whole point of saying anything at all. Held
+   * until the fire is genuinely back up, well above where it is set, so a fire
+   * hovering at the line is not a state that flickers.
+   */
+  if (ritual.fire.flame < 0.12 && ritual.fire.emberMass > 0.02) ritual.fireLow = true;
+  else if (ritual.fire.flame > 0.3) ritual.fireLow = false;
+
   /*
    * The campsite, remarking on itself when the remark is true — once you are
    * actually here.
@@ -1242,7 +1403,25 @@ function stepWorld(ritual: RitualState, dt: number): void {
   wildlifeScratch.lightSweep = clamp01(presence.lightSweep);
   wildlifeScratch.startle = clamp01(presence.startle);
   wildlifeScratch.window = ritual.window;
-  wildlifeScratch.objects = presence.objects;
+  /*
+   * The offering joins whatever else is lying about the camp.
+   *
+   * Rebuilt each step rather than pushed once, because `presence.objects` is
+   * the caller's list and this must not quietly grow it. `food` and `portable`
+   * are both true, which is the whole of why something comes for it — the
+   * steal chance in `stepWildlife` is built from exactly those two.
+   */
+  wildlifeScratch.objects = ritual.offering
+    ? [
+        ...presence.objects,
+        {
+          id: ritual.offering.id,
+          position: vec3(ritual.offering.x, 0.3, ritual.offering.z),
+          portable: true,
+          food: true,
+        },
+      ]
+    : presence.objects;
   wildlifeScratch.weather = ritual.weather;
   // Sitting is the strongest stillness there is, and it settles the camp
   // around you as well as settling you (spec §7).
@@ -1260,6 +1439,44 @@ function stepWorld(ritual: RitualState, dt: number): void {
   // bolting comes to know the person holding it.
   wildlifeScratch.photographed = presence.photographed;
   stepWildlife(ritual.wildlife, wildlifeScratch, dt, stream(ritual, 'wildlife'));
+
+  /*
+   * And something carrying it off.
+   *
+   * The bond with *that animal* moves, and the species floor does not — which
+   * is the honest reading of what leaving food out does. It is not how you
+   * befriend a species; it is how one particular animal learns that this camp
+   * is worth coming back to. §7 is explicit that these are not collectible
+   * pets and there is no feeding quest, and a mechanic where food bought
+   * general tameness would be exactly that.
+   */
+  if (ritual.offering && ritual.wildlife.takenObjectIds.includes(ritual.offering.id)) {
+    /*
+     * Matched on the target rather than on `tookObject` alone: anything the
+     * player left lying about the camp is stealable, so an animal that
+     * carried off a dropped torch three minutes ago still reads as a thief,
+     * and crediting it for the s'more would credit the wrong animal.
+     * `targetObjectId` survives the steal, so this is exact.
+     */
+    const offeringId = ritual.offering.id;
+    const thief =
+      ritual.wildlife.animals.find(
+        (animal) => animal.tookObject && animal.targetObjectId === offeringId,
+      ) ?? null;
+    ritual.offering = null;
+    if (thief) {
+      ritual.offeringTaken = {
+        speciesId: thief.species.id,
+        individualId: thief.individual.id,
+        label: thief.species.label,
+      };
+      ritual.offeringsTaken++;
+      ritual.wildlife.familiarity = rememberOffering(
+        ritual.wildlife.familiarity,
+        thief.individual.id,
+      );
+    }
+  }
 
   // --- discovery -----------------------------------------------------------
   const observation = ritual.observationScratch;
@@ -1318,6 +1535,38 @@ function harvestWorldEvents(ritual: RitualState): void {
           individualId: event.individualId,
           trace: event.trace,
           visits: event.visits,
+        },
+      ),
+    );
+  }
+
+  /*
+   * The s'more that walked off.
+   *
+   * A `sandwich` trace rather than a `wildlife-encounter` one, because what
+   * the campsite is keeping is the thing the whole ritual made and where it
+   * ended up — not another sighting. It is the only path by which the deepest
+   * system in the product leaves a mark on the place, which is worth the
+   * kind's weight in the significance model.
+   */
+  if (ritual.offeringTaken && ritual.offeringsTraced < ritual.offeringsTaken) {
+    const taken = ritual.offeringTaken;
+    ritual.offeringsTraced = ritual.offeringsTaken;
+    ritual.traces.push(
+      createTrace(
+        `offering:${taken.individualId}:${Math.round(ritual.elapsed * 60)}`,
+        createEvidence('sandwich', {
+          rarity: 0.55,
+          isFirst: ritual.offeringsTaken <= 1,
+          photographed: ritual.presence.photographed.includes(taken.speciesId),
+          dwellSeconds: ritual.wildlife.stillnessSeconds,
+        }),
+        now,
+        {
+          speciesId: taken.speciesId,
+          speciesLabel: taken.label,
+          individualId: taken.individualId,
+          telling: describeOffering(taken),
         },
       ),
     );
@@ -1588,6 +1837,16 @@ export function layFuel(
 }
 
 export function beginRoasting(ritual: RitualState): void {
+  /*
+   * Not in the morning.
+   *
+   * The one place the night ending is enforced rather than merely described:
+   * you cannot start the evening's ritual after the evening. Everything
+   * already in flight is left alone — a marshmallow on a stick at daybreak is
+   * still yours to finish — because taking something out of somebody's hands
+   * is a different thing from the night being over.
+   */
+  if (ritual.nightOver) return;
   ritual.marshmallow = createMarshmallow();
   setStage(ritual, 'roasting');
 }
@@ -1658,6 +1917,56 @@ export function takeSandwich(ritual: RitualState): SandwichRecord | null {
   ritual.sandwichAge = 0;
   setStage(ritual, 'eating');
   return ritual.sandwich;
+}
+
+/** The id the offering carries into the wildlife model's object list. */
+export const OFFERING_ID = 'offering:sandwich';
+
+/** How far from the middle of the pit a s'more has to land to survive. */
+const PIT_CLEARANCE_M = 0.95;
+
+/**
+ * Sets the sandwich down and walks away from it.
+ *
+ * The other thing a s'more can be for. Everything the ritual does produced one
+ * object whose only use was to vanish into the player, and nothing in the rest
+ * of the product ever touched it — the deepest system here terminated in
+ * nothing and connected to nothing.
+ *
+ * What it becomes is an unattended thing that smells of food, in a model that
+ * has always known exactly what animals do about those: `WildlifeObject`
+ * carries `portable` and `food`, and the steal chance is built from both.
+ * Nothing new was needed for something to take it.
+ *
+ * Refused once it has been bitten, because half a s'more left on a stump is
+ * litter rather than an offering. Not refused at daybreak, though: this is the
+ * tail of a ritual already begun rather than a new one, and the last thing you
+ * do before you go is exactly when a person would do it.
+ */
+export function leaveSandwich(ritual: RitualState, x: number, z: number): boolean {
+  if (!ritual.sandwich || ritual.offering !== null) return false;
+  if (ritual.bite.bites > 0) return false;
+  /*
+   * Not in the fire.
+   *
+   * Where it lands is the player's, but "on the coals" is not a placement
+   * anybody means — and it has to be refused here rather than in the interface
+   * because at a shared fire the position arrives over the wire from somebody
+   * else's client, and §9's rule is that no message exists that can destroy
+   * another player's work.
+   */
+  const distance = Math.hypot(x, z);
+  const clear = Math.max(distance, PIT_CLEARANCE_M);
+  const bearing = distance > 1e-4 ? { x: x / distance, z: z / distance } : { x: 1, z: 0 };
+  ritual.offering = {
+    id: OFFERING_ID,
+    x: bearing.x * clear,
+    z: bearing.z * clear,
+    sandwich: ritual.sandwich,
+  };
+  ritual.sandwich = null;
+  setStage(ritual, 'after');
+  return true;
 }
 
 export function bite(ritual: RitualState, position: number): BiteState | null {

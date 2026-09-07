@@ -6,6 +6,7 @@ import {
   easedShyness,
   mergeFamiliarity,
   rememberCalmNight,
+  rememberOffering,
   rememberPhotograph,
   stepWildlife,
   Rng,
@@ -94,6 +95,21 @@ describe('what earns it', () => {
     // Worth less than a whole evening of being tolerated, which is right.
     const night = rememberCalmNight(NO_FAMILIARITY, 'fox', 'fox:a1');
     expect(after.individuals['fox:a1']).toBeLessThan(night.individuals['fox:a1'] as number);
+  });
+
+  it('is most of all a s’more that something carried off, and only for that one', () => {
+    /*
+     * The one earn that costs the player the thing the whole ritual was for,
+     * and the one that moves nothing but the bond with the animal that took
+     * it. §7: not collectible pets and no feeding quest — a mechanic where
+     * food bought general tameness would be a feeding quest with the word
+     * filed off, and being good with foxes has to stay a lot of evenings with
+     * a lot of foxes.
+     */
+    const after = rememberOffering(NO_FAMILIARITY, 'fox:a1');
+    const night = rememberCalmNight(NO_FAMILIARITY, 'fox', 'fox:a1');
+    expect(after.individuals['fox:a1']).toBeGreaterThan(night.individuals['fox:a1'] as number);
+    expect(after.species, 'feeding one animal made the whole species tamer').toEqual({});
   });
 
   it('does not pay a player for leaving the tab open', () => {

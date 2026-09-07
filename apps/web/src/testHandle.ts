@@ -40,6 +40,8 @@ export interface SomeMoreHandle {
    * description of its own ground.
    */
   describeHearth?: (hearth: Hearth) => string | null;
+  /** And what it says about the thing that carried off an offering. */
+  describeOffering?: (taken: { readonly label: string }) => string;
 }
 
 declare global {

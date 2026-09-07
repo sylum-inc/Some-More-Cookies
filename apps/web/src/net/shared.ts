@@ -30,6 +30,7 @@ import {
   moveMarshmallow as simMoveMarshmallow,
   operateMachine as simOperateMachine,
   placeComponent as simPlaceComponent,
+  leaveSandwich as simLeaveSandwich,
   stepRitual as simStepRitual,
   takeSandwich as simTakeSandwich,
   tendFire as simTendFire,
@@ -155,6 +156,18 @@ export function operateMachine(ritual: RitualState, action: MachineAction): bool
   if (current === null) return simOperateMachine(ritual, action);
   current.machine(action);
   return true;
+}
+
+/**
+ * Set the s'more down and walk away from it.
+ *
+ * Replicated, unlike every other thing a player does with their own food,
+ * because this one leaves an object in the world: the wildlife model reads it,
+ * and two clients reading different object lists stop agreeing about which
+ * animals are here (ADR-0006).
+ */
+export function leaveSandwich(ritual: RitualState, x: number, z: number): boolean {
+  return current === null ? simLeaveSandwich(ritual, x, z) : current.leaveOffering(x, z);
 }
 
 export function takeSandwich(ritual: RitualState): SandwichRecord | null {

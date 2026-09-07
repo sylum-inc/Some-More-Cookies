@@ -73,6 +73,7 @@ export interface HudProps {
   onOpenSettings: () => void;
   onFinishRoasting: () => void;
   onTakeSandwich: () => void;
+  onLeaveSandwich: () => void;
   onPhoto: () => void;
   onOpenTerminal: () => void;
 }
@@ -969,6 +970,15 @@ export function Hud(props: HudProps): React.ReactElement {
         {stage === 'reveal' && ritual.sandwich && (
           <div style={props.controls === 'keyboard' ? { pointerEvents: 'auto' } : SR_ONLY}>
             <CornerButton label="Take it" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
+          </div>
+        )}
+        {/* The other thing it can be for. Offered only with the s'more in hand
+            and untouched — half of one left on the ground is litter, not an
+            offering — and it is a quiet button rather than an accented one
+            because eating it is still what most people came for. */}
+        {stage === 'eating' && ritual.sandwich && ritual.bite.bites === 0 && ritual.offering === null && (
+          <div data-testid="leave-control" style={{ pointerEvents: 'auto' }}>
+            <CornerButton label="Leave it out" onClick={props.onLeaveSandwich} textScale={textScale} highContrast={highContrast} />
           </div>
         )}
         {/* What is within reach. The world offers rather than presenting a

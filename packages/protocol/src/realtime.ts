@@ -294,6 +294,7 @@ export const InputIntentKindValues = [
   'move_component',
   'place_component',
   'machine_control',
+  'leave_offering',
   'move_prop',
   'gesture',
 ] as const;
@@ -349,6 +350,17 @@ export const InputIntentSchema = z.discriminatedUnion('kind', [
     control: MachineControlSchema,
     program: MachineDialProgramSchema.optional(),
   }),
+  /**
+   * Setting your own s'more down on the ground and walking away from it.
+   *
+   * Names no object, because it takes nothing from anybody: the thing being
+   * put down is the sender's own, and what happens to it afterwards is the
+   * wildlife model's business on a stream both clients share. On the wire
+   * because it must be — an offering that existed on one client would change
+   * that client's object list, and two clients feeding `stepWildlife`
+   * different objects stop seeing the same animals (ADR-0006).
+   */
+  z.object({ kind: z.literal('leave_offering'), position: Vec3Schema }),
   z.object({
     kind: z.literal('move_prop'),
     objectId: IdSchema,

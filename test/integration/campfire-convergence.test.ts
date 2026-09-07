@@ -35,6 +35,7 @@ import { MARSHMALLOW_OBJECT_ID } from '../../apps/web/src/net/authority.js';
 import { SharedTimeline } from '../../apps/web/src/net/timeline.js';
 import { SIM_DT, createRitual, stepRitual, type RitualState } from '@somemore/sim';
 import {
+  InputIntentKindValues,
   REALTIME_BEARER_SUBPROTOCOL_PREFIX,
   REALTIME_SUBPROTOCOL,
   type InputIntent,
@@ -343,7 +344,14 @@ describe('the two intent mappings', () => {
       { kind: 'move_prop', objectId: 'obj_torch_1', position: { x: 1, y: 1, z: 1 }, rotationY: 0.4 },
       { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'load' },
       { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'close_door' },
+      { kind: 'hold_component', component: 'marshmallow' },
+      { kind: 'place_component' },
+      { kind: 'hold_component', component: 'graham-top' },
+      { kind: 'place_component' },
       { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'set_program', program: 'deep-freeze' },
+      { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'engage_latch' },
+      { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'confirm' },
+      { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'pull_lever' },
     );
 
     // Interleaved with steps, so a difference in *when* an intent takes hold
@@ -358,6 +366,45 @@ describe('the two intent mappings', () => {
     }
 
     expect(digest(mine)).toEqual(digest(theirs));
+
+    /*
+     * And the tail of the ritual, which is where the newest intent lives.
+     *
+     * `leave_offering` cannot be exercised by an intent on its own — it needs
+     * an actual s'more in hand — so the run has to get all the way through the
+     * SM-01 first. Worth the extra thirty seconds of simulated time: the
+     * offering is the one piece of ritual state the wildlife model reads, so a
+     * mapping that dropped it would give the two clients different animals
+     * rather than a cosmetic difference.
+     */
+    for (let step = 0; step < Math.round(70 / SIM_DT); step += 1) {
+      stepRitual(mine, SIM_DT);
+      stepRitual(theirs, SIM_DT);
+    }
+    const tail: InputIntent[] = [
+      { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'release_latch' },
+      { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'open_door' },
+      { kind: 'machine_control', objectId: 'obj_sm01_1', control: 'take_sandwich' },
+      { kind: 'leave_offering', position: { x: 1.2, y: 0, z: 0.4 } },
+    ];
+    for (const intent of tail) {
+      clientApplyIntent(mine, intent);
+      harnessApplyIntent(theirs, intent);
+      for (let step = 0; step < 10; step += 1) {
+        stepRitual(mine, SIM_DT);
+        stepRitual(theirs, SIM_DT);
+      }
+    }
+    expect(mine.offering, 'the s’more never reached the ground').not.toBeNull();
+    expect(digest(mine)).toEqual(digest(theirs));
+
+    /*
+     * And the stream really is every kind, rather than every kind that existed
+     * when this was written. The claim in the heading above is the whole value
+     * of the test, so it is asserted rather than trusted.
+     */
+    const covered = new Set([...script, ...tail].map((intent) => intent.kind));
+    expect([...InputIntentKindValues].filter((kind) => !covered.has(kind))).toEqual([]);
 
     // The one place they deliberately differ: the client's mapping carries the
     // holder's accessibility assist with the pick-up, which the harness — which

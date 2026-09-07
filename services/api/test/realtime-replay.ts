@@ -18,6 +18,7 @@ import {
   createRitual,
   finishRoasting,
   holdComponent,
+  leaveSandwich,
   moveComponent,
   moveMarshmallow,
   operateMachine,
@@ -101,6 +102,9 @@ export function applyIntent(ritual: RitualState, intent: InputIntent): void {
       return;
     case 'place_component':
       placeComponent(ritual);
+      return;
+    case 'leave_offering':
+      leaveSandwich(ritual, intent.position.x, intent.position.z);
       return;
     case 'machine_control': {
       /*
@@ -227,6 +231,19 @@ export function digest(ritual: RitualState): unknown {
       })),
     },
     machine: { stage: ritual.machine.stage, progress: ritual.machine.progress },
+    /*
+     * What the ritual has produced and where it ended up.
+     *
+     * `offering` is in here because it is the one piece of ritual state the
+     * wildlife model reads: an offering on one client and not on the other is
+     * two different object lists, which is two different sets of animals, and
+     * the whole of ADR-0006 is that this cannot happen.
+     */
+    sandwich: ritual.sandwich === null ? null : ritual.sandwich.class,
+    offering:
+      ritual.offering === null
+        ? null
+        : { x: ritual.offering.x, z: ritual.offering.z, class: ritual.offering.sandwich.class },
   };
 }
 

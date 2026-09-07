@@ -219,6 +219,13 @@ The finished object carries its history:
 
 The core ritual takes **~5–8 minutes**. The campsite is open-ended before and after — arriving early to explore and staying after to sit by the fire are both first-class.
 
+**And the night ends.** Roughly an hour, dusk to dawn, and then the sky goes
+grey and that is it — whatever state things were left in. This is what makes
+everything else cost something: time spent at the water is time the fire spends
+burning down, and wood is a walk away. Tending well buys a better tomorrow,
+never a longer tonight. Nothing is taken out of the player's hands at daybreak;
+what ends is the ability to start the evening over.
+
 Campsites are **compact but genuinely explorable**: a walkable area with real corners, not a corridor and not an open world.
 
 ### 5.2 Secondary activities
@@ -314,6 +321,12 @@ Lightweight ecosystem behaviour. Animals respond to sound, fire, food, flashligh
 - Persistent individual animals may recur at a campsite and be recognised by the world (and eventually by the player).
 - **Quiet behaviour reveals rarer wildlife** — stillness is a mechanic.
 - Animals may investigate or steal objects and leave tracks or unusual traces.
+- **A s'more can be left out for them.** Set it on the ground and walk away and
+  something may, eventually, come for it — the one thing the ritual's output is
+  for besides being eaten. It buys the bond with *that animal* and nothing at
+  all for the species: this is not how you get good with foxes, it is how one
+  fox learns that this fire is worth visiting. There is no thank you and no
+  counter; the world names what took it and stops.
 - **Not collectible pets.** No taming meter, no feeding quests, no compendium completion.
 
 ---

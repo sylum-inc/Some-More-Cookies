@@ -747,6 +747,35 @@ thing being tested worked and had no caller.
 
 ---
 
+### Session 10: the middle of the screen is the world
+
+The heads-up display had five text channels stacked down the centre — the
+reach prompt at 18% from the bottom, the notice at 26%, what is in your hands
+at 13%, subtitles at 5%, the guidance line across the top — over the one thing
+the player is here to look at. Two of the three HUD defects this document
+already records are two of those channels landing on each other, each fixed by
+moving one of them a few per cent; the third is the notice sitting on the fire
+it was describing. The percentages were never the bug.
+
+Now: one column down the left for what the world is saying, one column up the
+right for what a thumb can do, the two corners for everything else, and nothing
+between them. The bottom of the screen is a single flex row with three
+slots — lane, bite ring, thumb cluster — so the three things that live down
+there cannot reach each other at any width or text scale. The bite ring was
+`position: fixed` at "nine per cent up, *plus* the home indicator", with a
+comment about landing within a pixel of the "Make this real" corner on a
+notched phone; it is one of the row's slots now and that arithmetic is gone.
+
+One test had to change, and it is worth recording why. `mobile.spec.ts`
+asserted no bite target sits under the home indicator by measuring the *raw*
+box against an inset-aware bound — a comparison only ever satisfied by a
+control that is **not** anchored to the bottom edge. The ring passed it by
+being placed high up the screen, and failed it the moment it started
+respecting the safe area properly. The file already contains
+`layoutUnderRealInsets`, written for exactly this question; the assertion now
+reads off that. Proved by dropping `safe-area-inset-bottom` from the new row:
+it fails.
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

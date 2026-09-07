@@ -462,8 +462,23 @@ for (const device of DEVICES) {
           Math.min(target.width, target.height),
           `bite target "${target.label}" is ${target.width}x${target.height}`,
         ).toBeGreaterThanOrEqual(24);
+      }
+
+      /*
+       * And none of them under the home indicator — read off the reconstructed
+       * layout, not the raw one.
+       *
+       * This used to measure the unshifted box against an inset-aware bound,
+       * which is only ever satisfied by a control that is *not* anchored to
+       * the bottom edge: the ring passed because it was placed nine per cent
+       * up, and would have failed the moment it started respecting the safe
+       * area properly. `layoutUnderRealInsets` is the tool this file wrote for
+       * exactly this question, and it answers it: where does this land in a
+       * hand, and is that above the indicator.
+       */
+      for (const target of eatingLayout.filter((box) => box.label.startsWith('Bite from side'))) {
         expect(
-          target.y + target.height,
+          target.bottom,
           `bite target "${target.label}" sits under the home indicator`,
         ).toBeLessThanOrEqual(device.height - device.insets.bottom);
       }

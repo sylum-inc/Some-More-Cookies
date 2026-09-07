@@ -2064,6 +2064,17 @@ export function App({ store }: AppProps): React.ReactElement {
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}
+        {...((state.stage === 'eating' || state.stage === 'after') && ritual.sandwich && state.overlay === 'none'
+          ? {
+              bottomCentre: (
+                <BiteRing
+                  onBite={handleBite}
+                  textScale={state.accessibility.textScale}
+                  finished={ritual.bite.finished}
+                />
+              ),
+            }
+          : {})}
         onOpenPassport={() => store.setOverlay('passport')}
         onOpenSettings={() => store.setOverlay('settings')}
         onFinishRoasting={handleFinishRoasting}
@@ -2158,10 +2169,6 @@ export function App({ store }: AppProps): React.ReactElement {
         </div>
       )}
 
-      {/* Bite targets while eating */}
-      {(state.stage === 'eating' || state.stage === 'after') && ritual.sandwich && state.overlay === 'none' && (
-        <BiteRing onBite={handleBite} textScale={state.accessibility.textScale} finished={ritual.bite.finished} />
-      )}
 
       {state.overlay === 'passport' && (
         <Passport
@@ -2432,14 +2439,10 @@ function BiteRing({
     return (
       <div
         style={{
-          position: 'fixed',
-          left: '50%',
-          bottom: 'calc(10% + env(safe-area-inset-bottom, 0px))',
-          transform: 'translateX(-50%)',
           fontFamily: FONT_STACK.hand,
           fontSize: `${18 * textScale}px`,
           color: 'rgba(232,224,205,0.85)',
-          zIndex: 25,
+          whiteSpace: 'nowrap',
         }}
       >
         Nothing left but crumbs.
@@ -2449,27 +2452,21 @@ function BiteRing({
   return (
     <div
       style={{
-        position: 'fixed',
-        left: '50%',
-        /*
-         * Nine per cent up, *plus* the home indicator.
-         *
-         * Without the inset the ring is fine on a laptop and lands within a
-         * pixel of the "Make this real" corner on a notched phone, because
-         * that corner rises by thirty-four and the ring does not. Both have to
-         * move or neither does.
-         */
-        bottom: 'calc(9% + env(safe-area-inset-bottom, 0px))',
-        transform: 'translateX(-50%)',
         display: 'flex',
         /*
          * No gap. The spacing between the dots comes from the touch targets
          * being larger than the dots they contain, which is the point: eight
          * 44px targets are 352px, and they have to fit a 375px phone.
+         *
+         * It used to be fixed to the viewport at nine per cent up, plus the
+         * home indicator, with a comment about landing within a pixel of the
+         * "Make this real" corner on a notched phone. It sits in the HUD's
+         * bottom row now, so nothing about where it is has to be reasoned
+         * about against where anything else is.
          */
         gap: 0,
-        maxWidth: '100vw',
-        zIndex: 25,
+        flexWrap: 'wrap',
+        justifyContent: 'center',
       }}
     >
       {Array.from({ length: 8 }, (_, i) => (

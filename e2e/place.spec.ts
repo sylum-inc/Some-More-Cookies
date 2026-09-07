@@ -303,7 +303,19 @@ test.describe('the firelight is this campsite’s firelight', () => {
       off.height = 100;
       const ctx = off.getContext('2d')!;
       ctx.drawImage(three.gl.domElement, 0, 0, off.width, off.height);
-      const data = ctx.getImageData(0, 60, off.width, 30).data;
+      /*
+       * The middle of that band, not the whole width of it.
+       *
+       * "The lit ground around the pit" is what this says it samples, and a
+       * strip the full width of the frame is not that: it is the pit plus
+       * however much unlit distance the campsite has in its corners. Once the
+       * walkable radius stopped being clamped at 16 m, a bare pan like Ashfall
+       * Barrens put enough dark ground in the corners to drag the mean from
+       * comfortably over the floor to under it on a slower runner — a number
+       * that moved because the campsite got wider, not because the fire got
+       * dimmer. The centre half is the pit.
+       */
+      const data = ctx.getImageData(off.width / 4, 60, off.width / 2, 30).data;
       let r = 0;
       let g = 0;
       let b = 0;

@@ -47,6 +47,10 @@ import {
   toggleRadio,
   vec3,
   canPerform,
+  describeHearth,
+  lookCloser,
+  photograph,
+  stopLooking,
   type Interactable,
   type MachineAction,
   type MachineEvent,
@@ -79,7 +83,8 @@ import { World, isAnchored } from './scene/World.js';
 import { LAYOUT, campFurniture, hashSeed } from './scene/layout.js';
 import { KeyboardMovement, MovementController, marchToGround } from './interaction/movementControl.js';
 import { getEnvironment, inWorld } from '@somemore/content';
-import { worldContentFor } from './state/worldContent.js';
+import { campsiteRadiusM, worldContentFor } from './state/worldContent.js';
+import { nextCampsite, rootSeed, settleAt } from './state/journey.js';
 import { Hud } from './ui/Hud.js';
 import { Passport } from './ui/Passport.js';
 import { Settings } from './ui/Settings.js';
@@ -95,6 +100,7 @@ import {
   screenToTableOffset,
 } from './interaction/roastControl.js';
 import { capturePhoto } from './interaction/photo.js';
+import { subjectsInFrame } from './interaction/subjects.js';
 import { AudioBridge, type AudioCue } from './audio/bridge.js';
 import { apiBaseUrl } from './net/client.js';
 import { MARSHMALLOW_OBJECT_ID } from './net/authority.js';
@@ -116,6 +122,7 @@ import { CampfirePanel } from './ui/Campfire.js';
 import { PwaNotices } from './pwa/PwaNotices.js';
 import { pwa } from './pwa/register.js';
 import { useViewportSize, useWakeLock } from './pwa/viewport.js';
+import { ThumbStick } from './ui/ThumbStick.js';
 
 export interface AppProps {
   store: Store;
@@ -130,6 +137,31 @@ export function App({ store }: AppProps): React.ReactElement {
   const movement = useMemo(() => new MovementController(), []);
   const keyboard = useMemo(() => new KeyboardMovement(), []);
   const intentRef = useRef<MoveIntent>({});
+  /*
+   * Whether this device has a thumb.
+   *
+   * Read once rather than watched: a machine does not grow a touchscreen
+   * mid-session, and a media query listener for something that cannot change
+   * is a subscription to nothing. `pointer: coarse` rather than sniffing the
+   * user agent, and rather than `ontouchstart`, which a laptop with a
+   * touchscreen also reports — the question is what the *primary* pointer is,
+   * because that is what decides whether a drawn pad helps or is furniture.
+   */
+  const [coarsePointer] = useState(
+    () => typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches,
+  );
+  /*
+   * The pad writes straight into the movement intent the frame loop reads.
+   *
+   * Not through React state: this fires on every pointer move while a thumb is
+   * down, and a re-render of the whole application per frame of walking is how
+   * a phone game gets a reputation. The pad keeps its own knob position in
+   * state because that is one small element; where the player is going is a
+   * ref, like every other per-frame input here.
+   */
+  const handleStick = useCallback((forward: number, strafe: number) => {
+    intentRef.current.move = { forward, strafe };
+  }, []);
 
   /**
    * The walkable campsite.
@@ -141,7 +173,7 @@ export function App({ store }: AppProps): React.ReactElement {
   const walkable = useMemo(() => {
     const environment = getEnvironment(state.environmentId);
     const seed = hashSeed(state.campsiteSeed);
-    const radius = Math.max(8, Math.min(16, environment?.scene.walkableRadiusM ?? 13));
+    const radius = campsiteRadiusM(environment);
     // Where the water is, if this campsite has any. Everything at the water —
     // the shore you walk to, the stones you reach down for, the rod leaning on
     // the bank — hangs off this one point, and it is derived from the seed so
@@ -164,6 +196,32 @@ export function App({ store }: AppProps): React.ReactElement {
         { id: 'woodpile', x: 1.7, z: -0.9, radius: 0.35 },
       ],
       interactables: [
+        /*
+         * The way out, which is the way you came in.
+         *
+         * §5.4 says every player must eventually be able to discover every
+         * core environment and that region never locks content; the device
+         * was pinned to one of twelve for the life of a localStorage entry.
+         * It needed a diegetic exit, and the spec forbids the obvious ones —
+         * no menus, no maps, no level select, no quest markers. Cedar
+         * Switchback's own manifest is explicit that the trail sign carries
+         * "distances in miles to places you will not be going. The game never
+         * shows those places."
+         *
+         * So you leave the way you arrived: up the trail, at the edge of the
+         * clearing, on the bearing the arrival walk brought you down. It sits
+         * at the fence rather than at a fixed distance, so it moves outward
+         * with the campsite's authored radius instead of standing in the
+         * middle of a larger world.
+         */
+        {
+          id: 'trailhead',
+          x: Math.cos(TRAIL_BEARING) * (radius - 1.4),
+          z: Math.sin(TRAIL_BEARING) * (radius - 1.4),
+          reach: 1.6,
+          arc: 1.5,
+          label: 'the trail out',
+        },
         { id: 'fire', x: 0, z: 0, reach: 1.45 },
         // An arc, so "Take a log" is offered only while facing the pile: it
         // was offered with the pile behind you and out of the frame.
@@ -231,12 +289,31 @@ export function App({ store }: AppProps): React.ReactElement {
           x: landmark.x,
           z: landmark.z,
           reach: landmark.kind === 'natural' ? 2 : 1.5,
+          label: landmark.label,
+        })),
+        /*
+         * And the small things you only find by crouching over them.
+         *
+         * Prefixed, because a curio's id is its *secret's* id and the id space
+         * has to stay disjoint from the landmarks, the fuel patches and the
+         * fixed names above. An arc, because a thing this size is not
+         * something you notice with your back to it.
+         */
+        ...ritual.curios.map((curio) => ({
+          id: `look:${curio.secretId}`,
+          x: curio.x,
+          z: curio.z,
+          // Matches `CURIO_STOOP_M` in World, which is what makes the prompt
+          // and the stoop that brings the thing into frame arrive together.
+          reach: 1.35,
+          arc: 1.3,
+          label: curio.label,
         })),
       ],
     });
     // Patch positions are fixed for the life of a campsite, so this stays a
     // function of the seed even though it reads the simulation.
-  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches, ritual.landmarks]);
+  }, [state.environmentId, state.campsiteSeed, ritual.gathering.patches, ritual.landmarks, ritual.curios]);
 
   const player = useMemo(() => {
     // Starts out on the trail, walking in.
@@ -287,6 +364,14 @@ export function App({ store }: AppProps): React.ReactElement {
     camera: THREE.Camera;
   } | null>(null);
   const audioRef = useRef<AudioBridge | null>(null);
+  /**
+   * The thing being crouched over, if any.
+   *
+   * A ref rather than state because it is written into the simulation from
+   * the render loop every step, and a re-render per frame is not a price a
+   * posture should cost.
+   */
+  const inspectingRef = useRef<string | null>(null);
   /** Frames the render loop has reported, and who is waiting on the second. */
   const framesDrawn = useRef(0);
   const onDrawn = useRef<(() => void) | null>(null);
@@ -319,6 +404,7 @@ export function App({ store }: AppProps): React.ReactElement {
     if (handle) {
       handle.player = player;
       handle.walkable = walkable;
+      handle.describeHearth = describeHearth;
     }
   }, [player, walkable]);
 
@@ -508,7 +594,7 @@ export function App({ store }: AppProps): React.ReactElement {
           ...(environment
             ? {
                 world: worldContentFor(environment),
-                walkableRadiusM: environment.scene.walkableRadiusM,
+                walkableRadiusM: campsiteRadiusM(environment),
               }
             : {}),
         };
@@ -775,6 +861,70 @@ export function App({ store }: AppProps): React.ReactElement {
      * because which ones exist is decided by the environment and not by this
      * file.
      */
+    /*
+     * Crouching over one of the campsite's small things — and standing up.
+     *
+     * A latch rather than a press, because `stepDiscovery` wants the
+     * `inspecting` condition held continuously for five to twelve seconds and
+     * drains it at one and a half times that rate when it lapses. Setting it
+     * for one frame on a tap would find nothing, ever, and would have looked
+     * exactly like a working feature.
+     *
+     * The ref is what World writes into presence every step; this only
+     * decides which thing, and pressing again straightens you up.
+     */
+    if (id.startsWith('look:')) {
+      const secretId = id.slice(5);
+      if (inspectingRef.current === secretId) {
+        inspectingRef.current = null;
+        stopLooking(ritual);
+        store.setSubtitle('[you straighten up]');
+        return;
+      }
+      const curio = lookCloser(ritual, secretId);
+      if (!curio) return;
+      inspectingRef.current = secretId;
+      store.setSubtitle(`[you crouch over ${curio.label.toLowerCase()}]`);
+      audioRef.current?.playFoley('stick');
+      store.touch();
+      return;
+    }
+
+    /*
+     * Walking out.
+     *
+     * The night is folded into this campsite's memory first, and then the
+     * page is reloaded into the next one. A reload rather than an in-place
+     * swap because leaving genuinely is a boot: the live-ops overlay, the
+     * server campsite registration and the SM-01's introduction all happen
+     * once at module scope, and a world rebuilt around them mid-session
+     * would be a world where three things quietly still belonged to the
+     * campsite you left. Fading out as you walk up a trail is the one moment
+     * in this product where a reload is not a seam.
+     */
+    if (id === 'trailhead') {
+      const next = nextCampsite(
+        rootSeed(() => state.campsiteSeed),
+        store.foundEnvironments(),
+        state.environmentId,
+      );
+      settleAt(next);
+      store.setSubtitle('[you walk back up the trail]');
+      audioRef.current?.playFoley('stick');
+      /*
+       * The interval and `pagehide` both fold the night away, and this is the
+       * one path that leaves deliberately — so it writes locally now rather
+       * than relying on the browser to fire an event during a navigation.
+       * The service half is best-effort and is not waited on: a campsite you
+       * walked out of is kept whether or not there is any signal.
+       */
+      const memory = store.rememberCampsite();
+      const campsiteId = campsiteIdRef.current;
+      if (campsiteId !== null) void syncRef.current?.syncCampsiteMemory(campsiteId, memory);
+      window.setTimeout(() => location.assign(location.pathname), 900);
+      return;
+    }
+
     const met = visitLandmark(ritual, id);
     if (met) {
       if (met.telling) store.setNotice(met.telling);
@@ -817,6 +967,37 @@ export function App({ store }: AppProps): React.ReactElement {
           layFuel(ritual);
           audioRef.current?.playFoley('stick');
           store.setNotice(describeArmful(ritual.gathering));
+        } else if (ritual.fire.flame <= 0.02 && ritual.fire.emberMass <= 0.03) {
+          /*
+           * A pit with nothing in it. Raking does nothing here — there is
+           * nothing under the ash to uncover — so the same reach puts a light
+           * to whatever has been laid instead.
+           *
+           * The answer is said plainly either way. A strike that does not take
+           * is the most confusing thing this verb can do, and the difference
+           * between "there is nothing dry in there" and "it did not catch this
+           * time" is the difference between going to look for better tinder
+           * and simply trying again.
+           */
+          /*
+           * Read the bed, not the flame.
+           *
+           * `strikeSpark` puts heat into the coals and lights the tinder; the
+           * flame itself is computed by `stepFire` and is still exactly what
+           * it was until the next step runs. Comparing flame here reported
+           * "the light does not take" over a fire visibly going up.
+           */
+          const before = ritual.fire.emberTemp;
+          tendFire(ritual, { type: 'strike' });
+          const tinder = ritual.fire.logs.some((log) => log.grade === 'tinder' && log.mass > 0);
+          if (!tinder) {
+            store.setNotice('Nothing in the pit will take a light. It wants something fine and dry.');
+          } else if (ritual.fire.emberTemp > before + 1) {
+            audioRef.current?.playFoley('stick');
+            store.setNotice('It catches, and goes up quick. Feed it while it is hungry.');
+          } else {
+            store.setNotice('The light does not take. Damp, probably.');
+          }
         } else {
           tendFire(ritual, { type: 'rake' });
         }
@@ -1021,7 +1202,16 @@ export function App({ store }: AppProps): React.ReactElement {
       // Exploring: one finger serves both looking and walking. The gesture
       // stays undecided until it either travels (look) or lifts (tap).
       if (!isAnchored(ritual.stage)) {
-        movement.useJoystick = state.accessibility.virtualJoystick;
+        /*
+         * The old floating joystick, only where there is no drawn pad.
+         *
+         * They are two answers to one question and they write to the same
+         * movement intent: with both live, a canvas drag and a thumb on the
+         * pad take turns overwriting each other, and letting go of one leaves
+         * whatever the other last said standing. The drawn pad wins wherever
+         * it exists, because a control you can see beats one you cannot.
+         */
+        movement.useJoystick = state.accessibility.virtualJoystick && !coarsePointer;
         movement.begin(event.clientX, event.clientY, performance.now());
         (event.target as Element).setPointerCapture?.(event.pointerId);
         return;
@@ -1434,6 +1624,9 @@ export function App({ store }: AppProps): React.ReactElement {
   const listenerScratch = useRef({ eye: vec3(), look: vec3() });
   /** The last weather change already announced, so it is said once. */
   const lastWeatherAt = useRef(-1);
+  const lastDiscoveryAt = useRef(-1);
+  /** The pit is remarked on once, on the way in, or not at all. */
+  const saidHearth = useRef(false);
   /** Whether this site's unit has introduced itself yet. */
   const metTheMachine = useRef(false);
   /** Which of this campsite's activities have introduced themselves. */
@@ -1562,6 +1755,53 @@ export function App({ store }: AppProps): React.ReactElement {
         lastWeatherAt.current = weatherEvent.at;
         store.setNotice(weatherEvent.telling);
       }
+      /*
+       * What the campsite gives up when somebody looks properly.
+       *
+       * `ritual.discoveryEvents` had no reader anywhere in the client: the
+       * simulation had been accumulating finds and trimming them off the back
+       * of the log, unread, since discovery was built. Twenty-eight of the
+       * catalogue's secrets could not fire at all and the other nineteen fired
+       * into nothing.
+       *
+       * `noticing` is deliberately quiet — the world leaning in at 60% of the
+       * hold, which is the player's only sign that staying put is working. It
+       * is a subtitle, not a marker and not a meter (§5.3).
+       */
+      const discovery = r.discoveryEvents[r.discoveryEvents.length - 1];
+      if (discovery && discovery.at !== lastDiscoveryAt.current) {
+        lastDiscoveryAt.current = discovery.at;
+        if (discovery.kind === 'discovered') {
+          store.setNotice(discovery.telling);
+          // The look is over: it has been seen. Straightening up here rather
+          // than leaving the crouch latched means the next thing you walk to
+          // is offered normally.
+          inspectingRef.current = null;
+        } else {
+          store.setSubtitle('[there is more here than you first thought]');
+        }
+      }
+      /*
+       * And what the pit looks like tonight, said once, when you are over it.
+       *
+       * The one line in the product that is about what *you* did last time
+       * rather than about where you are: coals still going under the ash you
+       * raked over them, or a cold pit and a wet woodpile. The words come from
+       * the simulation, like every other line the world speaks, and there is
+       * never a number in them — no nights kept, no run, nothing to protect.
+       *
+       * On reaching the pit rather than on arriving at the campsite. The first
+       * frame at the fire already carries the campsite's own remark about
+       * itself, and two notices in one frame means the player reads whichever
+       * was written second — this landed and was gone before it drew. It is
+       * also simply truer: you find out what is in a pit by standing over it.
+       */
+      if (!saidHearth.current && r.presence.places.includes('fireside')) {
+        saidHearth.current = true;
+        const pit = describeHearth(r.hearth);
+        if (pit) store.setNotice(pit);
+      }
+
       if (r.marshmallow.ignitedThisStep) {
         lastSubtitle.current = { text: '[the marshmallow catches fire]', at: performance.now() };
         store.setSubtitle('[the marshmallow catches fire]');
@@ -1668,6 +1908,18 @@ export function App({ store }: AppProps): React.ReactElement {
       stage: ritual.stage,
       caption: ritual.sandwich ? ritual.sandwich.caption : describeMoment(ritual),
     });
+    /*
+     * Tell the simulation what was in the frame.
+     *
+     * This is the call `photograph` was written for and never got. Made
+     * before the Passport opens, so the world has already recorded the
+     * sighting by the time the player is looking at the picture of it — and
+     * made from the same camera that produced the pixels, so what the sim is
+     * told matches what the photograph actually shows.
+     */
+    const subjects = subjectsInFrame(renderer.camera, ritual);
+    if (subjects.length > 0) photograph(ritual, subjects);
+
     if (photo) {
       store.addPhoto(photo);
       store.setOverlay('passport');
@@ -1842,6 +2094,7 @@ export function App({ store }: AppProps): React.ReactElement {
           roastControl={roastControl}
           onLiftSandwich={handleTakeSandwich}
           quality={quality}
+          inspectingRef={inspectingRef}
           onFrame={onFrame}
           arrivalRef={arrivalRef}
           onSimStep={onSimStep}
@@ -1902,10 +2155,36 @@ export function App({ store }: AppProps): React.ReactElement {
         textScale={state.accessibility.textScale}
         highContrast={state.accessibility.highContrast}
         subtitlesEnabled={state.accessibility.subtitles}
+        {...(/* Exactly when walking is live, which is not the same as
+                `exploring` above: that one also hides while a sandwich is in
+                hand, and you can absolutely walk around eating one. This is
+                the condition the pointer handler uses to decide whether
+                movement input means anything, so the pad is on screen if and
+                only if it would do something. */
+        coarsePointer &&
+        !isAnchored(state.stage) &&
+        state.stage !== 'arriving' &&
+        state.overlay === 'none'
+          ? {
+              stick: <ThumbStick onMove={handleStick} textScale={state.accessibility.textScale} />,
+            }
+          : {})}
+        {...((state.stage === 'eating' || state.stage === 'after') && ritual.sandwich && state.overlay === 'none'
+          ? {
+              bottomCentre: (
+                <BiteRing
+                  onBite={handleBite}
+                  textScale={state.accessibility.textScale}
+                  finished={ritual.bite.finished}
+                />
+              ),
+            }
+          : {})}
         onOpenPassport={() => store.setOverlay('passport')}
         onOpenSettings={() => store.setOverlay('settings')}
         onFinishRoasting={handleFinishRoasting}
         onTakeSandwich={handleTakeSandwich}
+        inspecting={inspectingRef.current}
         onPhoto={handlePhoto}
         onOpenTerminal={() => store.setOverlay('terminal')}
       />
@@ -1995,10 +2274,6 @@ export function App({ store }: AppProps): React.ReactElement {
         </div>
       )}
 
-      {/* Bite targets while eating */}
-      {(state.stage === 'eating' || state.stage === 'after') && ritual.sandwich && state.overlay === 'none' && (
-        <BiteRing onBite={handleBite} textScale={state.accessibility.textScale} finished={ritual.bite.finished} />
-      )}
 
       {state.overlay === 'passport' && (
         <Passport
@@ -2223,6 +2498,15 @@ export function App({ store }: AppProps): React.ReactElement {
 }
 
 /** Shared, never mutated: the simulation only ever reads a look rate. */
+/**
+ * The bearing the trail runs on, from the fire out.
+ *
+ * The same value `worldContent.ts` hands the simulation, so the trailhead,
+ * the arrival walk and the landmark placement that keeps the signage facing
+ * whoever is arriving all agree about which way "out" is.
+ */
+const TRAIL_BEARING = Math.atan2(LAYOUT.trailStart[2], LAYOUT.trailStart[0]);
+
 const NO_LOOK = { yaw: 0, pitch: 0 } as const;
 
 function SideButton({ label, onClick, textScale }: { label: string; onClick: () => void; textScale: number }): React.ReactElement {
@@ -2260,14 +2544,10 @@ function BiteRing({
     return (
       <div
         style={{
-          position: 'fixed',
-          left: '50%',
-          bottom: 'calc(10% + env(safe-area-inset-bottom, 0px))',
-          transform: 'translateX(-50%)',
           fontFamily: FONT_STACK.hand,
           fontSize: `${18 * textScale}px`,
           color: 'rgba(232,224,205,0.85)',
-          zIndex: 25,
+          whiteSpace: 'nowrap',
         }}
       >
         Nothing left but crumbs.
@@ -2277,27 +2557,21 @@ function BiteRing({
   return (
     <div
       style={{
-        position: 'fixed',
-        left: '50%',
-        /*
-         * Nine per cent up, *plus* the home indicator.
-         *
-         * Without the inset the ring is fine on a laptop and lands within a
-         * pixel of the "Make this real" corner on a notched phone, because
-         * that corner rises by thirty-four and the ring does not. Both have to
-         * move or neither does.
-         */
-        bottom: 'calc(9% + env(safe-area-inset-bottom, 0px))',
-        transform: 'translateX(-50%)',
         display: 'flex',
         /*
          * No gap. The spacing between the dots comes from the touch targets
          * being larger than the dots they contain, which is the point: eight
          * 44px targets are 352px, and they have to fit a 375px phone.
+         *
+         * It used to be fixed to the viewport at nine per cent up, plus the
+         * home indicator, with a comment about landing within a pixel of the
+         * "Make this real" corner on a notched phone. It sits in the HUD's
+         * bottom row now, so nothing about where it is has to be reasoned
+         * about against where anything else is.
          */
         gap: 0,
-        maxWidth: '100vw',
-        zIndex: 25,
+        flexWrap: 'wrap',
+        justifyContent: 'center',
       }}
     >
       {Array.from({ length: 8 }, (_, i) => (

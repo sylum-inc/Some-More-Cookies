@@ -406,10 +406,26 @@ test.describe('what the pit looks like when you get down to it', () => {
      */
     expect(banked.flame).toBeLessThan(burning);
     expect(banked.flame).toBeLessThan(0.12);
-    // Nothing standing up out of the pit worth the name. Relative rather than
-    // absolute, because `flameHeight` carries a small constant floor that a
-    // fire with no flame in it still reports.
-    expect(banked.flameHeight).toBeLessThan(drying.flameHeight * 0.6);
+    /*
+     * Nothing standing up out of the pit worth the name.
+     *
+     * Measured against `flat` — the fire you could cook on — and not against
+     * `drying`, which is a fire this test has itself damped by parking a log
+     * at 0.92 moisture on the stones.
+     *
+     * `flameHeight` is `(0.16 + flame * 0.72)` lifted by draught and by an
+     * fbm flicker term sampled at whatever `elapsed` has reached (fire.ts).
+     * The 0.16 is a floor a pit with no flame in it still reports. Against a
+     * baseline already down at 0.42, that floor alone is most of the 60%, so
+     * the comparison was really an assertion about the flicker's phase — and
+     * the phase depends on how many frames fitted into the preceding waits,
+     * which is a property of the machine. It failed here three runs out of
+     * three, at 0.253 against 0.251.
+     */
+    console.log(
+      `  banked flame height ${banked.flameHeight.toFixed(3)} against ${flat.flameHeight.toFixed(3)} burning`,
+    );
+    expect(banked.flameHeight).toBeLessThan(flat.flameHeight * 0.6);
     expect(banked.ashCover).toBeGreaterThan(0.8);
     expect(banked.emberTemp).toBeGreaterThan(300);
     await capture(page, '45-fire-banked-close');
@@ -555,10 +571,24 @@ test.describe('going and getting firewood', () => {
     const before = await readFire(page);
     await expect(page.getByTestId('reach')).toContainText('Lay it on');
     await page.getByTestId('reach').click();
-    await page.waitForTimeout(300);
 
-    const after = await readFire(page);
-    expect(after.logs.length).toBe(before.logs.length + 1);
+    /*
+     * A *new* log, by id, rather than one more log than there was.
+     *
+     * `stepFire` drops a log the moment its mass falls under four grams, and
+     * the walk out to the wood is now as long as the campsite is wide — up to
+     * 34 m each way since the walkable radius stopped being clamped at 16.
+     * The fire burns for all of it, so by the time the armful comes back a
+     * log can burn through between the two readings and the count comes back
+     * level: CI saw two logs before and two after, having taken the wood and
+     * lost an old one in the same breath. Ids come off a counter that only
+     * goes up, so a new one cannot be an old one, and this says what the test
+     * is actually about — the fire took the wood.
+     */
+    const known = new Set(before.logs.map((log) => log.id));
+    await expect
+      .poll(async () => (await readFire(page)).logs.some((log) => !known.has(log.id)), { timeout: 5_000 })
+      .toBe(true);
     const empty = (await act(page, 'armful')) as { pieces: unknown[] };
     expect(empty.pieces).toHaveLength(0);
   });
@@ -587,5 +617,229 @@ test.describe('going and getting firewood', () => {
     // purpose, and one that ran flat halfway to the woodpile would be a
     // different and worse game.
     expect(lit.on).toBe(true);
+  });
+});
+
+/**
+ * The fire you left is the fire you come back to.
+ *
+ * `createRitual` knew a first night from a return and nothing else: bank the
+ * coals under a careful cover of ash, or walk away from open flame, and the
+ * next visit opened on the identical banked pit either way. Everything the
+ * fire model simulates stopped mattering the moment the tab closed.
+ *
+ * The unit tests cover the physics. This covers the part only a browser can
+ * answer — whether a night actually survives being closed and reopened, which
+ * runs through the store, localStorage, the Passport's campsite memory and
+ * back into `createRitual`.
+ */
+test.describe('a fire that outlives the tab', () => {
+  /** Arrives at a campsite and waits until the walk in is over. */
+  async function arrive(page: import('@playwright/test').Page, camp: string): Promise<void> {
+    await page.goto(`/?camp=${camp}&env=pine_hollow`);
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(600);
+  }
+
+  /**
+   * Makes every arrival in this test land a night after the one before it.
+   *
+   * A fire has to survive a night for banking it to mean anything, and a
+   * Playwright test cannot wait for dusk. Winding `lastVisitAt` back by hand
+   * between loads does not work: the app saves on the way out as well as on a
+   * timer, so the page being left overwrites the value — the first version of
+   * this wound the clock back twelve hours and the fire arrived having aged
+   * six minutes. An init script runs before any page script on every
+   * navigation, which is after the last save of the previous page and before
+   * the read of the next one.
+   */
+  async function nightsApart(page: import('@playwright/test').Page, hours = 12): Promise<void> {
+    await page.addInitScript((ago) => {
+      const raw = localStorage.getItem('some-more/passport/v1');
+      if (!raw) return;
+      try {
+        const passport = JSON.parse(raw) as { campsites?: Record<string, { lastVisitAt: number }> };
+        for (const camp of Object.values(passport.campsites ?? {})) {
+          camp.lastVisitAt = Date.now() - ago * 3_600_000;
+        }
+        localStorage.setItem('some-more/passport/v1', JSON.stringify(passport));
+      } catch {
+        // A corrupt Passport is the app's problem to survive, not this one's.
+      }
+    }, hours);
+  }
+
+  /** Saves the night the way the product does, then comes back to it. */
+  async function comeBackTomorrow(page: import('@playwright/test').Page, camp: string): Promise<void> {
+    await page.evaluate(() => window.__someMore!.store.rememberCampsite());
+    await arrive(page, camp);
+  }
+
+  /** What is in the pit right now. */
+  async function pit(
+    page: import('@playwright/test').Page,
+  ): Promise<{ emberMass: number; emberTemp: number; ashCover: number }> {
+    return page.evaluate(() => {
+      const fire = (window.__someMore!.store.state.ritual as unknown as {
+        fire: { emberMass: number; emberTemp: number; ashCover: number };
+      }).fire;
+      return { emberMass: fire.emberMass, emberTemp: fire.emberTemp, ashCover: fire.ashCover };
+    });
+  }
+
+  test('banking the coals keeps them, and walking away from them does not', async ({ page }) => {
+    await nightsApart(page);
+    await arrive(page, 'hearth-kept');
+    // Ash over the coals: the technique the whole model is built around.
+    await act(page, 'bank');
+    await page.waitForTimeout(600);
+    const banked = await pit(page);
+    expect(banked.ashCover, 'banking put no ash over anything').toBeGreaterThan(0.5);
+
+    await comeBackTomorrow(page, 'hearth-kept');
+    const kept = await pit(page);
+    // eslint-disable-next-line no-console
+    console.log(`  banked, a night later: ${kept.emberMass.toFixed(3)} kg at ${Math.round(kept.emberTemp)}°C`);
+    expect(kept.emberMass, 'a banked fire went out overnight').toBeGreaterThan(0.03);
+    expect(kept.emberTemp).toBeGreaterThan(140);
+
+    /*
+     * And the other half, at a campsite of its own so the two nights cannot
+     * borrow each other's memory. Same night, same length of absence, no ash
+     * raked over the bed before leaving.
+     */
+    await arrive(page, 'hearth-lost');
+    await comeBackTomorrow(page, 'hearth-lost');
+    const lost = await pit(page);
+    // eslint-disable-next-line no-console
+    console.log(`  unbanked, a night later: ${lost.emberMass.toFixed(3)} kg at ${Math.round(lost.emberTemp)}°C`);
+    expect(lost.emberMass, 'an unbanked fire survived the night').toBeLessThan(0.03);
+    expect(lost.emberMass).toBeLessThan(kept.emberMass);
+  });
+
+  test('a pit that went out can be brought back', async ({ page }) => {
+    /*
+     * The dead end this nearly shipped with.
+     *
+     * `stepFire` has exactly one route to ignition — heat already in the pit —
+     * and until a night could be lost there was always some. Once a hearth
+     * could genuinely go out, a player could arrive at a cold pit, gather
+     * every stick in the wood, lay all of it on, and watch nothing happen.
+     * Found by opening a screenshot of a cold pit and reading the button under
+     * it, which said "Poke the coals".
+     */
+    await nightsApart(page);
+    await arrive(page, 'hearth-relight');
+    await comeBackTomorrow(page, 'hearth-relight');
+
+    const cold = await pit(page);
+    expect(cold.emberMass, 'this pit did not go out, so it proves nothing').toBeLessThan(0.03);
+
+    // What a cold pit offers is not poking it.
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      player.position.x = 1;
+      player.position.z = 0;
+    });
+    await expect(page.getByTestId('reach')).toHaveText('Lay a new fire', { timeout: 10_000 });
+
+    // Go and get something fine and dry, and lay it on.
+    const patch = await page.evaluate(() => {
+      const patches = (window.__someMore!.actions['fuelPatches'] as () => {
+        id: string;
+        grade: string;
+        x: number;
+        z: number;
+      }[])();
+      return patches.find((p) => p.grade === 'tinder') ?? patches[0]!;
+    });
+    await page.evaluate((p) => {
+      const player = window.__someMore!.player!;
+      player.position.x = p.x;
+      player.position.z = p.z;
+      (window.__someMore!.actions['gather'] as (id: string) => unknown)(p.id);
+    }, patch);
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      player.position.x = 1;
+      player.position.z = 0;
+    });
+    await page.getByTestId('reach').click();
+
+    // Now there is something in it to light, and the prompt says so.
+    await expect(page.getByTestId('reach')).toHaveText('Put a light to it', { timeout: 10_000 });
+    await page.getByTestId('reach').click();
+
+    /*
+     * Struck — and read the answer the world gives, not the pit's temperature.
+     *
+     * Whether it catches is a real roll against how damp the tinder is, so
+     * this tries again rather than asserting the first match takes: that is
+     * the mechanic, not a flake. And what it waits for is the line the product
+     * says, because an armful of tinder with nothing above it burns out in
+     * twenty seconds — the first version of this polled `emberTemp > 200`,
+     * passed alone, and failed in the suite by sampling after the tinder was
+     * gone. It was asserting a moment rather than an event.
+     */
+    let caught = false;
+    for (let attempt = 0; attempt < 8 && !caught; attempt++) {
+      const said = (await page.getByTestId('notice').textContent()) ?? '';
+      if (said.startsWith('It catches')) {
+        caught = true;
+        break;
+      }
+      await page.getByTestId('reach').click();
+      await page.waitForTimeout(500);
+      caught = ((await page.getByTestId('notice').textContent()) ?? '').startsWith('It catches');
+    }
+    expect(caught, 'eight matches and a cold pit never took a light').toBe(true);
+  });
+
+  test('says what it finds, and never counts anything', async ({ page }) => {
+    await nightsApart(page);
+    await arrive(page, 'hearth-said');
+    await act(page, 'bank');
+    await page.waitForTimeout(400);
+    await comeBackTomorrow(page, 'hearth-said');
+
+    /*
+     * Walk to the pit: that is when it is remarked on, and the notice channel
+     * carries several other things on the way in.
+     *
+     * Asserting "a notice is visible" is what the first version of this did,
+     * and it passed on the campsite's description of its own ground while the
+     * hearth line was being written and overwritten in the same frame. So this
+     * waits for the line the simulation actually composes for this pit.
+     */
+    const expected = await page.evaluate(() => {
+      const w = window.__someMore!;
+      return w.describeHearth!(w.store.state.ritual.hearth);
+    });
+    expect(expected, 'the simulation had nothing to say about a kept pit').not.toBeNull();
+
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      player.position.x = 1.2;
+      player.position.z = 0;
+    });
+
+    const notice = page.getByTestId('notice');
+    await expect(notice).toHaveText(expected!, { timeout: 10_000 });
+    const said = expected!;
+    // eslint-disable-next-line no-console
+    console.log(`  the pit said: ${said}`);
+    expect(said.length).toBeGreaterThan(15);
+    /*
+     * §5.3: no score, no streak, no total. A line reading "4 nights kept"
+     * would be the whole design lost in one string, and it is exactly the
+     * shape of thing that gets added later by somebody being helpful.
+     */
+    expect(said, 'the pit reported a number at the player').not.toMatch(/\d/);
   });
 });

@@ -294,6 +294,8 @@ interface SecretRuntime {
   readonly conditions: readonly DiscoveryCondition[];
   /** Seconds the conditions have held continuously. */
   heldSeconds: number;
+  /** Found by crouching over a thing rather than by being there when it happens. */
+  deliberate: boolean;
   /** Seconds they must hold before it can surface. */
   readonly requiredSeconds: number;
   /** True once the player is close enough that the world starts to hint. */
@@ -339,13 +341,33 @@ export function createDiscovery(config: DiscoveryConfig): DiscoveryState {
 
   const secrets: SecretRuntime[] = config.secrets.map((secret) => {
     const alreadyFound = known.some((record) => record.secretId === secret.id);
+    const conditions = overrides.get(secret.id) ?? defaultConditions(secret);
+    /*
+     * Two kinds of finding, on two clocks.
+     *
+     * Most secrets are *witnessed*: a lantern crossing the road, a sound a
+     * long way off, the camp being different from how you left it. You are
+     * not doing anything — you are there, and it happens — so the wait is
+     * long and the surfacing is a chance, because the same evening should not
+     * reliably produce the same event.
+     *
+     * A secret with an `inspecting` condition is not witnessed, it is
+     * *examined*. You have walked out to a thing and crouched over it on
+     * purpose. Twenty-six seconds of holding still and then a dice roll is
+     * the wrong shape for that: it turns care into a stakeout, and a player
+     * who does everything right can hold a perfect crouch and get nothing.
+     * So a deliberate look is shorter, and once it is held it surfaces —
+     * rarity decides how long you have to look, not whether looking works.
+     */
+    const deliberate = conditions.some((condition) => condition.kind === 'inspecting');
     return {
       secret,
-      conditions: overrides.get(secret.id) ?? defaultConditions(secret),
+      conditions,
       heldSeconds: 0,
+      deliberate,
       // A common secret asks for a few seconds of the right conditions; a rare
       // one asks for a real stretch of them.
-      requiredSeconds: lerp(26, 5, clamp01(secret.rarity)),
+      requiredSeconds: deliberate ? lerp(12, 5, clamp01(secret.rarity)) : lerp(26, 5, clamp01(secret.rarity)),
       noticing: false,
       // A one-time secret that has already happened never happens again.
       discovered: alreadyFound && secret.oneTime,
@@ -476,8 +498,15 @@ export function stepDiscovery(
     }
     if (runtime.heldSeconds < runtime.requiredSeconds) continue;
 
-    const chance = SURFACE_RATE * clamp01(runtime.secret.rarity) * dt;
-    if (!rng.chance(chance)) continue;
+    /*
+     * A look that is held is a look that finds it. The roll is what keeps a
+     * witnessed secret from being a scheduled event; there is nothing for it
+     * to protect when the player is already crouched over the thing.
+     */
+    if (!runtime.deliberate) {
+      const chance = SURFACE_RATE * clamp01(runtime.secret.rarity) * dt;
+      if (!rng.chance(chance)) continue;
+    }
 
     runtime.discovered = true;
     const evidence = runtime.secret.oneTime ? runtime.secret.leavesEvidence : null;

@@ -19,6 +19,7 @@ import {
   fireSignals,
   rakeEmbers,
   bankFire,
+  strikeSpark,
   createBankedFire,
   repositionLog,
   type FuelGrade,
@@ -30,6 +31,8 @@ import {
   type FireSignals,
   type FireState,
 } from './fire.js';
+import { NEW_HEARTH, restHearth, wakeFire, wetnessOf, type Hearth } from './hearth.js';
+import type { Familiarity } from './familiarity.js';
 import {
   createMarshmallow,
   stepRoast,
@@ -76,6 +79,7 @@ import {
   type PlaceState,
   type PlaceConditions,
 } from './place.js';
+import { placeCurios, curioAt, type PlacedCurio } from './curios.js';
 import {
   placeLandmarks,
   landmarkAt,
@@ -256,8 +260,25 @@ export interface RitualOptions {
   world?: RitualWorldContent;
   /** Which visit to this campsite this is. 1 is the first. */
   visitIndex?: number;
+  /**
+   * The pit as this player left it, and how long ago.
+   *
+   * Omitted on a first night, and omitted by every caller that has no memory
+   * to restore — a test, a link somebody shared — which is the same thing as
+   * arriving somewhere nobody has camped.
+   */
+  hearth?: Hearth;
+  /** Hours since this player last left this campsite. */
+  hoursAway?: number;
   /** Visits already banked for known individuals, keyed by individual id. */
   priorVisits?: Readonly<Record<string, number>>;
+  /**
+   * What the animals here already know of this player.
+   *
+   * Two layers restored from two places: the species floor travels with the
+   * Passport, the individual bonds belong to this campsite's memory.
+   */
+  familiarity?: Familiarity;
   /** What this player already found here, restored from the Passport. */
   knownSecrets?: readonly DiscoveryRecord[];
   /** Which part of the night the session opens in. */
@@ -507,6 +528,8 @@ export interface RitualState {
   gathering: GatheringState;
   /** The named things at this campsite, and where they turned out to be. */
   landmarks: PlacedLandmark[];
+  /** Things you find by crouching over them (see `curios.ts`). */
+  curios: PlacedCurio[];
   /** The campsite's own voice: what it has said about itself, and when. */
   place: PlaceState;
   weather: WeatherState;
@@ -616,12 +639,32 @@ export interface RitualState {
   options: Required<
     Omit<
       RitualOptions,
-      'weatherProfile' | 'world' | 'priorVisits' | 'knownSecrets' | 'knownConstellations'
+      | 'weatherProfile'
+      | 'world'
+      | 'priorVisits'
+      | 'knownSecrets'
+      | 'knownConstellations'
+      // Inputs, not settings: what they produce is `hearth` below, and keeping
+      // the raw pair here as well would be two answers to one question.
+      | 'hearth'
+      | 'hoursAway'
+      // Restored input too: what it becomes lives on `wildlife.familiarity`,
+      // which grows over the evening, and two copies would disagree by dawn.
+      | 'familiarity'
     >
   > & {
     weatherProfile: WeatherProfile;
     world: RitualWorldContent;
   };
+  /**
+   * The pit as tonight found it: what was left here, after the night between.
+   *
+   * Kept on the state rather than derived on demand because the client has to
+   * bank it again on the way out, and banking has to know what it is replacing
+   * — a cold pit that stays cold counts a visit down, and one that is alight
+   * again stops counting at all.
+   */
+  hearth: Hearth;
   /** Stage-change flag for one step, consumed by audio and UI. */
   stageChangedTo: RitualStage | null;
 }
@@ -669,8 +712,35 @@ export function createRitual(options: RitualOptions): RitualState {
    * first thing you do, and it is the only opening that could not be had on a
    * first visit, which is the point: it is a reason to come back.
    */
+  /*
+   * A campsite you have used before is found the way you left it.
+   *
+   * This used to be a coin with two sides: first visit, somebody's fire is
+   * going; every visit after that, a banked pit at a fixed two hundred
+   * degrees. Whether last night ended with the coals buried under a careful
+   * cover of ash or with bare flame left burning in the rain made no
+   * difference to what you walked back into — the whole of what the fire model
+   * simulates stopped mattering the moment the tab closed.
+   *
+   * Now the pit is the one you left, cooled by the night in between and by
+   * whatever fell on it. `restHearth` is where that happens; this only has to
+   * decide between the opening image and your own hearth.
+   */
+  const rested = options.hearth
+    ? restHearth(options.hearth, {
+        hours: options.hoursAway ?? 0,
+        ambientC: weather.temperatureC,
+        wetness: wetnessOf(weatherProfile),
+        rng: rng.split('hearth'),
+      })
+    : null;
   const returning = (options.visitIndex ?? 1) > 1;
-  const fire = returning ? createBankedFire(fireConfig) : createEstablishedFire(fireConfig);
+  const fire = rested
+    ? wakeFire(rested, fireConfig)
+    : returning
+      ? createBankedFire(fireConfig)
+      : createEstablishedFire(fireConfig);
+
   // Built before the state object so the landmarks can be put at the water.
   const water = world.water
     ? createWater(varyWater(world.water, variations), {
@@ -680,20 +750,40 @@ export function createRitual(options: RitualOptions): RitualState {
       })
     : null;
 
+  const landmarks = placeLandmarks({
+    landmarks: world.landmarks ?? [],
+    radius: walkableRadiusM,
+    trailBearing: world.trailBearing ?? 0.69,
+    // Stepping stones go at the water, which means the water has to exist
+    // before the things that stand beside it are placed.
+    ...(water ? { shore: { bearing: water.shore.bearing, distanceM: water.shore.distanceM } } : {}),
+    ...(world.occupied ? { occupied: world.occupied } : {}),
+    rng: rng.split('landmarks'),
+  });
+
+  /*
+   * And the small things you only find by crouching over them.
+   *
+   * After the landmarks, and handed them, because most of these secrets
+   * describe something that sits on or under a thing the manifest already
+   * names — so a curio has to know where those ended up in order to stand
+   * beside one rather than inside it.
+   */
+  const curios = placeCurios({
+    secrets: world.secrets ?? [],
+    radius: walkableRadiusM,
+    trailBearing: world.trailBearing ?? 0.69,
+    landmarks,
+    ...(world.occupied ? { occupied: world.occupied } : {}),
+    rng: rng.split('curios'),
+  });
+
   return {
     stage: 'arriving',
     fire,
     place: createPlace(),
-    landmarks: placeLandmarks({
-      landmarks: world.landmarks ?? [],
-      radius: walkableRadiusM,
-      trailBearing: world.trailBearing ?? 0.69,
-      // Stepping stones go at the water, which means the water has to exist
-      // before the things that stand beside it are placed.
-      ...(water ? { shore: { bearing: water.shore.bearing, distanceM: water.shore.distanceM } } : {}),
-      ...(world.occupied ? { occupied: world.occupied } : {}),
-      rng: rng.split('landmarks'),
-    }),
+    landmarks,
+    curios,
     gathering: createGathering({
       sources: world.fuel ?? [],
       radius: walkableRadiusM,
@@ -710,6 +800,16 @@ export function createRitual(options: RitualOptions): RitualState {
       campsiteSeed: seed,
       roster: varyRoster(world.wildlife ?? [], variations),
       priorVisits: options.priorVisits,
+      ...(options.familiarity ? { familiarity: options.familiarity } : {}),
+      /*
+       * Animals arrive from outside the campsite and leave by going out of
+       * it. The default 30 m was chosen when nowhere was bigger than that,
+       * and a campsite you can walk 34 m across would have had deer
+       * materialising and evaporating within arm's reach of a standing
+       * player. The margin keeps the edge of the world and the edge of the
+       * roster from being the same circle.
+       */
+      departureRadiusM: Math.max(30, walkableRadiusM * 1.35),
     }),
     radio: createRadio(varyRadioProfile(world.radio ?? SILENT_DIAL, variations), {
       campsiteSeed: seed,
@@ -788,6 +888,7 @@ export function createRitual(options: RitualOptions): RitualState {
       weatherProfile,
       world,
     },
+    hearth: rested ?? NEW_HEARTH,
     stageChangedTo: null,
   };
 }
@@ -1155,6 +1256,9 @@ function stepWorld(ritual: RitualState, dt: number): void {
       (wildlifeScratch.cues.voices ?? 0) * 0.6 +
       (wildlifeScratch.cues.footsteps ?? 0) * 0.4,
   );
+  // What the camera caught this step, so an animal photographed without
+  // bolting comes to know the person holding it.
+  wildlifeScratch.photographed = presence.photographed;
   stepWildlife(ritual.wildlife, wildlifeScratch, dt, stream(ritual, 'wildlife'));
 
   // --- discovery -----------------------------------------------------------
@@ -1354,6 +1458,7 @@ export type FireAction =
   | { type: 'rake' }
   /** Raking ash up over the coals, against rain or against tomorrow. */
   | { type: 'bank'; strength?: number }
+  | { type: 'strike' }
   | { type: 'fan'; strength?: number };
 
 export function tendFire(ritual: RitualState, action: FireAction): void {
@@ -1374,6 +1479,16 @@ export function tendFire(ritual: RitualState, action: FireAction): void {
     rakeEmbers(ritual.fire, 1);
   } else if (action.type === 'bank') {
     bankFire(ritual.fire, action.strength ?? 1);
+  } else if (action.type === 'strike') {
+    /*
+     * A light held to whatever is in the pit.
+     *
+     * Only reachable when nothing is alight, and it needs tinder — so the
+     * verb is the end of a sequence (find dry fuel, lay it, light it) rather
+     * than a button that produces fire. `strikeSpark` decides whether it
+     * catches, from how wet the driest thing in there is.
+     */
+    strikeSpark(ritual.fire, stream(ritual, 'strike'));
   } else {
     fanFire(ritual.fire, action.strength ?? 1);
   }
@@ -1580,6 +1695,35 @@ export function setPresence(ritual: RitualState, update: Partial<PresenceInput>)
   if (update.seated !== undefined) presence.seated = update.seated;
   if (update.seatId !== undefined) presence.seatId = update.seatId;
   if (update.photographed) presence.photographed = [...presence.photographed, ...update.photographed];
+}
+
+/**
+ * Crouches over one of the campsite's small things, or straightens up again.
+ *
+ * The whole of the discovery model's `inspecting` condition, which nothing in
+ * the product could satisfy before this existed. It is a *posture*, not a
+ * press: `stepDiscovery` wants the condition held continuously for five to
+ * twelve seconds depending on how rare the thing is, and lets it drain at one
+ * and a half times that rate when it lapses. A verb that set `inspecting` for
+ * one frame would discover nothing, ever, and would have shipped green.
+ *
+ * So the client latches it and keeps writing it through `setPresence` until
+ * the player walks away, stands up, or looks at something else — and this
+ * only says which thing is being looked at.
+ *
+ * Returns the curio, so the caller can say its name.
+ */
+export function lookCloser(ritual: RitualState, secretId: string): PlacedCurio | null {
+  const curio = curioAt(ritual.curios, secretId);
+  if (!curio) return null;
+  curio.looked = true;
+  ritual.presence.inspecting = secretId;
+  return curio;
+}
+
+/** Straightens up. Anything held stops being held. */
+export function stopLooking(ritual: RitualState): void {
+  ritual.presence.inspecting = null;
 }
 
 /**

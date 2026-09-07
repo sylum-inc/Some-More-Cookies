@@ -74,6 +74,7 @@ export type FireAction =
   | { type: 'move-log'; logId: string; spot: Partial<LogSpot> }
   | { type: 'rake' }
   | { type: 'bank'; strength?: number }
+  | { type: 'strike' }
   | { type: 'fan'; strength?: number };
 
 /**
@@ -1073,6 +1074,8 @@ function toTendFireAction(action: FireAction): TendFireAction | null {
       return { action: 'move_log', logId: action.logId, spot: action.spot };
     case 'rake':
       return { action: 'rake' };
+    case 'strike':
+      return { action: 'strike' };
     case 'bank':
       return { action: 'bank', strength: action.strength ?? 1 };
     case 'fan':

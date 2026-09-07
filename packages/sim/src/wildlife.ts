@@ -31,6 +31,13 @@
  */
 
 import { approach, clamp, clamp01, lerp, smoothstep, TAU } from './math.js';
+import {
+  NO_FAMILIARITY,
+  easedShyness,
+  rememberCalmNight,
+  rememberPhotograph,
+  type Familiarity,
+} from './familiarity.js';
 import { Rng, hashString, mixSeeds } from './rng.js';
 import { createEvidence, type SignificanceEvidence } from './significance.js';
 import { horizontalDistance, vec3, type Vec3 } from './types.js';
@@ -216,6 +223,16 @@ export interface WildlifeAnimal {
   drive: number;
   /** 0..1 how alarmed it currently is. */
   alarm: number;
+  /**
+   * Whether it has bolted at any point tonight.
+   *
+   * Latched rather than read off the current phase, because an animal that
+   * startled, settled and then wandered off calmly still had a bad evening
+   * with you, and it is the evening that is remembered.
+   */
+  spooked: boolean;
+  /** Whether a picture of it has already been credited tonight. */
+  photographed: boolean;
   /** 0..1 how interested in the camp it currently is. */
   interest: number;
   /** Seconds in the current phase. */
@@ -288,6 +305,14 @@ export interface WildlifeInput {
    * fox put off by the walk in comes back for a player who sat down.
    */
   settleRate?: number;
+  /**
+   * Species photographed since the last step.
+   *
+   * The flash is already a real trade — `photograph` sets `startle`, and a
+   * startled animal leaves — so a picture that reaches an animal still
+   * standing there is by construction one taken carefully.
+   */
+  photographed?: readonly string[];
 }
 
 export function createWildlifeInput(overrides: Partial<WildlifeInput> = {}): WildlifeInput {
@@ -357,14 +382,26 @@ export interface WildlifeConfig {
   readonly departureRadiusM?: number;
   /** Visits already banked for known individuals, keyed by individual id. */
   readonly priorVisits?: Readonly<Record<string, number>>;
+  /** What this player is already known to: a species floor and any bonds here. */
+  readonly familiarity?: Familiarity;
 }
 
 export interface WildlifeState {
-  readonly config: Required<Omit<WildlifeConfig, 'priorVisits'>> & { campsiteSeed: number };
+  readonly config: Required<Omit<WildlifeConfig, 'priorVisits' | 'familiarity'>> & {
+    campsiteSeed: number;
+  };
   readonly roster: readonly WildlifeSpecies[];
   /** Every individual this campsite can produce, resident and transient. */
   readonly individuals: WildlifeIndividual[];
   readonly animals: WildlifeAnimal[];
+  /**
+   * What this player is known to, tonight's learning included.
+   *
+   * Starts from what the caller restored and grows as animals leave calm or
+   * are photographed without bolting. The client merges it back into the
+   * Passport and the campsite's memory; nothing here is ever shown as a value.
+   */
+  familiarity: Familiarity;
   /** 0..1 how much the player is currently disturbing the place. */
   disturbance: number;
   /** Seconds of genuine stillness accumulated. */
@@ -409,6 +446,7 @@ export function createWildlife(config: WildlifeConfig): WildlifeState {
     roster: config.roster,
     individuals,
     animals: [],
+    familiarity: config.familiarity ?? NO_FAMILIARITY,
     disturbance: 0,
     stillnessSeconds: 0,
     calm: 0,
@@ -452,8 +490,19 @@ function repulsion(species: WildlifeSpecies, cues: WildlifeCueField): number {
   return worst;
 }
 
-function effectiveShyness(animal: { species: WildlifeSpecies; individual: WildlifeIndividual }): number {
-  return clamp01(animal.species.shyness - animal.individual.boldness * 0.16);
+function effectiveShyness(
+  animal: { species: WildlifeSpecies; individual: WildlifeIndividual },
+  familiarity: Familiarity = NO_FAMILIARITY,
+): number {
+  /*
+   * The animal's own nerve first, then what it remembers of this player.
+   *
+   * `easedShyness` takes the computed value rather than the raw species one so
+   * that boldness and everything else stay exactly as they were and
+   * recognition is the last word rather than a competing one.
+   */
+  const own = clamp01(animal.species.shyness - animal.individual.boldness * 0.16);
+  return easedShyness(own, animal.species.id, animal.individual.id, familiarity);
 }
 
 function effectiveCuriosity(animal: { species: WildlifeSpecies; individual: WildlifeIndividual }): number {
@@ -560,6 +609,16 @@ function setPhase(state: WildlifeState, animal: WildlifeAnimal, phase: AnimalPha
   if (animal.phase === phase) return;
   animal.phase = phase;
   animal.phaseSeconds = 0;
+  /*
+   * Startling is what counts as a bad evening, not leaving.
+   *
+   * `fleeing` is the only route out of this model — an animal that has simply
+   * had enough of watching you walks off through the same phase a frightened
+   * one does — so latching on it marked every departure a flight and nothing
+   * was ever credited. Startling is the honest signal: it means the alarm
+   * actually crossed this animal's threshold.
+   */
+  if (phase === 'startled') animal.spooked = true;
   if (phase === 'startled') emit(state, 'startled', animal);
   if (phase === 'watching') emit(state, 'settled', animal);
 }
@@ -591,6 +650,8 @@ function spawn(state: WildlifeState, species: WildlifeSpecies, rng: Rng): void {
     individual,
     species,
     phase: 'approaching',
+    spooked: false,
+    photographed: false,
     distanceM: state.config.departureRadiusM * rng.range(0.7, 1),
     bearing: rng.range(0, TAU),
     position: vec3(),
@@ -710,7 +771,7 @@ export function stepWildlife(state: WildlifeState, input: WildlifeInput, dt: num
     animal.phaseSeconds += dt;
     animal.presentSeconds += dt;
 
-    const shy = effectiveShyness(animal);
+    const shy = effectiveShyness(animal, state.familiarity);
     const curiosity = effectiveCuriosity(animal);
     const comfort = lerp(1.1, 13, shy);
     const repelled = repulsion(animal.species, cues);
@@ -723,6 +784,26 @@ export function stepWildlife(state: WildlifeState, input: WildlifeInput, dt: num
     );
     animal.alarm = approach(animal.alarm, threat, threat > animal.alarm ? 7 : 0.3, dt);
     animal.interest = approach(animal.interest, clamp01(curiosity * 0.55 + attracted * 0.7 - animal.alarm), 0.5, dt);
+
+    /*
+     * A picture taken of something that did not bolt at being photographed.
+     *
+     * This is the other end of the photograph mechanic: `photograph` makes the
+     * flash a real trade by setting `startle`, and a startled animal leaves —
+     * so a shot that finds its subject still standing here is by construction
+     * one taken carefully, and that is the whole condition. Credited once per
+     * animal per visit, because a burst of frames is one moment.
+     */
+    if (!animal.photographed && input.photographed?.includes(animal.species.id) === true) {
+      animal.photographed = true;
+      if (!animal.spooked) {
+        state.familiarity = rememberPhotograph(
+          state.familiarity,
+          animal.species.id,
+          animal.individual.id,
+        );
+      }
+    }
 
     const startleThreshold = 0.32 + (1 - shy) * 0.42;
     const fleeing = animal.phase === 'fleeing' || animal.phase === 'gone';
@@ -811,6 +892,16 @@ export function stepWildlife(state: WildlifeState, input: WildlifeInput, dt: num
   for (let i = state.animals.length - 1; i >= 0; i--) {
     const animal = state.animals[i] as WildlifeAnimal;
     if (animal.phase !== 'gone') continue;
+    /*
+     * An animal that walks away calm remembers you a little better.
+     *
+     * Deliberately not "time spent nearby": one that fled learned the
+     * opposite, and crediting the minutes it spent frightened would teach a
+     * player that standing over a nervous fox is how you befriend it.
+     */
+    if (!animal.spooked) {
+      state.familiarity = rememberCalmNight(state.familiarity, animal.species.id, animal.individual.id);
+    }
     emit(state, 'departed', animal);
     animal.individual.present = false;
     // Residents wait a while before coming back so recurrence stays a pleasure.

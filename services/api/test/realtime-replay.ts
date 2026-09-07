@@ -87,6 +87,8 @@ export function applyIntent(ritual: RitualState, intent: InputIntent): void {
         tendFire(ritual, { type: 'rake' });
       } else if (intent.action.action === 'bank') {
         tendFire(ritual, { type: 'bank', strength: intent.action.strength });
+      } else if (intent.action.action === 'strike') {
+        tendFire(ritual, { type: 'strike' });
       } else {
         tendFire(ritual, { type: 'fan', strength: intent.action.strength });
       }

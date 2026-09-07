@@ -567,6 +567,53 @@ export function createBankedFire(config: Partial<FireConfig> = {}): FireState {
   return fire;
 }
 
+/**
+ * Strikes a light in a pit with nothing alight in it.
+ *
+ * The product never needed this. The pit was always either somebody else's
+ * established fire or a banked bed holding two hundred degrees, so there was
+ * always heat for tinder to catch from — and `stepFire` has exactly one path
+ * to ignition, which is heat already in the pit. The moment a night could
+ * genuinely be lost, that became a dead end: a player arriving at a cold pit
+ * could gather all the wood in the wood, lay every piece of it on, and watch
+ * nothing happen for as long as they cared to wait.
+ *
+ * What it is not is a button that makes fire. It needs tinder in the pit and
+ * it can fail, and what decides whether it fails is how wet that tinder is —
+ * so a hearth that took rain while you were away is harder to bring back than
+ * one that did not, which is the same lesson the rest of the model teaches.
+ * Anybody camping has a means of lighting a fire; the interesting part was
+ * never the match.
+ *
+ * Returns whether anything caught.
+ */
+export function strikeSpark(fire: FireState, rng: Rng): boolean {
+  // Something already alight does not want a match.
+  if (fire.flame > 0.02 || fire.emberMass > 0.03) return false;
+
+  const tinder = fire.logs.filter((log) => log.grade === 'tinder' && log.mass > 0);
+  if (tinder.length === 0) return false;
+
+  // The driest thing in the pit is what you hold the flame to.
+  const best = tinder.reduce((driest, log) => (log.moisture < driest.moisture ? log : driest));
+  // Bone dry catches nearly every time; sodden almost never, and never quite
+  // never — a fire lit from wet tinder on the fourth attempt is a real evening.
+  const chance = clamp01(0.92 - best.moisture * 0.85);
+  if (!rng.chance(chance)) return false;
+
+  /*
+   * A flame held to tinder, not a fire. It seeds the bed with just enough heat
+   * for the ignition path that already exists to take over, and if there is
+   * nothing above the tinder to catch, it goes out again on its own.
+   */
+  best.ignition = Math.max(best.ignition, 0.55);
+  best.heat = Math.max(best.heat, 0.5);
+  fire.emberMass = Math.max(fire.emberMass, 0.012);
+  fire.emberTemp = Math.max(fire.emberTemp, 420);
+  fire.oxygen = clamp01(Math.max(fire.oxygen, 0.6));
+  return true;
+}
+
 /** Where a piece of fuel is being put, with the parts the wood decides left out. */
 export type LogPlacement = { x: number; z: number; angle?: number; lean?: number };
 

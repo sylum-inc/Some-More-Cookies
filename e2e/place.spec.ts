@@ -109,7 +109,19 @@ test.describe('the named things', () => {
     const landmarks = await readLandmarks(page);
     expect(landmarks.length).toBeGreaterThan(2);
 
-    const walkable = await page.evaluate(() => window.__someMore!.store.state.ritual.options.walkableRadiusM ?? 13);
+    /*
+     * The fence the player is actually inside, not the number the placement
+     * was computed from.
+     *
+     * This read `ritual.options.walkableRadiusM` — the radius handed to the
+     * simulation — and so compared the landmarks against the very value that
+     * decided where they went, which is a comparison that cannot fail. It
+     * passed for the whole time the client was fencing the player at 16 m
+     * while the simulation placed at up to 70, and 38 of 58 landmarks across
+     * the catalogue stood somewhere nobody could walk. `walkable.radius` is
+     * the client's own bound, so the two have to genuinely agree.
+     */
+    const walkable = await page.evaluate(() => window.__someMore!.walkable?.radius ?? 13);
     for (const landmark of landmarks) {
       const distance = Math.hypot(landmark.x, landmark.z);
       expect(distance, `${landmark.id} is in the fire`).toBeGreaterThan(2.2);
@@ -291,7 +303,19 @@ test.describe('the firelight is this campsite’s firelight', () => {
       off.height = 100;
       const ctx = off.getContext('2d')!;
       ctx.drawImage(three.gl.domElement, 0, 0, off.width, off.height);
-      const data = ctx.getImageData(0, 60, off.width, 30).data;
+      /*
+       * The middle of that band, not the whole width of it.
+       *
+       * "The lit ground around the pit" is what this says it samples, and a
+       * strip the full width of the frame is not that: it is the pit plus
+       * however much unlit distance the campsite has in its corners. Once the
+       * walkable radius stopped being clamped at 16 m, a bare pan like Ashfall
+       * Barrens put enough dark ground in the corners to drag the mean from
+       * comfortably over the floor to under it on a slower runner — a number
+       * that moved because the campsite got wider, not because the fire got
+       * dimmer. The centre half is the pit.
+       */
+      const data = ctx.getImageData(off.width / 4, 60, off.width / 2, 30).data;
       let r = 0;
       let g = 0;
       let b = 0;
@@ -492,5 +516,322 @@ test.describe('the treeline is as closed as the manifest says', () => {
     expect(canopy).toBeGreaterThan(bare * 1.4);
     // And still inside the budget the whole scene is held to.
     expect(canopy).toBeLessThan(60_000);
+  });
+});
+
+/**
+ * The way out.
+ *
+ * A device was pinned to one of twelve environments for the life of a
+ * localStorage entry, which §5.4 forbids: "every player must eventually be
+ * able to discover every core environment", and region "may only weight
+ * discovery, never lock it". The exit had to be diegetic — the spec rules out
+ * menus, maps, level select and quest markers — so it is the trail you walked
+ * in along, at the edge of the clearing, on the bearing the arrival brought
+ * you down.
+ */
+/** Stands the player a metre short of a point, facing it. */
+async function stand(page: import('@playwright/test').Page, x: number, z: number): Promise<void> {
+  await page.evaluate((at) => {
+    const player = window.__someMore!.player!;
+    const bearing = Math.atan2(at.z, at.x);
+    const distance = Math.hypot(at.x, at.z) - 1;
+    player.position.x = Math.cos(bearing) * distance;
+    player.position.z = Math.sin(bearing) * distance;
+    player.facing = bearing;
+    player.pitch = -0.05;
+  }, { x, z });
+  await page.waitForTimeout(900);
+}
+
+test.describe('the trail out', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?camp=trail-out&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1200);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(500);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+  });
+
+  test('is somewhere you can walk to, and says where it goes', async ({ page }) => {
+    const trailhead = await page.evaluate(() => {
+      const world = window.__someMore!.walkable!;
+      const found = world.interactables.find((i) => i.id === 'trailhead');
+      return found ? { x: found.x, z: found.z, radius: world.radius } : null;
+    });
+    expect(trailhead, 'there is no way out of this campsite').not.toBeNull();
+
+    // Inside the fence, or it is a way out you cannot reach.
+    const distance = Math.hypot(trailhead!.x, trailhead!.z);
+    expect(distance).toBeLessThan(trailhead!.radius);
+    // And out at the edge rather than beside the fire, or it is not a trail.
+    expect(distance).toBeGreaterThan(trailhead!.radius * 0.75);
+
+    // Standing at it offers it, in words that are a thing you do.
+    // A metre short of it, facing out — where you would be standing having
+    // walked up. A fraction of the radius is not the same thing: six per cent
+    // of 33 m is two metres, which is outside the reach.
+    await stand(page, trailhead!.x, trailhead!.z);
+    await expect(page.getByRole('button', { name: 'Follow the trail out' })).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('takes you somewhere else, and remembers that it did', async ({ page }) => {
+    const before = await page.evaluate(() => window.__someMore!.store.state.environmentId);
+
+    const trailhead = await page.evaluate(
+      () => window.__someMore!.walkable!.interactables.find((i) => i.id === 'trailhead')!,
+    );
+    await stand(page, trailhead.x, trailhead.z);
+
+    // The keyboard route, because §12 says every verb has one.
+    await page.getByRole('button', { name: 'Follow the trail out' }).waitFor({ timeout: 10_000 });
+    await page.keyboard.press('e');
+
+    // Where the device is camped has moved on, and not back onto itself.
+    await page.waitForFunction(
+      () => localStorage.getItem('some-more/campsite/where/v1') !== null,
+      null,
+      { timeout: 10_000 },
+    );
+    const after = await page.evaluate(() => localStorage.getItem('some-more/campsite/where/v1'));
+    expect(after).not.toBeNull();
+    expect(after, 'walking out led back into the same campsite').not.toBe(before);
+  });
+});
+
+/**
+ * The twenty-eight secrets that could not be found.
+ *
+ * `defaultConditions` infers `{ kind: 'inspecting', targetId: secret.id }` for
+ * every `notes` and `strange-objects` secret, and until the curios were placed
+ * nothing in the product ever wrote `presence.inspecting`. A shelf of shift
+ * entries stopping mid-sentence with the pencil still in the fold was written,
+ * validated, shipped, and impossible to reach. The unit tests cover the
+ * placement and the hold; this covers the part only a browser can answer —
+ * whether the thing is offered, whether it is *on screen* when it is offered,
+ * and whether crouching over it ends with the catalogue's own sentence in
+ * front of the player.
+ */
+/**
+ * A curio whose secret asks for nothing but the look.
+ *
+ * Some of them also want a second visit, or a particular weather, and picking
+ * the first in the list would make the test a coin toss on content it is not
+ * about. This picks one the browser can actually finish tonight, and fails
+ * loudly if the campsite has none.
+ */
+async function firstVisitCurio(
+  page: import('@playwright/test').Page,
+): Promise<{ secretId: string; label: string; x: number; z: number }> {
+  const curio = await page.evaluate(() => {
+    const ritual = window.__someMore!.store.state.ritual as unknown as {
+      curios: { secretId: string; label: string; x: number; z: number }[];
+      discovery: { secrets: { secret: { id: string }; conditions: { kind: string }[] }[] };
+    };
+    const onlyLooking = new Set(
+      ritual.discovery.secrets
+        .filter((runtime) => runtime.conditions.every((condition) => condition.kind === 'inspecting'))
+        .map((runtime) => runtime.secret.id),
+    );
+    return ritual.curios.find((c) => onlyLooking.has(c.secretId)) ?? null;
+  });
+  expect(curio, 'no curio here can be found on a first visit').not.toBeNull();
+  return curio!;
+}
+
+test.describe('the things you find by looking', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/?camp=curio-camp&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.waitForTimeout(1200);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(500);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 20_000,
+    });
+  });
+
+  test('are each somewhere you can walk to, and each offered by name', async ({ page }) => {
+    const curios = await page.evaluate(() => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as {
+        curios: { secretId: string; label: string; x: number; z: number }[];
+      };
+      const world = window.__someMore!.walkable!;
+      return {
+        curios: ritual.curios,
+        radius: world.radius,
+        offered: world.interactables.filter((i) => i.id.startsWith('look:')).map((i) => i.id),
+      };
+    });
+
+    expect(curios.curios.length, 'this campsite has nothing to look at').toBeGreaterThan(0);
+    for (const curio of curios.curios) {
+      const distance = Math.hypot(curio.x, curio.z);
+      expect(distance, `${curio.secretId} is in the fire`).toBeGreaterThan(2.2);
+      expect(distance, `${curio.secretId} is outside the fence`).toBeLessThan(curios.radius);
+      // Offered under its own name, which is the title the catalogue wrote.
+      expect(curios.offered).toContain(`look:${curio.secretId}`);
+      expect(curio.label.length, `${curio.secretId} has nothing to call it`).toBeGreaterThan(0);
+    }
+  });
+
+  test('are on screen when the prompt for them is', async ({ page }) => {
+    /*
+     * The failure this exists to catch: the eye is at a metre and a half and a
+     * tin on its side is sixteen centimetres tall, so from standing, at the
+     * range that offers the prompt, the thing is a good twenty degrees *below*
+     * the bottom of the frame. The first build of this shipped a button
+     * reading "Look closely at the tin in the creek" over an empty patch of
+     * ground. Coming within reach now stoops the body, which is what brings it
+     * into shot — so this asserts the stoop, in metres, at the moment the
+     * button appears.
+     */
+    const curio = await firstVisitCurio(page);
+
+    const standing = await page.evaluate(() => window.__someMore!.player!.stance);
+    expect(standing, 'the player did not start on their feet').toBeGreaterThan(0.9);
+
+    await stand(page, curio.x, curio.z);
+    await expect(
+      page.getByRole('button', { name: `Look closely at ${curio.label.toLowerCase()}` }),
+    ).toBeVisible({ timeout: 10_000 });
+
+    const stooped = await page.evaluate(() => window.__someMore!.player!.stance);
+    expect(stooped, 'the prompt appeared but the body never went down to it').toBeLessThan(0.75);
+  });
+
+  test('tell you what they are when you crouch and hold', async ({ page }) => {
+    const curio = await firstVisitCurio(page);
+
+    await stand(page, curio.x, curio.z);
+    await page.getByRole('button', { name: `Look closely at ${curio.label.toLowerCase()}` }).click();
+
+    // Latched, and the prompt is now the way back out of it.
+    await expect(page.getByRole('button', { name: 'Straighten up' })).toBeVisible({ timeout: 5_000 });
+    expect(await page.evaluate(() => window.__someMore!.store.state.ritual.presence.inspecting)).toBe(
+      curio.secretId,
+    );
+
+    // A rare secret asks about eleven seconds of a held look; twenty-five is
+    // past the longest of them with room for a slow frame.
+    await page.waitForFunction(
+      (id) => {
+        const ritual = window.__someMore!.store.state.ritual as unknown as {
+          discovery: { records: { secretId: string }[] };
+        };
+        return ritual.discovery.records.some((record) => record.secretId === id);
+      },
+      curio.secretId,
+      { timeout: 25_000 },
+    );
+
+    // And the find reaches the player as the sentence somebody wrote for it,
+    // not as a log line or a counter (§5.3).
+    const telling = await page.evaluate(() => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as {
+        discoveryEvents: { kind: string; secretId: string; telling: string }[];
+      };
+      return ritual.discoveryEvents.find((event) => event.kind === 'discovered')?.telling ?? '';
+    });
+    expect(telling.length, 'the secret was found and never told').toBeGreaterThan(20);
+    await expect(page.getByText(telling.slice(0, 40), { exact: false })).toBeVisible({ timeout: 5_000 });
+
+    /*
+     * Found, so you are back on your feet: the look does not stay latched on a
+     * thing that has nothing left to say. Waited for rather than asserted flat
+     * — the record lands inside the simulation step and the crouch is released
+     * by the client reading the event afterwards, so a bare read here catches
+     * the one frame in between and fails on a product that is behaving.
+     */
+    await page.waitForFunction(
+      () => window.__someMore!.store.state.ritual.presence.inspecting === null,
+      null,
+      { timeout: 5_000 },
+    );
+    await expect(page.getByRole('button', { name: 'Straighten up' })).toHaveCount(0);
+  });
+});
+
+/**
+ * What the animals come to know about you.
+ *
+ * The wildlife model already carried `individual.visits`, and it changed
+ * nothing about the animal: a fox that had watched you sit still by the same
+ * fire nine nights running bolted at exactly the distance it bolted on the
+ * first, and nine visits bought a different sentence and nothing else.
+ *
+ * The unit tests cover the two layers and what earns them. This covers the
+ * part only a browser can answer: whether an evening survives being closed,
+ * and whether the halves go to the two places they are supposed to — the
+ * species floor onto the Passport, where it travels, and the bonds onto the
+ * campsite, where they stay.
+ */
+test.describe('the animals get used to you', () => {
+  test('an evening of sitting still is still there tomorrow, in two halves', async ({ page }) => {
+    await page.goto('/?camp=known-fox&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 25_000,
+    });
+    await page.waitForTimeout(600);
+
+    /*
+     * A whole quiet evening, run through the simulation rather than waited for.
+     *
+     * `advanceSeconds` is the same fast-forward every other suite here uses,
+     * and it steps the same `stepRitual` the render loop steps — nothing about
+     * the animals is skipped by taking it in minutes rather than frames.
+     */
+    for (let minutes = 0; minutes < 20; minutes++) await act(page, 'advanceSeconds', 60);
+    await page.waitForTimeout(400);
+
+    const learned = await page.evaluate(() => {
+      const wildlife = window.__someMore!.store.state.ritual.wildlife;
+      return {
+        species: Object.entries(wildlife.familiarity.species),
+        individuals: Object.entries(wildlife.familiarity.individuals),
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`  learned: ${JSON.stringify(learned)}`);
+    expect(learned.individuals.length, 'a quiet evening taught the place nothing').toBeGreaterThan(0);
+
+    // Saved the way the product saves.
+    await page.evaluate(() => window.__someMore!.store.rememberCampsite());
+    const stored = await page.evaluate(() => {
+      const raw = localStorage.getItem('some-more/passport/v1');
+      const passport = JSON.parse(raw ?? '{}') as {
+        species?: Record<string, number>;
+        campsites?: Record<string, { bonds?: Record<string, number> }>;
+      };
+      return {
+        species: Object.keys(passport.species ?? {}),
+        bonds: Object.keys(passport.campsites?.['known-fox']?.bonds ?? {}),
+      };
+    });
+    expect(stored.species.length, 'nothing about the species reached the Passport').toBeGreaterThan(0);
+    expect(stored.bonds.length, 'no bond was kept with the campsite').toBeGreaterThan(0);
+
+    // And it comes back: the animals here start the next night knowing you.
+    await page.goto('/?camp=known-fox&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.store));
+    await page.waitForTimeout(800);
+    const restored = await page.evaluate(() => {
+      const wildlife = window.__someMore!.store.state.ritual.wildlife;
+      return {
+        species: Object.values(wildlife.familiarity.species),
+        individuals: Object.values(wildlife.familiarity.individuals),
+      };
+    });
+    expect(Math.max(0, ...restored.individuals), 'the fox forgot you overnight').toBeGreaterThan(0);
+    expect(Math.max(0, ...restored.species), 'the species floor did not travel').toBeGreaterThan(0);
   });
 });

@@ -30,6 +30,8 @@ export interface HudProps {
   /** Whether the player is sitting down, so the log can offer the opposite. */
   seated?: boolean;
   /** Who has the roasting stick at a shared fire, when it is not you. */
+  /** What the player is crouched over, so the prompt can offer to end it. */
+  inspecting?: string | null;
   stickHolder?: string | null;
   /** The acts that have no object to touch: posture, glasses, the beam, the survey. */
   onLieBack?: () => void;
@@ -51,6 +53,22 @@ export interface HudProps {
   textScale: number;
   highContrast: boolean;
   subtitlesEnabled: boolean;
+  /**
+   * Whatever belongs in the middle of the bottom row — today, the bite ring.
+   *
+   * Passed in rather than rendered here because it is App's control and App
+   * owns when it exists; taken in rather than left fixed to the viewport
+   * because two siblings anchored to the same edge at two different offsets
+   * is how the HUD kept landing on itself.
+   */
+  bottomCentre?: React.ReactNode;
+  /**
+   * The thumb pad, when there is a thumb. Handed in for the same reason as
+   * `bottomCentre`: App owns whether this device has one, and the HUD owns
+   * where everything at the bottom of the screen is relative to everything
+   * else at the bottom of the screen.
+   */
+  stick?: React.ReactNode;
   onOpenPassport: () => void;
   onOpenSettings: () => void;
   onFinishRoasting: () => void;
@@ -82,8 +100,21 @@ const REACH_LABELS: Record<string, string> = {
  * up" once you are on it, the torch says "switch it off" once it is in your
  * hand, and the water says "throw it" once there is a stone in the other one.
  */
-export function reachLabel(id: string, ritual?: RitualState, seated = false): string {
+export function reachLabel(id: string, ritual?: RitualState, seated = false, inspecting: string | null = null): string {
   if (ritual) {
+    /*
+     * A pit with nothing in it is not a pit you poke.
+     *
+     * "Poke the coals" over a cold hearth is the interface promising something
+     * the world cannot do — there are no coals, poking does nothing, and a
+     * player who has just been told the fire went out is handed the verb for a
+     * fire that did not. What a cold pit offers is the other end of the same
+     * mechanic: lay something dry in it and put a light to it.
+     */
+    if (id === 'fire' && ritual.fire.flame <= 0.02 && ritual.fire.emberMass <= 0.03) {
+      const tinder = ritual.fire.logs.some((log) => log.grade === 'tinder' && log.mass > 0);
+      return tinder ? 'Put a light to it' : 'Lay a new fire';
+    }
     /*
      * Somewhere there is wood.
      *
@@ -105,6 +136,21 @@ export function reachLabel(id: string, ritual?: RitualState, seated = false): st
     // what a landmark is: the thing you would point at and call something.
     const landmark = ritual.landmarks.find((l) => l.id === id);
     if (landmark) return landmark.introduced ? landmark.label : `Look at ${landmark.label.toLowerCase()}`;
+    /*
+     * The way out says where it goes, not that it is an exit: "Follow the
+     * trail out" is a thing you do, where "Travel" or "Leave campsite" would
+     * be a menu item wearing a sentence.
+     */
+    /*
+     * One of the campsite's small things. The label is the secret's own
+     * title, which the catalogue already wrote for a player to read, and the
+     * verb says it is a posture you are holding rather than a button.
+     */
+    if (id.startsWith('look:')) {
+      const curio = ritual.curios.find((c) => `look:${c.secretId}` === id);
+      if (curio) return inspecting === curio.secretId ? 'Straighten up' : `Look closely at ${curio.label.toLowerCase()}`;
+    }
+    if (id === 'trailhead') return 'Follow the trail out';
     // Hands full of wood means putting wood on, not poking the coals.
     if (id === 'fire' && ritual.gathering.armful.length > 0) return 'Lay it on';
     // And a pit under ash wants the ash off before it wants anything else.
@@ -428,7 +474,6 @@ export function Hud(props: HudProps): React.ReactElement {
    * for arranging it. When the pit itself is what is in reach, both move up
    * into the top band, under the guidance line, where the sky is.
    */
-  const atThePit = reach?.id === 'fire';
 
   /*
    * Acts with nothing to touch.
@@ -462,7 +507,15 @@ export function Hud(props: HudProps): React.ReactElement {
   }
   const actsRow =
     acts.length > 0 ? (
-      <div style={{ display: 'flex', justifyContent: 'center', gap: scale(8), flexWrap: 'wrap', pointerEvents: 'auto' }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          gap: scale(8),
+          flexWrap: 'wrap',
+          pointerEvents: 'auto',
+        }}
+      >
         {acts.map((act) => (
           <button
             key={act.testId}
@@ -492,16 +545,28 @@ export function Hud(props: HudProps): React.ReactElement {
         data-testid="reach"
         onClick={props.onUse}
         style={{
-          background: 'rgba(8,10,14,0.66)',
-          color: 'rgba(240,232,214,0.95)',
+          /*
+           * The one thing on screen that is bigger than everything else,
+           * because it is the only contextual verb and it lives under a
+           * thumb. Taller than the corner buttons rather than wider: the
+           * label can be a whole phrase — "Look closely at the tin in the
+           * creek" — and a button that grows sideways with its own text
+           * walks off a phone.
+           */
+          background: 'rgba(20,13,6,0.82)',
+          color: 'rgba(248,238,218,0.98)',
           border: `1px solid ${TOKENS.amber}`,
-          padding: `${9 * textScale}px ${16 * textScale}px`,
-          fontSize: scale(13),
+          boxShadow: '0 2px 10px rgba(0,0,0,0.55)',
+          padding: `${13 * textScale}px ${18 * textScale}px`,
+          fontSize: scale(13.5),
           letterSpacing: '0.08em',
-          borderRadius: 2,
+          borderRadius: 3,
+          textAlign: 'right',
+          maxWidth: '100%',
+          pointerEvents: 'auto',
         }}
       >
-        {reachLabel(reach.id, ritual, props.seated ?? false)}
+        {reachLabel(reach.id, ritual, props.seated ?? false, props.inspecting ?? null)}
       </button>
     ) : null;
 
@@ -519,8 +584,7 @@ export function Hud(props: HudProps): React.ReactElement {
           padding: `${scale(7)} ${scale(14)}`,
           fontSize: scale(12),
           borderRadius: 3,
-          maxWidth: '76vw',
-          textAlign: 'center',
+          textAlign: 'left',
         }}
       >
         {props.notice}
@@ -538,24 +602,26 @@ export function Hud(props: HudProps): React.ReactElement {
       }}
     >
       {/*
-        The top band: the corner affordances, and the guidance line beneath
-        them.
+        Everything lives on an edge, and the middle of the screen is the world.
 
-        One column, laid out by the browser, rather than two absolutely
-        positioned siblings at hand-computed offsets. The guidance line used to
-        sit at `46px * textScale` from the top with a comment saying it was
-        "placed clear of the corner controls so it never collides with them on
-        a narrow viewport" — and on every one of the three phones in the mobile
-        suite it overlapped them by eight pixels. The number could not have been
-        right: the buttons are `7px * textScale` of padding around
-        `12px * textScale` of type inside a container with a *fixed* 12px pad,
-        so their height and the guidance's offset scale at different rates and
-        no single constant clears them at every text size. It was worst for
-        exactly the players who most need the type large.
+        This used to be five text channels stacked down the centre — the reach
+        prompt at 18% from the bottom, the notice at 26%, what is in your hands
+        at 13%, subtitles at 5%, and the guidance line across the top — over the
+        one thing the player is here to look at. Two separate defects in this
+        file are two of those channels landing on each other, each fixed by
+        moving one of them a few per cent; the third was the notice sitting on
+        the fire it was describing. The percentages were never the bug. A
+        heads-up display that puts its words where the game is will keep
+        producing that defect for as long as it has a middle to put them in.
 
-        A column cannot get this wrong. The corner row takes the height it
-        takes and the line goes under it, at any scale, on any width.
+        So: one column down the left for what the world is saying, one column up
+        the right for what your thumb can do, the two corners for everything
+        else, and nothing at all between them. Laid out by the browser in both
+        cases, because the file has now learned twice that a column cannot get
+        this wrong and hand-computed offsets can.
       */}
+
+      {/* Top: the two corner affordances, and the survey under them. */}
       <div
         style={{
           position: 'absolute',
@@ -582,247 +648,336 @@ export function Hud(props: HudProps): React.ReactElement {
           <CornerButton label="Settings" onClick={props.onOpenSettings} textScale={textScale} highContrast={highContrast} />
         </div>
 
-        {/* Guidance, under the controls by construction rather than by arithmetic. */}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'center',
-            padding: `${scale(4)} ${scale(16)} 0`,
-          }}
-        >
-          <span
-            role="status"
-            aria-live="polite"
-            data-testid="guidance"
-            style={{
-              fontSize: scale(13),
-              letterSpacing: '0.04em',
-              color: highContrast ? '#fff' : 'rgba(240,233,216,0.94)',
-              textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-              /*
-                A scrim, because a shadow is not enough here.
+        {/*
+          What is around you, when you ask (audit A5).
 
-                This line has to sit on whatever the world puts behind it, and
-                at thirteen pixels a drop shadow only works when the background
-                is dark. Over the SM-01's chamber — a pale grey wall filling the
-                frame — "Take it out." was very nearly invisible in the reveal
-                baseline, which is the one moment the whole ritual builds to. A
-                heavier halo was worse, not better: five black offsets around a
-                small glyph fill in its counters and the line reads as dark mush.
+          Shown *and* announced. A survey that only a screen reader received
+          would be the §12 single-channel rule broken by the feature written to
+          keep it — and a sighted player on a keyboard, or anybody who has just
+          walked somewhere in the dark, wants the same answer.
 
-                So the same treatment the subtitle already uses, at about half
-                its weight: enough to separate the text from anything, quiet
-                enough that it is still a line in the world rather than a panel.
-              */
-              background: 'rgba(10,9,8,0.42)',
-              padding: `${scale(3)} ${scale(9)}`,
-              borderRadius: 3,
-              textAlign: 'center',
-              // `min`, not a bare `46ch`: at the largest text scale on the
-              // narrowest phone 46ch is wider than the screen, and the line was
-              // one word from running off the side of it.
-              maxWidth: 'min(46ch, 100%)',
-              overflowWrap: 'break-word',
-            }}
-          >
-            {guidanceFor(ritual, stage, props.controls, props.withdraw, props.stickHolder ?? null)}
-          </span>
-        </div>
-        {atThePit && noticeBox !== null && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: `${scale(6)} ${scale(16)} 0` }}>{noticeBox}</div>
-        )}
-        {atThePit && reachButton !== null && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: `${scale(8)} 0 0`, pointerEvents: 'auto' }}>
-            {reachButton}
+          `assertive`, unusually: this is the one line in the product the player
+          explicitly asked for, so interrupting whatever else was being read is
+          the correct behaviour rather than a rudeness.
+
+          Under the corner controls rather than beside them: at the largest text
+          scale on the narrowest phone, a panel wide enough to be worth reading
+          and a pair of buttons wide enough to be worth pressing do not both fit
+          across one row.
+        */}
+        {props.survey !== null && props.survey.length > 0 && (
+          <div style={{ display: 'flex', padding: `${scale(4)} ${scale(12)} 0` }}>
+            <div
+              role="status"
+              aria-live="assertive"
+              aria-atomic="true"
+              data-testid="survey"
+              style={{
+                maxWidth: 'min(46ch, 78vw)',
+                background: 'rgba(10,9,8,0.86)',
+                border: `1px solid ${TOKENS.inkSoft}`,
+                borderRadius: 3,
+                padding: `${scale(10)} ${scale(14)}`,
+                fontSize: scale(12),
+                lineHeight: 1.65,
+                color: '#f0e9d8',
+                textAlign: 'left',
+                pointerEvents: 'none',
+              }}
+            >
+              {props.survey.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
           </div>
         )}
-        {actsRow !== null && <div style={{ padding: `${scale(8)} ${scale(16)} 0` }}>{actsRow}</div>}
       </div>
 
-      {/* Photo, available once there is something worth photographing */}
-      {(stage === 'reveal' || stage === 'eating' || stage === 'after' || stage === 'at-fire') && (
-        <div
-          data-testid="photo-control"
-          style={{
-            position: 'absolute',
-            bottom: 'env(safe-area-inset-bottom, 0px)',
-            right: 'env(safe-area-inset-right, 0px)',
-            padding: 12,
-            display: 'flex',
-            gap: 8,
-            flexWrap: 'wrap',
-            justifyContent: 'flex-end',
-            pointerEvents: 'auto',
-          }}
-        >
-          {(stage === 'eating' || stage === 'after') && ritual.sandwich && (
-            <CornerButton label="Make this real" onClick={props.onOpenTerminal} textScale={textScale} highContrast={highContrast} accent />
-          )}
-          <CornerButton label="Photo" onClick={props.onPhoto} textScale={textScale} highContrast={highContrast} />
-        </div>
-      )}
-
-      {/* What is within reach. The world offers rather than presenting a menu
-          (spec: contextual direct manipulation), so this appears only when
-          the player has actually walked up to something. */}
-      {!atThePit && reachButton !== null && (
-        <div
-          style={{
-            position: 'absolute',
-            left: '50%',
-            bottom: '18%',
-            transform: 'translateX(-50%)',
-            pointerEvents: 'auto',
-          }}
-        >
-          {reachButton}
-        </div>
-      )}
-
       {/*
-        Roasting heat readout, out of the marshmallow's way.
+        The bottom of the screen is one row, laid out by the browser.
 
-        This sat centred at 13% from the bottom, which was clear of everything
-        while roasting was a composed overhead shot of the ember bed. Kneeling
-        at the fire puts the marshmallow low and centre, and the panel landed
-        squarely on top of the one object it is describing.
-
-        It cannot simply go: §12 requires the heat to be legible without relying
-        on colour, and this is that reading. So it moves to the corner, where it
-        is still glanceable beside the marshmallow rather than over it. The
-        browning on the marshmallow itself is the primary signal and always was;
-        this is the redundant channel, and redundant channels should not occlude
-        the thing they are backing up.
+        The three things that live down here — what the world is saying, the
+        bite targets, and what your thumb can do — used to be three fixed
+        elements at three hand-picked offsets, and on a 375 px phone the
+        right-hand cluster grew by one wrapped line and landed on the bite
+        ring. That is the third time this file has produced that defect from
+        the same cause. A row cannot: the lane shrinks, the two ends take what
+        they need, and none of them can reach the others.
       */}
+      <div
+        style={{
+          position: 'absolute',
+          left: 'env(safe-area-inset-left, 0px)',
+          right: 'env(safe-area-inset-right, 0px)',
+          bottom: 'env(safe-area-inset-bottom, 0px)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'stretch',
+          pointerEvents: 'none',
+        }}
+      >
       {/*
-        The roasting corner: the heat readout, and under it the keyboard path's
-        "Take it to the plate".
+        Down the left: what the world is saying.
 
-        One column, because the two were absolutely positioned into the same
-        corner and the button sat on top of the reading — SCORCHING half buried
-        under TAKE IT TO THE PLATE, with the heat bar poking out beneath. The
-        readout is the one non-colour channel for heat (spec §12), which is
-        precisely the thing it must never lose. Hidden while somebody else has
-        the stick: there is no heat to read on a marshmallow you are not
-        holding.
-
-        The readout carries `role="status"` so a screen-reader player roasting
-        on the arrow keys hears the band change; it only changes on a band
-        change, so it does not chatter.
+        Quietest at the bottom, loudest at the top, so a notice arriving pushes
+        nothing the player was already reading. Capped well short of half the
+        width so it cannot reach the thumb column on the far side — the two
+        never share a row by construction rather than by measurement.
       */}
-      {stage === 'roasting' && !props.stickHolder && (
-        <div
-          style={{
-            position: 'absolute',
-            left: `calc(env(safe-area-inset-left, 0px) + ${scale(14)})`,
-            bottom: `calc(env(safe-area-inset-bottom, 0px) + ${scale(14)})`,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-            gap: scale(8),
-          }}
-        >
+      <div
+        style={{
+          padding: scale(12),
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-start',
+          gap: scale(6),
+          // Shrinks to whatever the two ends leave it, and never past zero:
+          // without `minWidth`, a flex item refuses to go below its longest
+          // word and pushes the thumb column off the screen instead.
+          maxWidth: 'min(38ch, 100%)',
+          pointerEvents: 'none',
+        }}
+      >
+        {noticeBox}
+        {props.subtitlesEnabled && props.subtitle && (
           <div
             role="status"
             aria-live="polite"
             aria-atomic="true"
-            data-testid="heat"
+            data-testid="subtitle"
             style={{
-              background: panelBg,
-              padding: `${scale(8)} ${scale(14)}`,
+              background: 'rgba(0,0,0,0.72)',
+              color: '#fff',
+              padding: `${scale(6)} ${scale(12)}`,
+              fontSize: scale(13),
               borderRadius: 2,
               textAlign: 'left',
-              minWidth: 160,
             }}
           >
-            <div style={{ fontSize: scale(11), letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.75 }}>
-              {heatLabel}
+            {props.subtitle}
+          </div>
+        )}
+        {props.exploring && activityLine(ritual, props.grip) && (
+          <div
+            style={{
+              background: panelBg,
+              padding: `${scale(7)} ${scale(14)}`,
+              borderRadius: 2,
+              textAlign: 'left',
+              alignSelf: 'stretch',
+            }}
+          >
+            <div style={{ fontSize: scale(11), letterSpacing: '0.1em', opacity: 0.82 }}>
+              {activityLine(ritual, props.grip)}
             </div>
-            <div style={{ height: 4, background: 'rgba(255,255,255,0.16)', marginTop: 6, borderRadius: 2, overflow: 'hidden' }}>
+            {ritual.skipping.held && props.grip && (
               <div
                 style={{
-                  height: '100%',
-                  width: `${heatFill * 100}%`,
-                  background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
-                  transition: 'width 120ms linear',
+                  height: 4,
+                  background: 'rgba(255,255,255,0.16)',
+                  marginTop: 6,
+                  borderRadius: 2,
+                  overflow: 'hidden',
                 }}
-              />
-            </div>
-            {ritual.marshmallow.burning && (
-              <div style={{ fontSize: scale(11), marginTop: 6, color: TOKENS.ember, fontWeight: 600 }}>on fire</div>
+              >
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${props.grip.power * 100}%`,
+                    background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
+                  }}
+                />
+              </div>
+            )}
+            {ritual.fishing.phase === 'nibble' && (
+              <div style={{ fontSize: scale(11), marginTop: 5, color: TOKENS.ember, fontWeight: 600 }}>now</div>
             )}
           </div>
-          {/* Kept mounted rather than conditionally rendered on `controls`,
-              because a virtual cursor that never fires a keydown would
-              otherwise be looking at a document where the button does not
-              exist. */}
-          <div style={props.controls === 'keyboard' ? { pointerEvents: 'auto' } : SR_ONLY}>
-            <CornerButton
-              label={ritual.marshmallow.fallen ? 'Take another' : 'Take it to the plate'}
-              onClick={props.onFinishRoasting}
-              textScale={textScale}
-              highContrast={highContrast}
-            />
-          </div>
-        </div>
-      )}
+        )}
+        {/*
+          The roasting corner: the heat readout, and under it the keyboard
+          path's "Take it to the plate".
 
-      {stage === 'reveal' && ritual.sandwich && (
-        <div
-          style={
-            props.controls === 'keyboard'
-              ? { position: 'absolute', left: '50%', bottom: '12%', transform: 'translateX(-50%)', pointerEvents: 'auto' }
-              : SR_ONLY
-          }
-        >
-          <CornerButton label="Take it" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
-        </div>
-      )}
-
-      {/* What is in hand, and what it is doing. Placed where the roasting
-          heat readout goes, because it is the same kind of thing: a
-          non-numeric reading of a physical state, in both channels (§12). */}
-      {props.exploring && activityLine(ritual, props.grip) && (
-        <div
-          style={{
-            position: 'absolute',
-            left: '50%',
-            bottom: '13%',
-            transform: 'translateX(-50%)',
-            background: panelBg,
-            padding: `${scale(7)} ${scale(14)}`,
-            borderRadius: 2,
-            textAlign: 'center',
-            maxWidth: '70vw',
-          }}
-        >
-          <div style={{ fontSize: scale(11), letterSpacing: '0.1em', opacity: 0.82 }}>
-            {activityLine(ritual, props.grip)}
-          </div>
-          {ritual.skipping.held && props.grip && (
+          The readout is the one non-colour channel for heat (spec §12), which
+          is precisely the thing it must never lose. Hidden while somebody else
+          has the stick: there is no heat to read on a marshmallow you are not
+          holding. `role="status"` so a screen-reader player roasting on the
+          arrow keys hears the band change; it only changes on a band change,
+          so it does not chatter.
+        */}
+        {stage === 'roasting' && !props.stickHolder && (
+          <>
             <div
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-testid="heat"
               style={{
-                height: 4,
-                background: 'rgba(255,255,255,0.16)',
-                marginTop: 6,
+                background: panelBg,
+                padding: `${scale(8)} ${scale(14)}`,
                 borderRadius: 2,
-                overflow: 'hidden',
+                textAlign: 'left',
+                minWidth: 160,
               }}
             >
-              <div
-                style={{
-                  height: '100%',
-                  width: `${props.grip.power * 100}%`,
-                  background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
-                }}
+              <div style={{ fontSize: scale(11), letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.75 }}>
+                {heatLabel}
+              </div>
+              <div style={{ height: 4, background: 'rgba(255,255,255,0.16)', marginTop: 6, borderRadius: 2, overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: '100%',
+                    width: `${heatFill * 100}%`,
+                    background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
+                    transition: 'width 120ms linear',
+                  }}
+                />
+              </div>
+              {ritual.marshmallow.burning && (
+                <div style={{ fontSize: scale(11), marginTop: 6, color: TOKENS.ember, fontWeight: 600 }}>on fire</div>
+              )}
+            </div>
+            {/* Kept mounted rather than conditionally rendered on `controls`,
+                because a virtual cursor that never fires a keydown would
+                otherwise be looking at a document where the button does not
+                exist. */}
+            <div style={props.controls === 'keyboard' ? { pointerEvents: 'auto' } : SR_ONLY}>
+              <CornerButton
+                label={ritual.marshmallow.fallen ? 'Take another' : 'Take it to the plate'}
+                onClick={props.onFinishRoasting}
+                textScale={textScale}
+                highContrast={highContrast}
               />
             </div>
-          )}
-          {ritual.fishing.phase === 'nibble' && (
-            <div style={{ fontSize: scale(11), marginTop: 5, color: TOKENS.ember, fontWeight: 600 }}>now</div>
-          )}
+          </>
+        )}
+        {/*
+          The standing hint, lowest and quietest of the four.
+
+          A scrim rather than a drop shadow: at thirteen pixels a shadow only
+          works over a dark background, and this line has to sit on whatever
+          the world puts behind it.
+        */}
+        <span
+          role="status"
+          aria-live="polite"
+          data-testid="guidance"
+          style={{
+            fontSize: scale(13),
+            letterSpacing: '0.04em',
+            color: highContrast ? '#fff' : 'rgba(240,233,216,0.94)',
+            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+            background: 'rgba(10,9,8,0.42)',
+            padding: `${scale(3)} ${scale(9)}`,
+            borderRadius: 3,
+            textAlign: 'left',
+            overflowWrap: 'break-word',
+          }}
+        >
+          {guidanceFor(ritual, stage, props.controls, props.withdraw, props.stickHolder ?? null)}
+        </span>
+      </div>
+
+      {/*
+        And beneath the words, the controls: pad on the left, bite targets in
+        the middle, thumb cluster on the right.
+
+        Its own row rather than the same one. Sharing a row with the lane meant
+        a 393 px phone gave the words whatever the buttons left over — about
+        150 px — and "The reflector on the site post answers from anywhere in
+        the site" came out one word per line. Text gets a row, controls get a
+        row, and neither has to be told how wide the other is.
+      */}
+      {/*
+        The bite targets, on a row of their own.
+
+        Eight 44 px targets are 352 px and they have to fit a 375 px phone, so
+        there is no width left over for a thumb pad on one side and a stack of
+        buttons on the other: sharing a row with them put "Bite from side 8"
+        squarely over "Photo". It is a targeting control rather than a corner
+        control, and it gets the width it needs.
+      */}
+      {props.bottomCentre !== undefined && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            padding: `0 ${scale(12)} ${scale(8)}`,
+            pointerEvents: 'auto',
+          }}
+        >
+          {props.bottomCentre}
         </div>
       )}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: scale(8),
+          pointerEvents: 'none',
+        }}
+      >
+        {/* Always present, even with no pad in it: `space-between` needs a
+            first child or the thumb cluster walks to the left. */}
+        <div style={{ flexShrink: 0, padding: scale(12), paddingTop: 0 }}>{props.stick}</div>
+
+      {/*
+        Up the right: what your thumb can do.
+
+        The one contextual verb sits lowest, where a thumb already is, and
+        everything optional stacks above it. Right-aligned so the row a button
+        is on cannot change how far it is from the corner.
+      */}
+      <div
+        style={{
+          padding: scale(12),
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: scale(8),
+          /*
+           * Shrinks, and its rows wrap inside it. Refusing to shrink read fine
+           * on a laptop and ran "What is around me?", "Photo" and "Take a
+           * marshmallow" straight off the right-hand edge of a 393 px phone:
+           * `space-between` will happily push a rigid child past the end of
+           * the row it is in.
+           */
+          minWidth: 0,
+          pointerEvents: 'none',
+        }}
+      >
+        {actsRow}
+        {(stage === 'reveal' || stage === 'eating' || stage === 'after' || stage === 'at-fire') && (
+          <div
+            data-testid="photo-control"
+            style={{
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              justifyContent: 'flex-end',
+              pointerEvents: 'auto',
+            }}
+          >
+            {(stage === 'eating' || stage === 'after') && ritual.sandwich && (
+              <CornerButton label="Make this real" onClick={props.onOpenTerminal} textScale={textScale} highContrast={highContrast} accent />
+            )}
+            <CornerButton label="Photo" onClick={props.onPhoto} textScale={textScale} highContrast={highContrast} />
+          </div>
+        )}
+        {stage === 'reveal' && ritual.sandwich && (
+          <div style={props.controls === 'keyboard' ? { pointerEvents: 'auto' } : SR_ONLY}>
+            <CornerButton label="Take it" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
+          </div>
+        )}
+        {/* What is within reach. The world offers rather than presenting a
+            menu (spec: contextual direct manipulation), so this appears only
+            when the player has actually walked up to something. */}
+        {reachButton}
+      </div>
+      </div>
+      </div>
 
       {/* Binoculars. A real optical frame rather than a zoom slider: the field
           narrows and everything outside it is simply not in the eyepieces. */}
@@ -843,106 +998,6 @@ export function Hud(props: HudProps): React.ReactElement {
               'radial-gradient(ellipse 41% 52% at 50% 50%, rgba(0,0,0,0) 58%, rgba(0,0,0,0.55) 70%, rgba(0,0,0,0.99) 82%)',
           }}
         />
-      )}
-
-      {/*
-        Subtitles.
-
-        `role="status"` with `aria-live="polite"` because a subtitle *is* the
-        text channel for something audible (spec §12): without it a screen
-        reader never says the line, and the one accessibility feature whose
-        whole job is to carry sound to somebody who cannot hear it reaches
-        nobody who is not looking at that corner of the screen. `aria-atomic`
-        so a changed line is read whole rather than as a diff.
-      */}
-      {props.subtitlesEnabled && props.subtitle && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          data-testid="subtitle"
-          style={{
-            position: 'absolute',
-            left: '50%',
-            bottom: '5%',
-            transform: 'translateX(-50%)',
-            background: 'rgba(0,0,0,0.72)',
-            color: '#fff',
-            padding: `${scale(6)} ${scale(12)}`,
-            fontSize: scale(13),
-            borderRadius: 2,
-            maxWidth: '84vw',
-            textAlign: 'center',
-          }}
-        >
-          {props.subtitle}
-        </div>
-      )}
-
-      {/*
-        Reports that are not transcripts.
-
-        Subtitles carry the text of something audible and sit behind a setting;
-        this does not. "This campsite cannot sign you in yet" is not a
-        transcript of a sound, and it used to go out as a subtitle, which meant
-        it disappeared without trace for anybody who had subtitles switched off
-        — the §12 rule about single channels, applied to the product's own
-        error reporting.
-      */}
-      {!atThePit && noticeBox !== null && (
-        <div
-          style={{
-            position: 'absolute',
-            left: '50%',
-            // Clear of the reach prompt at 18%: the two shared a band once, and
-            // the notice introducing the wood covered the control for taking it.
-            bottom: '26%',
-            transform: 'translateX(-50%)',
-          }}
-        >
-          {noticeBox}
-        </div>
-      )}
-
-      {/*
-        What is around you, when you ask (audit A5).
-
-        Shown *and* announced. A survey that only a screen reader receives
-        would be the §12 single-channel rule broken by the feature written to
-        keep it — and a sighted player on a keyboard, or anybody who has just
-        walked somewhere in the dark, wants the same answer.
-
-        `assertive`, unusually: this is the one line in the product the player
-        explicitly asked for, so interrupting whatever else was being read is
-        the correct behaviour rather than a rudeness.
-      */}
-      {props.survey !== null && props.survey.length > 0 && (
-        <div
-          role="status"
-          aria-live="assertive"
-          aria-atomic="true"
-          data-testid="survey"
-          style={{
-            position: 'absolute',
-            left: '50%',
-            top: '18%',
-            transform: 'translateX(-50%)',
-            maxWidth: 'min(46ch, 88vw)',
-            background: 'rgba(10,9,8,0.86)',
-            border: `1px solid ${TOKENS.inkSoft}`,
-            borderRadius: 3,
-            padding: `${scale(10)} ${scale(14)}`,
-            fontSize: scale(12),
-            lineHeight: 1.65,
-            color: '#f0e9d8',
-            textAlign: 'left',
-            pointerEvents: 'none',
-          }}
-        >
-          {props.survey.map((line) => (
-            <div key={line}>{line}</div>
-          ))}
-        </div>
       )}
 
       {/*

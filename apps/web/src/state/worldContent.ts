@@ -31,6 +31,40 @@ import { inWorld } from '@somemore/content';
 import type { RitualWorldContent } from '@somemore/sim';
 import { LAYOUT, campFurniture } from '../scene/layout.js';
 
+/**
+ * How far this campsite goes, in metres — for the simulation and for the
+ * fence, which must be the same number.
+ *
+ * They were not. `main.tsx` and `App.tsx`'s session builder handed the
+ * simulation the manifest's authored value, while the client's own walkable
+ * world clamped it to 16 m. Nothing checked that they agreed, and they did
+ * not: `placeLandmarks` and `createGathering` both scale their distances by
+ * the radius they are given, so across the twelve manifests 38 of 58
+ * landmarks and 43 of 90 fuel patches were being placed outside the fence,
+ * and 46 of those outside the 46 m square of ground the renderer draws at
+ * all. Every landmark at Copperline Halt, Lantern Mesa and Mirror Flats was
+ * somewhere you could not go. The suite did not catch it because
+ * `place.spec.ts` asserts landmarks are inside `ritual.options.walkableRadiusM`
+ * — the unclamped number — under the name "every landmark the catalogue names
+ * is somewhere you can walk to".
+ *
+ * So there is one function now, and both sides call it.
+ *
+ * The cap is not the manifests' own ceiling. They author 26 to 70 m, and the
+ * drawn world does not go that far: the ground is a plane sized from this
+ * number, the trees and understorey are rings inside it, and the far edge of
+ * a 70 m campsite would be fog over nothing. 34 m is Pine Hollow's authored
+ * value — the campsite every visual baseline and every performance
+ * measurement runs on — so the reference environment is exactly what its
+ * manifest asks for, and the number is one a person chose for a real place
+ * rather than one invented for a clamp.
+ */
+export const RADIUS_CAP_M = 34;
+
+export function campsiteRadiusM(environment: EnvironmentManifest | undefined): number {
+  return Math.max(8, Math.min(RADIUS_CAP_M, environment?.scene.walkableRadiusM ?? 13));
+}
+
 /** Passes a note through the voice filter, dropping it if nothing survives. */
 function said(note: string | undefined): string | undefined {
   if (note === undefined) return undefined;

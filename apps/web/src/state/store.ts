@@ -22,6 +22,9 @@ import {
   type SandwichRecord,
   type Trace,
   type WeatherProfile,
+  bankHearth,
+  mergeFamiliarity,
+  type Hearth,
 } from '@somemore/sim';
 import { DEFAULT_RENDER_SETTINGS, type QualityTier, type RenderSettings } from '../render/ps1.js';
 
@@ -129,6 +132,25 @@ export interface CampsiteMemory {
   /** How many times this player has arrived here. 1 on the first night. */
   visits: number;
   lastVisitAt: number;
+  /**
+   * The pit as this player left it.
+   *
+   * The one piece of campsite memory that is a *physical* thing rather than a
+   * record of what happened: coals, the ash raked over them, the wood not
+   * burnt. Absent on a campsite last visited before this existed, which reads
+   * as a pit nobody has used — the right answer, and the reason it is optional
+   * rather than backfilled with a guess.
+   */
+  hearth?: Hearth;
+  /**
+   * How well the animals that live here know this player.
+   *
+   * Per individual, and it stays with the campsite: the fox at Pine Hollow
+   * getting used to you is not a thing you can carry to a lake shore. The
+   * species half of the same model lives on the Passport, because being good
+   * with foxes does travel.
+   */
+  bonds?: Readonly<Record<string, number>>;
   /** Secrets noticed here, this visit and every earlier one. */
   secrets: DiscoveryRecord[];
   /** Visits each recognisable resident has been seen on, by individual id. */
@@ -172,6 +194,14 @@ export interface PassportState {
   visitedEnvironments: string[];
   /** Per-campsite memory, keyed by campsite seed. */
   campsites: Record<string, CampsiteMemory>;
+  /**
+   * How used to being around each species this player is, everywhere.
+   *
+   * The shallow half of recognition, and the only half that belongs on the
+   * Passport rather than on a campsite: you get better at being around foxes,
+   * and that is true at a fire you have never sat at.
+   */
+  species?: Readonly<Record<string, number>>;
   /** Total sandwiches made, all time. */
   sandwichCount: number;
   linkedProvider: 'none' | 'apple' | 'google' | 'email';
@@ -286,6 +316,7 @@ function createPassport(): PassportState {
     stamps: [],
     visitedEnvironments: [],
     campsites: {},
+    species: {},
     sandwichCount: 0,
     linkedProvider: 'none',
     redeemedCodes: [],
@@ -468,7 +499,30 @@ export class Store {
         now,
         ...(options.world ? { world: options.world } : {}),
         visitIndex: memory.visits,
+        /*
+         * The fire you left, and how long ago you left it.
+         *
+         * `hoursAway` is the one wall-clock reading the fire model gets, and it
+         * is taken here rather than inside the simulation for ADR-0001: the sim
+         * is handed a number. `remembered.lastVisitAt` is 0 on a first night,
+         * which would be fifty-odd years of absence, so a hearth without one
+         * is treated as no hearth at all.
+         */
+        ...(remembered.hearth && remembered.lastVisitAt > 0
+          ? {
+              hearth: remembered.hearth,
+              hoursAway: Math.max(0, (now - remembered.lastVisitAt) / 3_600_000),
+            }
+          : {}),
         priorVisits: memory.residents,
+        /*
+         * What the animals here already know of this player, from the two
+         * places the two layers live.
+         */
+        familiarity: {
+          species: passport.species ?? {},
+          individuals: remembered.bonds ?? {},
+        },
         knownSecrets: memory.secrets,
         knownConstellations: memory.constellations,
         // Tonight's real date at the campsite's own small hours. The date is
@@ -666,6 +720,20 @@ export class Store {
    * the render loop can call it on a slow cadence and the unload handler can
    * call it once more without producing duplicates.
    */
+  /**
+   * Every environment this device has actually camped in.
+   *
+   * Read off the campsite memories rather than kept as its own counter,
+   * because the record of where you have been already exists and a second
+   * one would be a second thing to keep true. It is passed to
+   * `selectEnvironment` as `discoveredIds`, so the trail out draws from the
+   * places you have not seen. It is never shown as a set to complete: §5.3
+   * forbids checklists, and this is a filter, not a score.
+   */
+  foundEnvironments(): readonly string[] {
+    return [...new Set(Object.values(this.state.passport.campsites).map((camp) => camp.environmentId))];
+  }
+
   rememberCampsite(): CampsiteMemory {
     const ritual = this.state.ritual;
     const seed = this.state.campsiteSeed;
@@ -716,6 +784,26 @@ export class Store {
       environmentId: this.state.environmentId,
       visits: Math.max(previous.visits, ritual.options.visitIndex),
       lastVisitAt: Date.now(),
+      /*
+       * The pit exactly as it stands right now.
+       *
+       * This runs on a timer as well as on the way out, which is what makes it
+       * right rather than merely convenient: there is no "leave" button on a
+       * browser tab, so the fire you left is whatever the fire was when you
+       * stopped playing. Banking the coals and then closing the laptop is a
+       * player doing the thing the mechanic is about; walking away from open
+       * flame is too.
+       */
+      hearth: bankHearth(ritual.fire, ritual.hearth),
+      /*
+       * And what the animals here learned tonight, merged rather than
+       * replaced — this runs on a timer, so an evening must not be worth more
+       * to somebody who left the tab open.
+       */
+      bonds: mergeFamiliarity(
+        { species: {}, individuals: previous.bonds ?? {} },
+        ritual.wildlife.familiarity,
+      ).individuals,
       secrets,
       residents: residentVisits,
       traces: activeTraces(traces, Date.now(), 96),
@@ -726,6 +814,12 @@ export class Store {
     const passport: PassportState = {
       ...this.state.passport,
       campsites: { ...this.state.passport.campsites, [seed]: memory },
+      // The species floor is the half that travels, so it goes on the Passport
+      // rather than with the campsite that happened to teach it.
+      species: mergeFamiliarity(
+        { species: this.state.passport.species ?? {}, individuals: {} },
+        ritual.wildlife.familiarity,
+      ).species,
     };
     this.set({ passport });
     this.persistPassport();

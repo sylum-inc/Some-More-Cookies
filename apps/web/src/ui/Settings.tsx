@@ -214,7 +214,7 @@ export function Settings({
           />
           <Toggle
             label="Walk with a joystick"
-            hint="A thumb pad instead of tapping where you want to go."
+            hint="For a mouse or trackpad — a touchscreen already draws one."
             checked={accessibility.virtualJoystick}
             onChange={(v) => onAccessibility({ virtualJoystick: v })}
             scale={scale}

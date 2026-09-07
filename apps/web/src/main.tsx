@@ -8,8 +8,9 @@
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { getEnvironment, listEnvironments, selectEnvironment } from '@somemore/content';
-import { worldContentFor } from './state/worldContent.js';
+import { listEnvironments } from '@somemore/content';
+import { campsiteRadiusM, worldContentFor } from './state/worldContent.js';
+import { currentCampsite, rootSeed } from './state/journey.js';
 import {
   arrive,
   beginRoasting,
@@ -54,40 +55,20 @@ import type { SomeMoreHandle } from './testHandle.js';
 /**
  * Picks the campsite for this visit.
  *
- * A stable per-device seed means a returning player comes back to *their*
- * campsite, with their own serialized SM-01 (spec §3.3). `?camp=` and `?env=`
- * override it, which is how tests and shared links pin an exact campsite.
+ * A stable per-device root seed means a returning player comes back to
+ * *their* campsite, with their own serialized SM-01 (spec §3.3) — and, since
+ * the trail out was built, to the one they last walked into rather than the
+ * only one this device was ever going to see. `?camp=` and `?env=` override
+ * it, which is how tests and shared links pin an exact campsite. The
+ * derivation lives in `state/journey.ts`, where it can be tested without a
+ * browser; this is the one call.
  */
-function resolveCampsite(): { environmentId: string; campsiteSeed: string } {
-  const params = new URLSearchParams(typeof location === 'undefined' ? '' : location.search);
-  const KEY = 'some-more/campsite/v1';
+const { environmentId, campsiteSeed } = currentCampsite(
+  typeof location === 'undefined' ? '' : location.search,
+  rootSeed(() => `camp-${Math.random().toString(36).slice(2, 10)}`),
+);
 
-  let campsiteSeed = params.get('camp') ?? '';
-  if (!campsiteSeed) {
-    try {
-      campsiteSeed = localStorage.getItem(KEY) ?? '';
-      if (!campsiteSeed) {
-        campsiteSeed = `camp-${Math.random().toString(36).slice(2, 10)}`;
-        localStorage.setItem(KEY, campsiteSeed);
-      }
-    } catch {
-      campsiteSeed = 'camp-default';
-    }
-  }
 
-  // An explicit `?env=` wins; otherwise the campsite seed decides which
-  // environment this visit lands in. Region is not read here: it may only
-  // weight discovery, never lock it (spec §5.4), and the weighting lives in
-  // the content package where it can be tested.
-  const requested = params.get('env');
-  const environment =
-    (requested ? getEnvironment(requested) : undefined) ??
-    selectEnvironment({ seed: campsiteSeed });
-
-  return { environmentId: environment.id, campsiteSeed };
-}
-
-const { environmentId, campsiteSeed } = resolveCampsite();
 
 /*
  * The live-ops overlay, folded onto the compiled catalogue (ADR-0007).
@@ -115,7 +96,7 @@ const store = new Store({
   ...(environment
     ? {
         world: worldContentFor(environment),
-        walkableRadiusM: environment.scene.walkableRadiusM,
+        walkableRadiusM: campsiteRadiusM(environment),
       }
     : {}),
 });

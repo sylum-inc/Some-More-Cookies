@@ -599,6 +599,60 @@ export function mergeGeometries(geometries: readonly THREE.BufferGeometry[]): TH
   return merged;
 }
 
+/** One part of a merged assembly, in the assembly's own frame. */
+export interface PlacedPart {
+  readonly geometry: THREE.BufferGeometry;
+  readonly position?: readonly [number, number, number];
+  readonly rotation?: readonly [number, number, number];
+  readonly scale?: readonly [number, number, number];
+}
+
+/**
+ * Merges parts that sit at different places, which {@link mergeGeometries}
+ * cannot do — it takes bare geometries and would stack every box at the
+ * origin.
+ *
+ * This is what turns a cabinet built from thirty-seven boxes on three shared
+ * materials into three meshes. It is only ever correct for parts whose
+ * transforms are *static*: a merged part cannot move again, because its
+ * position is baked into the vertices. Anything animated (the door, the
+ * lever, the latch) stays its own object, and so does anything that has to be
+ * a separate raycast target for a pointer handler.
+ *
+ * Normals are recomputed by `mergeGeometries` as face normals, which sounds
+ * like it should change the shading and does not: every PS1 material is
+ * created with `flatShading: true` (`ps1.ts`), so three derives normals per
+ * fragment and ignores the attribute entirely. A merge is therefore expected
+ * to be pixel-identical, which is what makes the visual baselines a real test
+ * of it rather than a rubber stamp.
+ */
+export function mergePlaced(parts: readonly PlacedPart[]): THREE.BufferGeometry {
+  const matrix = new THREE.Matrix4();
+  const position = new THREE.Vector3();
+  const quaternion = new THREE.Quaternion();
+  const euler = new THREE.Euler();
+  const scale = new THREE.Vector3();
+
+  const moved = parts.map((part) => {
+    const geometry = part.geometry.clone();
+    const [px, py, pz] = part.position ?? [0, 0, 0];
+    const [rx, ry, rz] = part.rotation ?? [0, 0, 0];
+    const [sx, sy, sz] = part.scale ?? [1, 1, 1];
+    position.set(px, py, pz);
+    euler.set(rx, ry, rz);
+    quaternion.setFromEuler(euler);
+    scale.set(sx, sy, sz);
+    geometry.applyMatrix4(matrix.compose(position, quaternion, scale));
+    return geometry;
+  });
+
+  const merged = mergeGeometries(moved);
+  // The clones have been copied into `merged`; the sources belong to whoever
+  // made them and are left alone.
+  for (const geometry of moved) geometry.dispose();
+  return merged;
+}
+
 /** Small deterministic PRNG for geometry variation (not simulation state). */
 function mulberry(seed: number): () => number {
   let a = seed >>> 0;

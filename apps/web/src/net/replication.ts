@@ -95,6 +95,10 @@ export function applyIntent(ritual: RitualState, intent: InputIntent): void {
         tendFire(ritual, { type: 'move-log', logId: intent.action.logId, spot: intent.action.spot });
       } else if (intent.action.action === 'rake') {
         tendFire(ritual, { type: 'rake' });
+      } else if (intent.action.action === 'strike') {
+        // Whether it catches is the simulation's to decide, on the shared
+        // stream, so both people at one fire see the same match take or fail.
+        tendFire(ritual, { type: 'strike' });
       } else if (intent.action.action === 'bank') {
         tendFire(ritual, { type: 'bank', strength: intent.action.strength });
       } else {

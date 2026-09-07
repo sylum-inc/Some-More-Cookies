@@ -703,6 +703,259 @@ verification either, until somebody opens it.
 
 ---
 
+### Session 9: four things the product had already built and could not reach
+
+Not defects found by looking at the screen, but by reading the simulation
+against the client and asking which of its outputs a player can actually
+arrive at. Four systems were complete, tested, and wired to nothing.
+
+| # | What the build already had | What a player could do with it | Now |
+| --- | --- | --- | --- |
+| G1 | `photograph(ritual, subjects)`, the discovery model's `photographed` channel, and every secret that depends on having taken a picture of a thing | Nothing. The Photo button opened the Passport and never told the simulation what was in the frame, so the channel was fed by a test hook only | `subjectsInFrame(camera, ritual)` tests the render camera's own frustum against the animals, the landmarks, the water and the sky, and `handlePhoto` passes what it finds. Nine unit tests, including the cases where a subject is genuinely out of shot |
+| G2 | Twelve authored environments, `§5.4`'s promise that every player can eventually reach every one of them | Nothing. The campsite id was a constant: one device, one environment, forever. Eleven of the twelve were unreachable except by hand-editing a query string | A root seed minted once per device, a campsite derived from it, and a **trail out** at the edge of the clearing — `state/journey.ts`, with `nextCampsite` preferring somewhere you have not been. Nine unit tests walk the trail from twenty-four different devices and assert all twelve are reached from every one |
+| G3 | Environment manifests specifying walkable radii up to 34 m, and landmarks placed against them | Two thirds of the authored landmarks stood outside a hard 16 m clamp — placed, named, described, and behind an invisible fence | `campsiteRadiusM` caps at 34 m and is the single reader of `scene.walkableRadiusM`; the terrain, treeline and wildlife departure radius all follow it. Paid for with `mergePlaced`, which cut the SM-01 from 45 static meshes to 6 — the merge is pixel-identical because `createPs1Material` flat-shades per fragment, and the visual baselines say so |
+| G4 | Twenty-eight of the catalogue's forty-seven secrets, each carrying a `notes` or `strange-objects` channel, for which `defaultConditions` infers `{ kind: 'inspecting' }` | Nothing, and nothing was even possible: no code anywhere in the product wrote `presence.inspecting`. A shelf of shift entries stopping mid-sentence with the pencil still in the fold had been written, validated, shipped, and made unreachable by construction | `placeCurios` stands each of them somewhere — from the campsite's own seed, out of the fire, clear of the landmarks — and `lookCloser`/`stopLooking` latch the posture the condition wants. All 28 now have a place; 23 are findable on a first visit and every campsite has at least one |
+
+Three things about G4 were only found by running it rather than by testing it:
+
+- **The condition asked for a hold nobody would ever survive.** Left at the
+  witnessing rate, a deliberate look wanted twenty-six seconds of crouching
+  *and* then had to win a rarity roll. `stepDiscovery` now recognises a
+  deliberate secret — one whose conditions include `inspecting` — and asks
+  five to twelve seconds with no roll: you looked, so you found it. Being
+  there when something happens is luck; crouching over a thing is not.
+- **The prop was off screen at the moment it was offered.** The eye is at
+  1.58 m and a tin on its side is 0.16 m tall, so at the reach that offers
+  the prompt the thing is about twenty degrees *below* the bottom of the
+  frame. The first build put a button reading "Look closely at the tin in
+  the creek" over an empty patch of ground — the same failure the curios
+  exist to fix, moved one step later. Coming within reach now stoops the
+  body, the way standing at the pit already did, and crouching over one
+  kneels and aims the head at it. `e2e/place.spec.ts` asserts the stance in
+  metres at the moment the button appears, and fails without the stoop.
+- **The shape has to match the words.** Picking it from the channel alone
+  put a plank shelf under a label reading *tin*. `SHAPE_WORDS` reads the
+  nouns out of titles somebody already wrote — "The tackle cans", "The
+  sixth cairn", "The thirty-second stake" — and 24 of the 28 now look like
+  what they are called. The draw is still taken from the campsite's stream
+  whether or not a word matches, so renaming one secret cannot move
+  another's curio.
+
+None of the four needed new content, and none of them was a bug a test could
+have caught: every test passed before and after, because in each case the
+thing being tested worked and had no caller.
+
+---
+
+### Session 10: the middle of the screen is the world
+
+The heads-up display had five text channels stacked down the centre — the
+reach prompt at 18% from the bottom, the notice at 26%, what is in your hands
+at 13%, subtitles at 5%, the guidance line across the top — over the one thing
+the player is here to look at. Two of the three HUD defects this document
+already records are two of those channels landing on each other, each fixed by
+moving one of them a few per cent; the third is the notice sitting on the fire
+it was describing. The percentages were never the bug.
+
+Now: one column down the left for what the world is saying, one column up the
+right for what a thumb can do, the two corners for everything else, and nothing
+between them. The bottom of the screen is a single flex row with three
+slots — lane, bite ring, thumb cluster — so the three things that live down
+there cannot reach each other at any width or text scale. The bite ring was
+`position: fixed` at "nine per cent up, *plus* the home indicator", with a
+comment about landing within a pixel of the "Make this real" corner on a
+notched phone; it is one of the row's slots now and that arithmetic is gone.
+
+One test had to change, and it is worth recording why. `mobile.spec.ts`
+asserted no bite target sits under the home indicator by measuring the *raw*
+box against an inset-aware bound — a comparison only ever satisfied by a
+control that is **not** anchored to the bottom edge. The ring passed it by
+being placed high up the screen, and failed it the moment it started
+respecting the safe area properly. The file already contains
+`layoutUnderRealInsets`, written for exactly this question; the assertion now
+reads off that. Proved by dropping `safe-area-inset-bottom` from the new row:
+it fails.
+
+---
+
+### Session 10, part two: the pad you walk with
+
+The product had a virtual joystick and no player would ever have found it:
+invisible, floating to wherever the finger first landed on the canvas, behind
+an accessibility toggle that defaults off. What actually arrived on a phone was
+tap-to-move — a fine way to cross a clearing and a poor way to stand at the
+edge of a fire and turn around, which is most of what there is to do here.
+
+There is a drawn pad in the bottom-left corner now, on any device whose primary
+pointer is coarse, and dragging anywhere else still looks around: left thumb
+walks, right thumb looks. The vector lives in `interaction/thumbStick.ts` with
+nine tests, because the parts worth getting wrong — the dead zone, the clamp,
+which way is forward — are the parts a browser test would only catch by
+accident.
+
+Two things the e2e found that the unit tests could not:
+
+- **A pad taken away mid-drag left the player walking.** Its own pointer
+  handlers cannot catch that: an overlay opens, the pad unmounts, and the last
+  thing it wrote to the movement intent is left standing — full speed, no
+  input, until the fence. It stops on unmount now, and on a window `pointerup`,
+  `pointercancel` or `blur` while held, because a release can go missing for
+  reasons that have nothing to do with this code.
+- **The first version of that test could not tell the difference.** Asserting
+  "stopped six seconds later" is true either way, because a player left walking
+  eventually stops anyway — by reaching the fence. What differs is the ground
+  covered in between: 0.12 m with the guard, 1.25 m without. The test measures
+  drift now.
+
+Both stick tests also had to stop measuring the runner. They passed alone and
+failed in the suite with `speed` frozen at exactly its last value, which is
+what a starved render loop looks like rather than a stuck control; distance and
+stopping are polled rather than read once after a fixed wait.
+
+---
+
+### Session 11: the fire you left is the fire you come back to
+
+`createRitual` knew a first night from a return and nothing else. First visit,
+somebody's fire is going; every visit after that, a banked pit at a fixed two
+hundred degrees. Whether last night ended with the coals buried under a careful
+cover of ash or with bare flame left burning in the rain, tonight was identical
+— the hundred lines the fire model spends on banking, ash cover and ember decay
+stopped mattering the moment the tab closed.
+
+`packages/sim/src/hearth.ts` carries it across. What you leave is what you
+find: the coals, the ash raked over them, the wood not burnt. Ash decides how
+much survives, which is not a rule invented for this — it is what banking a
+fire *is*. A bare bed halves in about ninety minutes; a well-covered one lasts
+the night and then some. Measured across seeds:
+
+| ash cover | dry campsite | wet campsite |
+| --- | --- | --- |
+| 0 (walked away) | never kept | never kept |
+| 0.3 (half-hearted) | 55% | 17% |
+| 0.6 | always | 77% |
+| 0.85+ | always | always |
+
+The skill decides it and the place modulates the middle, which is the right way
+round: a rain forest is a harder place to keep a fire, and no campsite is a
+campsite where care does not work. `wetnessOf` reads that out of the weather
+weights the catalogue already writes, so nobody had to add a difficulty field.
+
+**Nothing counts nights.** There is no streak, no total, and no number about
+this anywhere a player can see — the e2e asserts the arrival line contains no
+digit, because "4 nights kept" is the entire design lost in one string and is
+exactly the shape of thing somebody adds later while being helpful. A long run
+of kept fires shows up as a deeper bed and more ash. A lost one shows up as a
+cold pit and a wet woodpile, which the place says in its own words for a visit
+or two and then stops mentioning.
+
+Two things worth recording:
+
+- **A gap is a night, however long it really was.** Coals cool in hours, so
+  cooling against the wall clock would mean a player who comes back tomorrow
+  can keep a fire and one who comes back next month cannot, whatever either of
+  them did before leaving. That is not a mechanic, it is a tax on having a job.
+  What a long absence does cost is chances of rain, which is weather rather
+  than calendar.
+- **The first version of the e2e passed on the wrong sentence.** It asserted
+  "a notice is visible" and got the campsite's description of its own ground,
+  because the hearth line was being written and overwritten in the same frame
+  by the place remark. The line now lands when the player is over the pit —
+  truer anyway, since that is when you find out what is in one — and the test
+  asserts the string the simulation composes, reached through the test handle
+  rather than copied into the spec.
+
+---
+
+### Session 12: the animals get used to you
+
+The wildlife model already carried `individual.visits` and handed it to the
+significance model, so a sighting could be told as a first meeting or a fourth.
+It changed nothing about the animal. A fox that had watched you sit still by
+the same fire nine nights running bolted at exactly the distance it bolted on
+the first, and nine visits bought a different sentence and nothing else.
+
+Two layers now, because the two things a person actually learns are different
+things. You get better at *being around foxes*, which travels with you to a
+campsite you have never seen and lives on the Passport; and a particular fox at
+a particular fire gets used to *you*, which does not travel, is worth two and a
+half times as much, and lives with that campsite's memory.
+
+What earns it is a night that ended without the animal startling — not time
+spent nearby. One that fled learned the opposite about you, and paying for the
+minutes it spent frightened would teach a player that standing over a nervous
+fox is how you befriend it. A photograph earns about half a night, and only
+when the subject was still standing there afterwards: `photograph` already
+makes the flash a real trade by setting `startle`, so a picture that finds its
+subject calm is by construction one taken carefully. The photograph wiring from
+Phase 0 is what makes that reachable at all.
+
+Over one quiet evening in the browser at Pine Hollow: a saw-whet owl, two deer
+mice and a flying squirrel came to know the player, and the species floors
+followed at a fifth of the rate. Blundering about for the same evening teaches
+nothing whatsoever.
+
+Two things worth recording:
+
+- **The first version credited nobody.** `spooked` latched on `fleeing` as well
+  as `startled` — and `fleeing` is the only route out of this model, since an
+  animal that has simply had enough of watching you leaves through the same
+  phase a frightened one does. Every departure was a flight, and a whole quiet
+  evening taught the place nothing. Startling is the honest signal.
+- **The test that missed it was worse than the bug.** The first pass asserted
+  `typeof spooked === 'boolean'` — filler that would have passed against any
+  implementation at all. It compares a quiet evening against a loud one now,
+  which is the actual claim.
+
+Nothing here is a meter. Familiarity reaches the player as an animal standing
+its ground where it would have run, and §7's "not collectible pets" is tested
+directly: both layers at maximum still leave a shy species shy.
+
+---
+
+### Session 13: the dead end the fire spine nearly shipped with
+
+Found by opening a screenshot of a cold pit and reading the button under it,
+which said **"Poke the coals"** over a pit with no coals in it.
+
+That was the small half. `stepFire` has exactly one route to ignition — heat
+already in the pit — and until a night could be lost there was always some: the
+opening fire is established, and every return was a banked bed holding two
+hundred degrees. The moment the hearth made a genuinely cold pit possible, a
+player could arrive at one, gather every stick in the wood, lay all of it on,
+and watch nothing happen for as long as they cared to wait. Measured: tinder,
+kindling and a log in a cold pit, two minutes of simulation, `flame=0.000`.
+
+`strikeSpark` is the missing verb. It needs tinder in the pit, it can fail, and
+what decides whether it fails is how wet that tinder is — 37 strikes in 40 at
+five per cent moisture, 7 in 40 at ninety. So a hearth that took rain while you
+were away is harder to bring back, which is the lesson the rest of the model
+already teaches. Anybody camping has a means of lighting a fire; the
+interesting part was never the match.
+
+A cold pit now offers **"Lay a new fire"**, and once there is tinder in it,
+**"Put a light to it"**. The whole loop is walked in the browser: cold pit,
+gather tinder, lay it on, strike, and the clearing is lit.
+
+Three things worth recording, all of them mine:
+
+- **I twice concluded the fire model was broken when my test was.** The first
+  attempt put oak straight onto a match and established 0/20; a realistic
+  sequence — tinder, kindling on top, more kindling as it takes, then wood —
+  establishes 20/20. The model was right the whole time.
+- **The success message read the wrong signal.** `strikeSpark` seeds the ember
+  bed; `flame` is computed by `stepFire` and is still exactly what it was until
+  the next step. Comparing flame reported "The light does not take. Damp,
+  probably." over a fire visibly going up.
+- **The e2e asserted a moment rather than an event.** It polled
+  `emberTemp > 200`, passed alone, and failed in the suite — an armful of
+  tinder with nothing above it burns out in twenty seconds, so under load the
+  poll sampled after it was gone. It waits for the line the product says now.
+
+A fire verb also has to cross the wire, or two people at one fire desync: the
+strike is in `TendFireActionSchema`, the client's mapping, the replication path
+and the server's replay.
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

@@ -119,6 +119,23 @@ function atThePit(player: PlayerState): boolean {
 }
 
 /**
+ * How near you have to be for the body to notice something at your feet.
+ *
+ * Matches the reach that offers the prompt, so the stoop and the button arrive
+ * together — the thing you are being told about comes up into frame at the
+ * same moment you are told about it.
+ */
+const CURIO_STOOP_M = 1.35;
+
+/** True when there is something small enough to miss right beside you. */
+function atACurio(player: PlayerState, ritual: RitualState): boolean {
+  for (const curio of ritual.curios) {
+    if (Math.hypot(curio.x - player.position.x, curio.z - player.position.z) < CURIO_STOOP_M) return true;
+  }
+  return false;
+}
+
+/**
  * Whether the player's hands are free to be put in the fire.
  *
  * Adding a second pointer surface to the pit — drag a log, sweep the ash —
@@ -563,6 +580,15 @@ export interface WorldProps {
   player: PlayerState;
   /** Movement intent for the current frame, refreshed by the app. */
   intentRef: React.MutableRefObject<MoveIntent>;
+  /**
+   * The thing being crouched over, if any.
+   *
+   * A ref, because the discovery model wants `presence.inspecting` written
+   * every step and a re-render per frame is not a price a posture should
+   * cost. World also clears it when the player walks away, which is the only
+   * honest way to stop a look that has been abandoned.
+   */
+  inspectingRef?: React.MutableRefObject<string | null>;
   /** Walkable world, derived from the environment manifest. */
   walkable: WalkableWorld;
   /** Reports what the player can act on, so the interface can offer it. */
@@ -601,6 +627,7 @@ export function World({
   onSimStep,
   player,
   intentRef,
+  inspectingRef,
   walkable,
   onReachChange,
   onUse,
@@ -647,6 +674,8 @@ export function World({
   const lookGoal = useRef<[number, number, number] | null>(null);
   /** Eye height last step, so a look goal is not abandoned while the stance is still moving. */
   const lastEyeY = useRef(0);
+  /** The curio being looked at last frame, so the head is aimed once and not every frame. */
+  const lastInspected = useRef<string | null>(null);
   const shake = useRef(0);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
   const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
@@ -819,10 +848,51 @@ export function World({
        * gets them down to it, and eases back up the moment they step away.
        */
       const atTheFire = (ritual.stage === 'at-fire' || ritual.stage === 'after') && atThePit(player);
-      intentRef.current.kneel = stance === 'kneel';
-      intentRef.current.crouch = stance === 'crouch' || atTheFire;
-      restingIntent.kneel = stance === 'kneel';
-      restingIntent.crouch = stance === 'crouch' || atTheFire;
+      /*
+       * And crouching over a curio, which is the fire's problem again and
+       * worse.
+       *
+       * The eye is at one metre and a half; a tin on its side is sixteen
+       * centimetres tall. From standing, at the range that offers the prompt,
+       * it is not a smudge at the bottom of the frame — it is twenty degrees
+       * *below* the bottom of the frame, off screen entirely. The first build
+       * of this put a button reading "Look closely at the tin in the creek"
+       * over an empty patch of ground, which is the same failure the curios
+       * were written to fix, moved one step later: a thing authored, placed,
+       * and impossible to see.
+       *
+       * So the body goes down to it. Coming within reach is a stoop, the way
+       * the pit is; actually looking is a kneel, and the head is aimed at the
+       * thing by the goal below.
+       */
+      const inspecting = inspectingRef?.current ?? null;
+      const overACurio = inspecting !== null || atACurio(player, ritual);
+      intentRef.current.kneel = stance === 'kneel' || inspecting !== null;
+      intentRef.current.crouch = stance === 'crouch' || atTheFire || overACurio;
+      restingIntent.kneel = stance === 'kneel' || inspecting !== null;
+      restingIntent.crouch = stance === 'crouch' || atTheFire || overACurio;
+      /*
+       * Aim the head at what you have just crouched over.
+       *
+       * The same easing the ritual's own tasks use, and for the same reason
+       * its comment gives: walking to the right spot is only half of it, and
+       * a body that arrives at a thing looks at the thing. Any look input
+       * abandons the goal immediately, so this puts the tin in front of you
+       * once and never holds you there.
+       */
+      if (inspecting !== lastInspected.current) {
+        lastInspected.current = inspecting;
+        const curio = inspecting === null ? undefined : ritual.curios.find((c) => c.secretId === inspecting);
+        if (curio) {
+          lookGoal.current = [
+            curio.x,
+            // The thing itself, a hand's breadth up: a tin on its side is
+            // sixteen centimetres tall and a stake's tag is at thirty-six.
+            terrainHeight(curio.x, curio.z, walkable.seed, walkable.amplitude, walkable.basin) + 0.18,
+            curio.z,
+          ];
+        }
+      }
       stepPlayer(player, walkable, anchored ? restingIntent : intentRef.current, dt);
 
       /*
@@ -910,6 +980,26 @@ export function World({
       presenceScratch.seated = player.seated;
       presenceScratch.seatId = player.seated ? 'log-seat' : null;
       presenceScratch.places = placesAt(player, walkable, placesScratch);
+      /*
+       * What is being crouched over, written every step.
+       *
+       * `stepDiscovery` asks for this held continuously, so it has to be
+       * re-asserted rather than set once — and dropped honestly the moment
+       * the player walks out of reach of the thing or stands up, or the world
+       * would keep finding a secret for somebody who has wandered off. The
+       * reach is a little wider than the one that offered it, so a small step
+       * while crouching does not cancel the look.
+       */
+      const looking = inspectingRef?.current ?? null;
+      if (looking !== null) {
+        const curio = ritual.curios.find((c) => c.secretId === looking);
+        const gone =
+          curio === undefined ||
+          player.seated ||
+          Math.hypot(curio.x - player.position.x, curio.z - player.position.z) > 1.9;
+        if (gone && inspectingRef) inspectingRef.current = null;
+      }
+      presenceScratch.inspecting = inspectingRef?.current ?? null;
       setPresence(ritual, presenceScratch);
       stepRitual(ritual, dt);
       onSimStep?.(ritual);
@@ -1098,8 +1188,12 @@ export function World({
         // The environment's own draw distance, capped by the quality tier so
         // a generous site cannot blow the budget on a weak device.
         drawDistance={Math.min(qualitySettings.drawDistance, environment?.scene.drawDistanceM ?? 30)}
+        // The world is drawn at least as far as it can be walked.
+        walkableRadius={walkable.radius}
         fuelPatches={ritual.gathering.patches}
         landmarks={ritual.landmarks}
+        curios={ritual.curios}
+        onLookCloser={(secretId) => touchIfInReach(`look:${secretId}`)}
         onVisitLandmark={(id) => {
           // Reachable only from where you are standing, for the same reason
           // the firewood is: a tap on something across the clearing is a walk.

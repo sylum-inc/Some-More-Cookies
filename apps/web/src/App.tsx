@@ -47,6 +47,7 @@ import {
   toggleRadio,
   vec3,
   canPerform,
+  describeHearth,
   lookCloser,
   photograph,
   stopLooking,
@@ -403,6 +404,7 @@ export function App({ store }: AppProps): React.ReactElement {
     if (handle) {
       handle.player = player;
       handle.walkable = walkable;
+      handle.describeHearth = describeHearth;
     }
   }, [player, walkable]);
 
@@ -1592,6 +1594,8 @@ export function App({ store }: AppProps): React.ReactElement {
   /** The last weather change already announced, so it is said once. */
   const lastWeatherAt = useRef(-1);
   const lastDiscoveryAt = useRef(-1);
+  /** The pit is remarked on once, on the way in, or not at all. */
+  const saidHearth = useRef(false);
   /** Whether this site's unit has introduced itself yet. */
   const metTheMachine = useRef(false);
   /** Which of this campsite's activities have introduced themselves. */
@@ -1746,6 +1750,27 @@ export function App({ store }: AppProps): React.ReactElement {
           store.setSubtitle('[there is more here than you first thought]');
         }
       }
+      /*
+       * And what the pit looks like tonight, said once, when you are over it.
+       *
+       * The one line in the product that is about what *you* did last time
+       * rather than about where you are: coals still going under the ash you
+       * raked over them, or a cold pit and a wet woodpile. The words come from
+       * the simulation, like every other line the world speaks, and there is
+       * never a number in them — no nights kept, no run, nothing to protect.
+       *
+       * On reaching the pit rather than on arriving at the campsite. The first
+       * frame at the fire already carries the campsite's own remark about
+       * itself, and two notices in one frame means the player reads whichever
+       * was written second — this landed and was gone before it drew. It is
+       * also simply truer: you find out what is in a pit by standing over it.
+       */
+      if (!saidHearth.current && r.presence.places.includes('fireside')) {
+        saidHearth.current = true;
+        const pit = describeHearth(r.hearth);
+        if (pit) store.setNotice(pit);
+      }
+
       if (r.marshmallow.ignitedThisStep) {
         lastSubtitle.current = { text: '[the marshmallow catches fire]', at: performance.now() };
         store.setSubtitle('[the marshmallow catches fire]');

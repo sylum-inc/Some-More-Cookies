@@ -812,6 +812,59 @@ failed in the suite with `speed` frozen at exactly its last value, which is
 what a starved render loop looks like rather than a stuck control; distance and
 stopping are polled rather than read once after a fixed wait.
 
+---
+
+### Session 11: the fire you left is the fire you come back to
+
+`createRitual` knew a first night from a return and nothing else. First visit,
+somebody's fire is going; every visit after that, a banked pit at a fixed two
+hundred degrees. Whether last night ended with the coals buried under a careful
+cover of ash or with bare flame left burning in the rain, tonight was identical
+— the hundred lines the fire model spends on banking, ash cover and ember decay
+stopped mattering the moment the tab closed.
+
+`packages/sim/src/hearth.ts` carries it across. What you leave is what you
+find: the coals, the ash raked over them, the wood not burnt. Ash decides how
+much survives, which is not a rule invented for this — it is what banking a
+fire *is*. A bare bed halves in about ninety minutes; a well-covered one lasts
+the night and then some. Measured across seeds:
+
+| ash cover | dry campsite | wet campsite |
+| --- | --- | --- |
+| 0 (walked away) | never kept | never kept |
+| 0.3 (half-hearted) | 55% | 17% |
+| 0.6 | always | 77% |
+| 0.85+ | always | always |
+
+The skill decides it and the place modulates the middle, which is the right way
+round: a rain forest is a harder place to keep a fire, and no campsite is a
+campsite where care does not work. `wetnessOf` reads that out of the weather
+weights the catalogue already writes, so nobody had to add a difficulty field.
+
+**Nothing counts nights.** There is no streak, no total, and no number about
+this anywhere a player can see — the e2e asserts the arrival line contains no
+digit, because "4 nights kept" is the entire design lost in one string and is
+exactly the shape of thing somebody adds later while being helpful. A long run
+of kept fires shows up as a deeper bed and more ash. A lost one shows up as a
+cold pit and a wet woodpile, which the place says in its own words for a visit
+or two and then stops mentioning.
+
+Two things worth recording:
+
+- **A gap is a night, however long it really was.** Coals cool in hours, so
+  cooling against the wall clock would mean a player who comes back tomorrow
+  can keep a fire and one who comes back next month cannot, whatever either of
+  them did before leaving. That is not a mechanic, it is a tax on having a job.
+  What a long absence does cost is chances of rain, which is weather rather
+  than calendar.
+- **The first version of the e2e passed on the wrong sentence.** It asserted
+  "a notice is visible" and got the campsite's description of its own ground,
+  because the hearth line was being written and overwritten in the same frame
+  by the place remark. The line now lands when the player is over the pit —
+  truer anyway, since that is when you find out what is in one — and the test
+  asserts the string the simulation composes, reached through the test handle
+  rather than copied into the spec.
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

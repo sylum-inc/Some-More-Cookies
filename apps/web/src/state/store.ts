@@ -22,6 +22,8 @@ import {
   type SandwichRecord,
   type Trace,
   type WeatherProfile,
+  bankHearth,
+  type Hearth,
 } from '@somemore/sim';
 import { DEFAULT_RENDER_SETTINGS, type QualityTier, type RenderSettings } from '../render/ps1.js';
 
@@ -129,6 +131,16 @@ export interface CampsiteMemory {
   /** How many times this player has arrived here. 1 on the first night. */
   visits: number;
   lastVisitAt: number;
+  /**
+   * The pit as this player left it.
+   *
+   * The one piece of campsite memory that is a *physical* thing rather than a
+   * record of what happened: coals, the ash raked over them, the wood not
+   * burnt. Absent on a campsite last visited before this existed, which reads
+   * as a pit nobody has used — the right answer, and the reason it is optional
+   * rather than backfilled with a guess.
+   */
+  hearth?: Hearth;
   /** Secrets noticed here, this visit and every earlier one. */
   secrets: DiscoveryRecord[];
   /** Visits each recognisable resident has been seen on, by individual id. */
@@ -468,6 +480,21 @@ export class Store {
         now,
         ...(options.world ? { world: options.world } : {}),
         visitIndex: memory.visits,
+        /*
+         * The fire you left, and how long ago you left it.
+         *
+         * `hoursAway` is the one wall-clock reading the fire model gets, and it
+         * is taken here rather than inside the simulation for ADR-0001: the sim
+         * is handed a number. `remembered.lastVisitAt` is 0 on a first night,
+         * which would be fifty-odd years of absence, so a hearth without one
+         * is treated as no hearth at all.
+         */
+        ...(remembered.hearth && remembered.lastVisitAt > 0
+          ? {
+              hearth: remembered.hearth,
+              hoursAway: Math.max(0, (now - remembered.lastVisitAt) / 3_600_000),
+            }
+          : {}),
         priorVisits: memory.residents,
         knownSecrets: memory.secrets,
         knownConstellations: memory.constellations,
@@ -730,6 +757,17 @@ export class Store {
       environmentId: this.state.environmentId,
       visits: Math.max(previous.visits, ritual.options.visitIndex),
       lastVisitAt: Date.now(),
+      /*
+       * The pit exactly as it stands right now.
+       *
+       * This runs on a timer as well as on the way out, which is what makes it
+       * right rather than merely convenient: there is no "leave" button on a
+       * browser tab, so the fire you left is whatever the fire was when you
+       * stopped playing. Banking the coals and then closing the laptop is a
+       * player doing the thing the mechanic is about; walking away from open
+       * flame is too.
+       */
+      hearth: bankHearth(ritual.fire, ritual.hearth),
       secrets,
       residents: residentVisits,
       traces: activeTraces(traces, Date.now(), 96),

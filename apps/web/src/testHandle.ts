@@ -13,7 +13,7 @@
  * test can reach here, a player can reach by touching the world.
  */
 
-import type { PlayerState, WalkableWorld } from '@somemore/sim';
+import type { Hearth, PlayerState, WalkableWorld } from '@somemore/sim';
 import type { Camera, Scene, WebGLRenderer } from 'three';
 import type { Campfire } from './net/campfire.js';
 import type { Store } from './state/store.js';
@@ -30,6 +30,16 @@ export interface SomeMoreHandle {
   walkable?: WalkableWorld;
   /** The shared fire, present only while a link has brought this page to one. */
   campfire?: Campfire | null;
+  /**
+   * What the simulation says about a pit, so a test can assert the line the
+   * world composes rather than a copy of it.
+   *
+   * The same function the client calls. A spec that carried its own copy of
+   * these sentences would pass while the world said something else, which is
+   * how the first version of the hearth test came to assert a campsite's
+   * description of its own ground.
+   */
+  describeHearth?: (hearth: Hearth) => string | null;
 }
 
 declare global {

@@ -30,6 +30,7 @@ import {
   type FireSignals,
   type FireState,
 } from './fire.js';
+import { NEW_HEARTH, restHearth, wakeFire, wetnessOf, type Hearth } from './hearth.js';
 import {
   createMarshmallow,
   stepRoast,
@@ -257,6 +258,16 @@ export interface RitualOptions {
   world?: RitualWorldContent;
   /** Which visit to this campsite this is. 1 is the first. */
   visitIndex?: number;
+  /**
+   * The pit as this player left it, and how long ago.
+   *
+   * Omitted on a first night, and omitted by every caller that has no memory
+   * to restore — a test, a link somebody shared — which is the same thing as
+   * arriving somewhere nobody has camped.
+   */
+  hearth?: Hearth;
+  /** Hours since this player last left this campsite. */
+  hoursAway?: number;
   /** Visits already banked for known individuals, keyed by individual id. */
   priorVisits?: Readonly<Record<string, number>>;
   /** What this player already found here, restored from the Passport. */
@@ -619,12 +630,29 @@ export interface RitualState {
   options: Required<
     Omit<
       RitualOptions,
-      'weatherProfile' | 'world' | 'priorVisits' | 'knownSecrets' | 'knownConstellations'
+      | 'weatherProfile'
+      | 'world'
+      | 'priorVisits'
+      | 'knownSecrets'
+      | 'knownConstellations'
+      // Inputs, not settings: what they produce is `hearth` below, and keeping
+      // the raw pair here as well would be two answers to one question.
+      | 'hearth'
+      | 'hoursAway'
     >
   > & {
     weatherProfile: WeatherProfile;
     world: RitualWorldContent;
   };
+  /**
+   * The pit as tonight found it: what was left here, after the night between.
+   *
+   * Kept on the state rather than derived on demand because the client has to
+   * bank it again on the way out, and banking has to know what it is replacing
+   * — a cold pit that stays cold counts a visit down, and one that is alight
+   * again stops counting at all.
+   */
+  hearth: Hearth;
   /** Stage-change flag for one step, consumed by audio and UI. */
   stageChangedTo: RitualStage | null;
 }
@@ -672,8 +700,34 @@ export function createRitual(options: RitualOptions): RitualState {
    * first thing you do, and it is the only opening that could not be had on a
    * first visit, which is the point: it is a reason to come back.
    */
+  /*
+   * A campsite you have used before is found the way you left it.
+   *
+   * This used to be a coin with two sides: first visit, somebody's fire is
+   * going; every visit after that, a banked pit at a fixed two hundred
+   * degrees. Whether last night ended with the coals buried under a careful
+   * cover of ash or with bare flame left burning in the rain made no
+   * difference to what you walked back into — the whole of what the fire model
+   * simulates stopped mattering the moment the tab closed.
+   *
+   * Now the pit is the one you left, cooled by the night in between and by
+   * whatever fell on it. `restHearth` is where that happens; this only has to
+   * decide between the opening image and your own hearth.
+   */
+  const rested = options.hearth
+    ? restHearth(options.hearth, {
+        hours: options.hoursAway ?? 0,
+        ambientC: weather.temperatureC,
+        wetness: wetnessOf(weatherProfile),
+        rng: rng.split('hearth'),
+      })
+    : null;
   const returning = (options.visitIndex ?? 1) > 1;
-  const fire = returning ? createBankedFire(fireConfig) : createEstablishedFire(fireConfig);
+  const fire = rested
+    ? wakeFire(rested, fireConfig)
+    : returning
+      ? createBankedFire(fireConfig)
+      : createEstablishedFire(fireConfig);
 
   // Built before the state object so the landmarks can be put at the water.
   const water = world.water
@@ -821,6 +875,7 @@ export function createRitual(options: RitualOptions): RitualState {
       weatherProfile,
       world,
     },
+    hearth: rested ?? NEW_HEARTH,
     stageChangedTo: null,
   };
 }

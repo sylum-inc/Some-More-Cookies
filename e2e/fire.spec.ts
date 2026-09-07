@@ -619,3 +619,149 @@ test.describe('going and getting firewood', () => {
     expect(lit.on).toBe(true);
   });
 });
+
+/**
+ * The fire you left is the fire you come back to.
+ *
+ * `createRitual` knew a first night from a return and nothing else: bank the
+ * coals under a careful cover of ash, or walk away from open flame, and the
+ * next visit opened on the identical banked pit either way. Everything the
+ * fire model simulates stopped mattering the moment the tab closed.
+ *
+ * The unit tests cover the physics. This covers the part only a browser can
+ * answer — whether a night actually survives being closed and reopened, which
+ * runs through the store, localStorage, the Passport's campsite memory and
+ * back into `createRitual`.
+ */
+test.describe('a fire that outlives the tab', () => {
+  /** Arrives at a campsite and waits until the walk in is over. */
+  async function arrive(page: import('@playwright/test').Page, camp: string): Promise<void> {
+    await page.goto(`/?camp=${camp}&env=pine_hollow`);
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 30_000,
+    });
+    await page.waitForTimeout(600);
+  }
+
+  /**
+   * Makes every arrival in this test land a night after the one before it.
+   *
+   * A fire has to survive a night for banking it to mean anything, and a
+   * Playwright test cannot wait for dusk. Winding `lastVisitAt` back by hand
+   * between loads does not work: the app saves on the way out as well as on a
+   * timer, so the page being left overwrites the value — the first version of
+   * this wound the clock back twelve hours and the fire arrived having aged
+   * six minutes. An init script runs before any page script on every
+   * navigation, which is after the last save of the previous page and before
+   * the read of the next one.
+   */
+  async function nightsApart(page: import('@playwright/test').Page, hours = 12): Promise<void> {
+    await page.addInitScript((ago) => {
+      const raw = localStorage.getItem('some-more/passport/v1');
+      if (!raw) return;
+      try {
+        const passport = JSON.parse(raw) as { campsites?: Record<string, { lastVisitAt: number }> };
+        for (const camp of Object.values(passport.campsites ?? {})) {
+          camp.lastVisitAt = Date.now() - ago * 3_600_000;
+        }
+        localStorage.setItem('some-more/passport/v1', JSON.stringify(passport));
+      } catch {
+        // A corrupt Passport is the app's problem to survive, not this one's.
+      }
+    }, hours);
+  }
+
+  /** Saves the night the way the product does, then comes back to it. */
+  async function comeBackTomorrow(page: import('@playwright/test').Page, camp: string): Promise<void> {
+    await page.evaluate(() => window.__someMore!.store.rememberCampsite());
+    await arrive(page, camp);
+  }
+
+  /** What is in the pit right now. */
+  async function pit(
+    page: import('@playwright/test').Page,
+  ): Promise<{ emberMass: number; emberTemp: number; ashCover: number }> {
+    return page.evaluate(() => {
+      const fire = (window.__someMore!.store.state.ritual as unknown as {
+        fire: { emberMass: number; emberTemp: number; ashCover: number };
+      }).fire;
+      return { emberMass: fire.emberMass, emberTemp: fire.emberTemp, ashCover: fire.ashCover };
+    });
+  }
+
+  test('banking the coals keeps them, and walking away from them does not', async ({ page }) => {
+    await nightsApart(page);
+    await arrive(page, 'hearth-kept');
+    // Ash over the coals: the technique the whole model is built around.
+    await act(page, 'bank');
+    await page.waitForTimeout(600);
+    const banked = await pit(page);
+    expect(banked.ashCover, 'banking put no ash over anything').toBeGreaterThan(0.5);
+
+    await comeBackTomorrow(page, 'hearth-kept');
+    const kept = await pit(page);
+    // eslint-disable-next-line no-console
+    console.log(`  banked, a night later: ${kept.emberMass.toFixed(3)} kg at ${Math.round(kept.emberTemp)}°C`);
+    expect(kept.emberMass, 'a banked fire went out overnight').toBeGreaterThan(0.03);
+    expect(kept.emberTemp).toBeGreaterThan(140);
+
+    /*
+     * And the other half, at a campsite of its own so the two nights cannot
+     * borrow each other's memory. Same night, same length of absence, no ash
+     * raked over the bed before leaving.
+     */
+    await arrive(page, 'hearth-lost');
+    await comeBackTomorrow(page, 'hearth-lost');
+    const lost = await pit(page);
+    // eslint-disable-next-line no-console
+    console.log(`  unbanked, a night later: ${lost.emberMass.toFixed(3)} kg at ${Math.round(lost.emberTemp)}°C`);
+    expect(lost.emberMass, 'an unbanked fire survived the night').toBeLessThan(0.03);
+    expect(lost.emberMass).toBeLessThan(kept.emberMass);
+  });
+
+  test('says what it finds, and never counts anything', async ({ page }) => {
+    await nightsApart(page);
+    await arrive(page, 'hearth-said');
+    await act(page, 'bank');
+    await page.waitForTimeout(400);
+    await comeBackTomorrow(page, 'hearth-said');
+
+    /*
+     * Walk to the pit: that is when it is remarked on, and the notice channel
+     * carries several other things on the way in.
+     *
+     * Asserting "a notice is visible" is what the first version of this did,
+     * and it passed on the campsite's description of its own ground while the
+     * hearth line was being written and overwritten in the same frame. So this
+     * waits for the line the simulation actually composes for this pit.
+     */
+    const expected = await page.evaluate(() => {
+      const w = window.__someMore!;
+      return w.describeHearth!(w.store.state.ritual.hearth);
+    });
+    expect(expected, 'the simulation had nothing to say about a kept pit').not.toBeNull();
+
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      player.position.x = 1.2;
+      player.position.z = 0;
+    });
+
+    const notice = page.getByTestId('notice');
+    await expect(notice).toHaveText(expected!, { timeout: 10_000 });
+    const said = expected!;
+    // eslint-disable-next-line no-console
+    console.log(`  the pit said: ${said}`);
+    expect(said.length).toBeGreaterThan(15);
+    /*
+     * §5.3: no score, no streak, no total. A line reading "4 nights kept"
+     * would be the whole design lost in one string, and it is exactly the
+     * shape of thing that gets added later by somebody being helpful.
+     */
+    expect(said, 'the pit reported a number at the player').not.toMatch(/\d/);
+  });
+});

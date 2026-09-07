@@ -865,6 +865,52 @@ Two things worth recording:
   asserts the string the simulation composes, reached through the test handle
   rather than copied into the spec.
 
+---
+
+### Session 12: the animals get used to you
+
+The wildlife model already carried `individual.visits` and handed it to the
+significance model, so a sighting could be told as a first meeting or a fourth.
+It changed nothing about the animal. A fox that had watched you sit still by
+the same fire nine nights running bolted at exactly the distance it bolted on
+the first, and nine visits bought a different sentence and nothing else.
+
+Two layers now, because the two things a person actually learns are different
+things. You get better at *being around foxes*, which travels with you to a
+campsite you have never seen and lives on the Passport; and a particular fox at
+a particular fire gets used to *you*, which does not travel, is worth two and a
+half times as much, and lives with that campsite's memory.
+
+What earns it is a night that ended without the animal startling — not time
+spent nearby. One that fled learned the opposite about you, and paying for the
+minutes it spent frightened would teach a player that standing over a nervous
+fox is how you befriend it. A photograph earns about half a night, and only
+when the subject was still standing there afterwards: `photograph` already
+makes the flash a real trade by setting `startle`, so a picture that finds its
+subject calm is by construction one taken carefully. The photograph wiring from
+Phase 0 is what makes that reachable at all.
+
+Over one quiet evening in the browser at Pine Hollow: a saw-whet owl, two deer
+mice and a flying squirrel came to know the player, and the species floors
+followed at a fifth of the rate. Blundering about for the same evening teaches
+nothing whatsoever.
+
+Two things worth recording:
+
+- **The first version credited nobody.** `spooked` latched on `fleeing` as well
+  as `startled` — and `fleeing` is the only route out of this model, since an
+  animal that has simply had enough of watching you leaves through the same
+  phase a frightened one does. Every departure was a flight, and a whole quiet
+  evening taught the place nothing. Startling is the honest signal.
+- **The test that missed it was worse than the bug.** The first pass asserted
+  `typeof spooked === 'boolean'` — filler that would have passed against any
+  implementation at all. It compares a quiet evening against a loud one now,
+  which is the actual claim.
+
+Nothing here is a meter. Familiarity reaches the player as an animal standing
+its ground where it would have run, and §7's "not collectible pets" is tested
+directly: both layers at maximum still leave a shy species shy.
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

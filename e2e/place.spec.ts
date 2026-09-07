@@ -756,3 +756,82 @@ test.describe('the things you find by looking', () => {
     await expect(page.getByRole('button', { name: 'Straighten up' })).toHaveCount(0);
   });
 });
+
+/**
+ * What the animals come to know about you.
+ *
+ * The wildlife model already carried `individual.visits`, and it changed
+ * nothing about the animal: a fox that had watched you sit still by the same
+ * fire nine nights running bolted at exactly the distance it bolted on the
+ * first, and nine visits bought a different sentence and nothing else.
+ *
+ * The unit tests cover the two layers and what earns them. This covers the
+ * part only a browser can answer: whether an evening survives being closed,
+ * and whether the halves go to the two places they are supposed to — the
+ * species floor onto the Passport, where it travels, and the bonds onto the
+ * campsite, where they stay.
+ */
+test.describe('the animals get used to you', () => {
+  test('an evening of sitting still is still there tomorrow, in two halves', async ({ page }) => {
+    await page.goto('/?camp=known-fox&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.three));
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForTimeout(400);
+    await page.locator('canvas').click({ position: { x: 640, y: 400 } });
+    await page.waitForFunction(() => window.__someMore!.store.state.stage !== 'arriving', null, {
+      timeout: 25_000,
+    });
+    await page.waitForTimeout(600);
+
+    /*
+     * A whole quiet evening, run through the simulation rather than waited for.
+     *
+     * `advanceSeconds` is the same fast-forward every other suite here uses,
+     * and it steps the same `stepRitual` the render loop steps — nothing about
+     * the animals is skipped by taking it in minutes rather than frames.
+     */
+    for (let minutes = 0; minutes < 20; minutes++) await act(page, 'advanceSeconds', 60);
+    await page.waitForTimeout(400);
+
+    const learned = await page.evaluate(() => {
+      const wildlife = window.__someMore!.store.state.ritual.wildlife;
+      return {
+        species: Object.entries(wildlife.familiarity.species),
+        individuals: Object.entries(wildlife.familiarity.individuals),
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log(`  learned: ${JSON.stringify(learned)}`);
+    expect(learned.individuals.length, 'a quiet evening taught the place nothing').toBeGreaterThan(0);
+
+    // Saved the way the product saves.
+    await page.evaluate(() => window.__someMore!.store.rememberCampsite());
+    const stored = await page.evaluate(() => {
+      const raw = localStorage.getItem('some-more/passport/v1');
+      const passport = JSON.parse(raw ?? '{}') as {
+        species?: Record<string, number>;
+        campsites?: Record<string, { bonds?: Record<string, number> }>;
+      };
+      return {
+        species: Object.keys(passport.species ?? {}),
+        bonds: Object.keys(passport.campsites?.['known-fox']?.bonds ?? {}),
+      };
+    });
+    expect(stored.species.length, 'nothing about the species reached the Passport').toBeGreaterThan(0);
+    expect(stored.bonds.length, 'no bond was kept with the campsite').toBeGreaterThan(0);
+
+    // And it comes back: the animals here start the next night knowing you.
+    await page.goto('/?camp=known-fox&env=pine_hollow');
+    await page.waitForFunction(() => Boolean(window.__someMore?.store));
+    await page.waitForTimeout(800);
+    const restored = await page.evaluate(() => {
+      const wildlife = window.__someMore!.store.state.ritual.wildlife;
+      return {
+        species: Object.values(wildlife.familiarity.species),
+        individuals: Object.values(wildlife.familiarity.individuals),
+      };
+    });
+    expect(Math.max(0, ...restored.individuals), 'the fox forgot you overnight').toBeGreaterThan(0);
+    expect(Math.max(0, ...restored.species), 'the species floor did not travel').toBeGreaterThan(0);
+  });
+});

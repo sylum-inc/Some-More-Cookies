@@ -23,6 +23,7 @@ import {
   type Trace,
   type WeatherProfile,
   bankHearth,
+  mergeFamiliarity,
   type Hearth,
 } from '@somemore/sim';
 import { DEFAULT_RENDER_SETTINGS, type QualityTier, type RenderSettings } from '../render/ps1.js';
@@ -141,6 +142,15 @@ export interface CampsiteMemory {
    * rather than backfilled with a guess.
    */
   hearth?: Hearth;
+  /**
+   * How well the animals that live here know this player.
+   *
+   * Per individual, and it stays with the campsite: the fox at Pine Hollow
+   * getting used to you is not a thing you can carry to a lake shore. The
+   * species half of the same model lives on the Passport, because being good
+   * with foxes does travel.
+   */
+  bonds?: Readonly<Record<string, number>>;
   /** Secrets noticed here, this visit and every earlier one. */
   secrets: DiscoveryRecord[];
   /** Visits each recognisable resident has been seen on, by individual id. */
@@ -184,6 +194,14 @@ export interface PassportState {
   visitedEnvironments: string[];
   /** Per-campsite memory, keyed by campsite seed. */
   campsites: Record<string, CampsiteMemory>;
+  /**
+   * How used to being around each species this player is, everywhere.
+   *
+   * The shallow half of recognition, and the only half that belongs on the
+   * Passport rather than on a campsite: you get better at being around foxes,
+   * and that is true at a fire you have never sat at.
+   */
+  species?: Readonly<Record<string, number>>;
   /** Total sandwiches made, all time. */
   sandwichCount: number;
   linkedProvider: 'none' | 'apple' | 'google' | 'email';
@@ -298,6 +316,7 @@ function createPassport(): PassportState {
     stamps: [],
     visitedEnvironments: [],
     campsites: {},
+    species: {},
     sandwichCount: 0,
     linkedProvider: 'none',
     redeemedCodes: [],
@@ -496,6 +515,14 @@ export class Store {
             }
           : {}),
         priorVisits: memory.residents,
+        /*
+         * What the animals here already know of this player, from the two
+         * places the two layers live.
+         */
+        familiarity: {
+          species: passport.species ?? {},
+          individuals: remembered.bonds ?? {},
+        },
         knownSecrets: memory.secrets,
         knownConstellations: memory.constellations,
         // Tonight's real date at the campsite's own small hours. The date is
@@ -768,6 +795,15 @@ export class Store {
        * flame is too.
        */
       hearth: bankHearth(ritual.fire, ritual.hearth),
+      /*
+       * And what the animals here learned tonight, merged rather than
+       * replaced — this runs on a timer, so an evening must not be worth more
+       * to somebody who left the tab open.
+       */
+      bonds: mergeFamiliarity(
+        { species: {}, individuals: previous.bonds ?? {} },
+        ritual.wildlife.familiarity,
+      ).individuals,
       secrets,
       residents: residentVisits,
       traces: activeTraces(traces, Date.now(), 96),
@@ -778,6 +814,12 @@ export class Store {
     const passport: PassportState = {
       ...this.state.passport,
       campsites: { ...this.state.passport.campsites, [seed]: memory },
+      // The species floor is the half that travels, so it goes on the Passport
+      // rather than with the campsite that happened to teach it.
+      species: mergeFamiliarity(
+        { species: this.state.passport.species ?? {}, individuals: {} },
+        ritual.wildlife.familiarity,
+      ).species,
     };
     this.set({ passport });
     this.persistPassport();

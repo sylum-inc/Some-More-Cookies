@@ -31,6 +31,7 @@ import {
   type FireState,
 } from './fire.js';
 import { NEW_HEARTH, restHearth, wakeFire, wetnessOf, type Hearth } from './hearth.js';
+import type { Familiarity } from './familiarity.js';
 import {
   createMarshmallow,
   stepRoast,
@@ -270,6 +271,13 @@ export interface RitualOptions {
   hoursAway?: number;
   /** Visits already banked for known individuals, keyed by individual id. */
   priorVisits?: Readonly<Record<string, number>>;
+  /**
+   * What the animals here already know of this player.
+   *
+   * Two layers restored from two places: the species floor travels with the
+   * Passport, the individual bonds belong to this campsite's memory.
+   */
+  familiarity?: Familiarity;
   /** What this player already found here, restored from the Passport. */
   knownSecrets?: readonly DiscoveryRecord[];
   /** Which part of the night the session opens in. */
@@ -639,6 +647,9 @@ export interface RitualState {
       // the raw pair here as well would be two answers to one question.
       | 'hearth'
       | 'hoursAway'
+      // Restored input too: what it becomes lives on `wildlife.familiarity`,
+      // which grows over the evening, and two copies would disagree by dawn.
+      | 'familiarity'
     >
   > & {
     weatherProfile: WeatherProfile;
@@ -788,6 +799,7 @@ export function createRitual(options: RitualOptions): RitualState {
       campsiteSeed: seed,
       roster: varyRoster(world.wildlife ?? [], variations),
       priorVisits: options.priorVisits,
+      ...(options.familiarity ? { familiarity: options.familiarity } : {}),
       /*
        * Animals arrive from outside the campsite and leave by going out of
        * it. The default 30 m was chosen when nowhere was bigger than that,
@@ -1243,6 +1255,9 @@ function stepWorld(ritual: RitualState, dt: number): void {
       (wildlifeScratch.cues.voices ?? 0) * 0.6 +
       (wildlifeScratch.cues.footsteps ?? 0) * 0.4,
   );
+  // What the camera caught this step, so an animal photographed without
+  // bolting comes to know the person holding it.
+  wildlifeScratch.photographed = presence.photographed;
   stepWildlife(ritual.wildlife, wildlifeScratch, dt, stream(ritual, 'wildlife'));
 
   // --- discovery -----------------------------------------------------------

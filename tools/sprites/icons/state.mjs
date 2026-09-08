@@ -380,11 +380,82 @@ export const SPRITES = [
   },
 
   {
-    // Overcast. The family's cloud in the family's place, heavier only in its
-    // ramp — an overcast sky is a darker cloud, not a lower one.
+    // High cloud. The family's cloud in the family's place, with the sun still
+    // getting past it — this is the sky you can see blue through.
     name: "state-weather-cloud",
     draw(pix) {
-      cloud(pix, CLOUD_Y, "stone1", "stone2", "stone3");
+      sun(pix, 21, 11, 5, "ember2", "ember3", "ember4");
+      cloud(pix, CLOUD_Y, "stone2", "stone3", "stone4");
+      pix.outline();
+    },
+  },
+
+  {
+    /*
+     * Overcast, which is a lid rather than a cloud.
+     *
+     * This used to share a drawing with high cloud, so two of the nine skies
+     * the world can produce were one glyph — and an art review measured the
+     * two frames as differing by 1.5 of 255, which means the icon was the only
+     * thing that could have told them apart and it did not. The difference in
+     * life is not that overcast cloud is darker; it is that there is no edge
+     * to it and no sky behind it. So: no gaps, no sun, a flat unbroken deck
+     * filling the cell's width, and the ramp running the wrong way — light at
+     * the bottom, where the ground bounces back into it.
+     */
+    name: "state-weather-overcast",
+    draw(pix) {
+      /*
+       * Two decks, one behind the other, filling the cell edge to edge.
+       *
+       * The first attempt at this was a dark trapezoid, which read as a black
+       * rectangle rather than as weather — the mistake being to draw overcast
+       * as *dark* when what it actually is, is *unbroken*. So the values stay
+       * in the middle of the stone ramp where the other clouds live, and what
+       * says overcast is that there is no gap anywhere and no edge to the
+       * whole thing: it leaves the cell on both sides.
+       */
+      // The upper deck, receding.
+      pix.rect(3, 9, 26, 5, "stone2");
+      pix.disc(9, 9, 6, 3, "stone3");
+      pix.disc(19, 9, 7, 3, "stone3");
+      pix.disc(26, 10, 5, 3, "stone2");
+      // The lower one, nearer and heavier, hanging under it.
+      pix.rect(3, 14, 26, 6, "stone3");
+      pix.disc(8, 20, 7, 3.5, "stone3");
+      pix.disc(18, 20, 8, 3.5, "stone3");
+      pix.disc(26, 19, 5, 3, "stone2");
+      // The underside, where the ground bounces light back into it. Lighter at
+      // the bottom, which is the ramp running the opposite way to a fair-
+      // weather cloud and is most of what says "lid".
+      pix.rect(5, 21, 22, 2, "stone4");
+      pix.dither(5, 19, 22, 3, "stone2", 0);
+      pix.outline();
+    },
+  },
+
+  {
+    /*
+     * Wind, which had no glyph at all and was borrowing the clear sky's sun.
+     *
+     * Wind is the one weather with nothing in the air to draw, so it is drawn
+     * as what it does: three streaks bending round something, and a bough bent
+     * with them. Bent rather than straight — a straight streak is speed and a
+     * curved one is pressure, and it is pressure that puts a fire out.
+     */
+    name: "state-weather-wind",
+    draw(pix) {
+      // The bough, leaning hard.
+      pix.line(7, 27, 13, 15, "wood2");
+      pix.line(8, 27, 14, 15, "wood1");
+      pix.poly([[13, 16], [22, 12], [26, 15], [17, 19]], "green2");
+      pix.poly([[13, 16], [20, 13], [24, 15], [16, 18]], "green3");
+      // Three gusts, each hooking over at its end.
+      for (const [y, x0, x1] of [[7, 5, 22], [11, 8, 26], [24, 4, 18]]) {
+        pix.line(x0, y, x1, y, "stone4");
+        pix.line(x1, y, x1 + 2, y + 2, "stone4");
+        pix.set(x1 + 2, y + 3, "stone3");
+      }
       pix.outline();
     },
   },

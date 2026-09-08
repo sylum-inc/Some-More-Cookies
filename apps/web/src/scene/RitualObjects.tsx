@@ -126,6 +126,30 @@ export function RoastingStick({ marshmallow, settings, bearing }: RoastingStickP
 
   useFrame((state) => {
     mesh.update(marshmallow);
+    /*
+     * Normals, every frame, because the ones the mesh ships are wrong.
+     *
+     * `createMarshmallowMesh` writes a normal attribute whose Y component is
+     * hard zero everywhere except the two end caps — every normal around the
+     * barrel points straight out horizontally. Under flat shading that never
+     * mattered: three.js derives face normals in the shader from screen-space
+     * derivatives and ignores the attribute entirely. Turning flat shading off
+     * to get a continuous browning gradient handed the lighting those normals
+     * for the first time, and a marshmallow held over a fire that is *below*
+     * it got a dot product of approximately zero across its whole surface.
+     *
+     * The result was not subtle and is worth recording: a pure black disc with
+     * a thin cream crescent on the side facing AWAY from the flame, in front
+     * of a blazing pit. It read as a hole cut in the picture. Nobody looking at
+     * the code would have found it — the material was right, the colours were
+     * right, the emissive floor was right, and the geometry had a normal
+     * attribute that looked populated.
+     *
+     * Recomputed rather than fixed at the source because the marshmallow
+     * swells and sags as it roasts, so its normals go stale anyway; it is
+     * twelve patches and the cost is nothing.
+     */
+    mesh.geometry.computeVertexNormals();
 
     const group = groupRef.current;
     if (group) {

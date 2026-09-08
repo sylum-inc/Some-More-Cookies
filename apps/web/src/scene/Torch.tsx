@@ -99,7 +99,23 @@ export function Torch({ torch, player, settings, restPosition, onTouch }: TorchP
       target.position.set(handX + dirX * torch.rangeM, handY + dirY * torch.rangeM, handZ + dirZ * torch.rangeM);
       target.updateMatrixWorld();
       light.angle = torch.beamAngle;
-      light.distance = torch.rangeM;
+      /*
+       * The reach, well past where the beam is still worth seeing.
+       *
+       * `distance` is not a soft horizon: three.js multiplies the falloff by a
+       * window that hits exactly zero at that radius with a discontinuous
+       * slope, so setting it to the torch's game-rule range drew a crisp
+       * circular arc across the ground and across whatever tree the beam
+       * happened to land on. The same bug was fixed on the campfire this
+       * session; this is the other light that had it, and an art review found
+       * it in the same words — a hard-edged decal rather than light.
+       *
+       * The reach is still `rangeM`; what decides it is now the falloff, which
+       * is what decides it in life. The cut-off is pushed out to where the
+       * beam is already below the quantisation floor and cannot be seen to
+       * end.
+       */
+      light.distance = torch.rangeM * 2.4;
       /*
        * Calibrated against the fire, which is the only other light in the
        * camp: it runs at about 11 with a decay of 1.35 and only just clears
@@ -114,7 +130,14 @@ export function Torch({ torch, player, settings, restPosition, onTouch }: TorchP
        * it too, because the torch is the second brightest thing out here.
        */
       light.intensity = (30 + torch.focus * 44) * settings.fireBrightness;
-      light.penumbra = 0.5;
+      /*
+       * A soft-edged cone. Half a penumbra still left a readable ring on the
+       * ground, and a beam with a traceable outline reads as a projected
+       * texture rather than as light — which is exactly what it was called.
+       * Focusing the beam tightens the edge as well as narrowing it, because
+       * that is what focusing a torch does.
+       */
+      light.penumbra = 0.92 - torch.focus * 0.24;
     }
 
     if (body && torch.held) {
@@ -127,8 +150,16 @@ export function Torch({ torch, player, settings, restPosition, onTouch }: TorchP
     <group name="torch">
       <spotLight
         ref={lightRef}
-        color={0xffeccc}
-        decay={1.4}
+        /*
+         * Warmer than it was. A torch at this period is an incandescent bulb
+         * behind a slightly yellowed lens, not a white LED — and the old
+         * `0xffeccc` was near-white enough that landing on green foliage it
+         * came back olive, which is what a reviewer saw and called sickly.
+         */
+        color={0xffc27a}
+        // Steeper, so the pool has a middle and an edge rather than being a
+        // flat fill out to its own boundary.
+        decay={1.75}
         castShadow={false}
         visible={false}
       />

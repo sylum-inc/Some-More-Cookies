@@ -291,7 +291,20 @@ export function Fire({
         const height = Math.pow(life, 1.5) * fire.flameHeight * 0.92;
         const shrink = Math.pow(Math.max(0, 1 - life), 0.85);
         const sway = Math.sin(t * 3 * flicker + p.offset) * 0.05 * (0.3 + fire.windSpeed * 0.2);
-        const lean = fire.windSpeed * 0.06 * height;
+        /*
+         * The lean, which the prose has always claimed and the picture never
+         * showed.
+         *
+         * `height` rather than `height * height` was the whole problem: a
+         * linear lean tips the entire column like a hinged plank, and at the
+         * old coefficient a full gale bent a forty-centimetre flame by four
+         * centimetres — about six degrees, which at 320x240 is nothing. A
+         * flame is anchored at the fuel and free at the tip, so it bends more
+         * the further up it goes, and squaring the height is what turns a tilt
+         * into a bend. An art review's note was blunt: "you already write 'the
+         * flames lean with it'; the flames do not lean."
+         */
+        const lean = fire.windSpeed * 0.115 * height * height * 2.4;
 
         dummy.position.set(
           Math.cos(p.angle) * p.radius * (1 - life * 0.5) + sway + Math.cos(fire.windDirection) * lean,

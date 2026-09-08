@@ -7,7 +7,7 @@
 
 export const SPRITE_CELL = 32;
 export const SPRITE_SHEET = 'sprites/atlas.png';
-export const SPRITE_SHEET_SIZE = { width: 256, height: 352 } as const;
+export const SPRITE_SHEET_SIZE = { width: 256, height: 384 } as const;
 
 /** The same bezel again as a contiguous 3x3, for CSS `border-image`. */
 export const SPRITE_FRAME = 'sprites/frame.png';
@@ -81,9 +81,11 @@ export type SpriteName =
   | 'state-weather-clear'
   | 'state-weather-cloud'
   | 'state-weather-fog'
+  | 'state-weather-overcast'
   | 'state-weather-rain'
   | 'state-weather-snow'
   | 'state-weather-storm'
+  | 'state-weather-wind'
   | 'trace-ash'
   | 'trace-cone'
   | 'trace-feather'
@@ -171,25 +173,27 @@ export const SPRITES: Record<SpriteName, { readonly x: number; readonly y: numbe
   'state-weather-clear': { x: 0, y: 256 },
   'state-weather-cloud': { x: 32, y: 256 },
   'state-weather-fog': { x: 64, y: 256 },
-  'state-weather-rain': { x: 96, y: 256 },
-  'state-weather-snow': { x: 128, y: 256 },
-  'state-weather-storm': { x: 160, y: 256 },
-  'trace-ash': { x: 192, y: 256 },
-  'trace-cone': { x: 224, y: 256 },
-  'trace-feather': { x: 0, y: 288 },
-  'trace-prints': { x: 32, y: 288 },
-  'trace-scat': { x: 64, y: 288 },
-  'trace-scratch': { x: 96, y: 288 },
-  'verb-add-log': { x: 128, y: 288 },
-  'verb-bank': { x: 160, y: 288 },
-  'verb-blow': { x: 192, y: 288 },
-  'verb-leave-out': { x: 224, y: 288 },
-  'verb-look': { x: 0, y: 320 },
-  'verb-photo': { x: 32, y: 320 },
-  'verb-poke': { x: 64, y: 320 },
-  'verb-rake': { x: 96, y: 320 },
-  'verb-sit': { x: 128, y: 320 },
-  'verb-stand': { x: 160, y: 320 },
-  'verb-strike': { x: 192, y: 320 },
-  'verb-take': { x: 224, y: 320 },
+  'state-weather-overcast': { x: 96, y: 256 },
+  'state-weather-rain': { x: 128, y: 256 },
+  'state-weather-snow': { x: 160, y: 256 },
+  'state-weather-storm': { x: 192, y: 256 },
+  'state-weather-wind': { x: 224, y: 256 },
+  'trace-ash': { x: 0, y: 288 },
+  'trace-cone': { x: 32, y: 288 },
+  'trace-feather': { x: 64, y: 288 },
+  'trace-prints': { x: 96, y: 288 },
+  'trace-scat': { x: 128, y: 288 },
+  'trace-scratch': { x: 160, y: 288 },
+  'verb-add-log': { x: 192, y: 288 },
+  'verb-bank': { x: 224, y: 288 },
+  'verb-blow': { x: 0, y: 320 },
+  'verb-leave-out': { x: 32, y: 320 },
+  'verb-look': { x: 64, y: 320 },
+  'verb-photo': { x: 96, y: 320 },
+  'verb-poke': { x: 128, y: 320 },
+  'verb-rake': { x: 160, y: 320 },
+  'verb-sit': { x: 192, y: 320 },
+  'verb-stand': { x: 224, y: 320 },
+  'verb-strike': { x: 0, y: 352 },
+  'verb-take': { x: 32, y: 352 },
 };

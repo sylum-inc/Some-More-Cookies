@@ -164,3 +164,58 @@ describe('the colour blend underneath it', () => {
     expect(Number.isFinite(look.sunIntensity)).toBe(true);
   });
 });
+
+describe('aerial perspective points the right way', () => {
+  /*
+   * The rule a whole session of screenshots failed to notice.
+   *
+   * Distance fog is the sky in front of an object, so a fogged object
+   * converges toward the sky it is seen against and can never overshoot past
+   * it. The ramp used to carry a `fog` colour authored independently of the
+   * sky, which measured on a clear night as a treeline at luminance 32 against
+   * a sky at 9 — three and a half times brighter than the thing behind it,
+   * warm, at night, from no light source. Every distant tree in the game was a
+   * pale cutout in front of a dark sky instead of a dark one behind a bright
+   * sky, at every hour.
+   *
+   * Asserted as a law rather than as a number, because the numbers are meant
+   * to be tuned and the law is not.
+   */
+  const PLACES = [
+    { name: 'pine hollow', night: { sky: 0x070a0f, fog: 0x0b1016 } },
+    { name: 'mesa', night: { sky: 0x120d14, fog: 0x1a1218 } },
+    { name: 'a bright-fogged site', night: { sky: 0x05070a, fog: 0x243040 } },
+  ];
+
+  for (const place of PLACES) {
+    it(`never makes the far distance brighter than the sky above it at ${place.name}`, () => {
+      for (const altitude of [-40, -18, -10, -6, -2, 0, 4, 10, 25, 60]) {
+        for (const cloud of [0, 0.5, 1]) {
+          const look = skyLook(altitude, place.night, cloud);
+          /*
+           * The horizon may be brighter than the zenith — that is what a
+           * sunset and a hazy noon both are. What may not happen is fog
+           * landing outside the range the sky itself spans, because there is
+           * nothing for it to be the colour OF.
+           */
+          const low = Math.min(luminance(look.sky), luminance(look.horizon));
+          const high = Math.max(luminance(look.sky), luminance(look.horizon));
+          const fog = luminance(look.fog);
+          expect(fog, `${altitude}deg cloud ${cloud}: fog below both sky values`).toBeGreaterThanOrEqual(low - 0.02);
+          expect(fog, `${altitude}deg cloud ${cloud}: fog brighter than the sky`).toBeLessThanOrEqual(high + 0.02);
+        }
+      }
+    });
+  }
+
+  it('keeps the far distance close to the horizon rather than to the zenith', () => {
+    // Which is the actual claim: a tree at forty metres is seen against the
+    // band just above the treeline, not against the sky straight up.
+    for (const altitude of [-20, 0, 30]) {
+      const look = skyLook(altitude, PLACES[0]!.night);
+      const toHorizon = Math.abs(luminance(look.fog) - luminance(look.horizon));
+      const toZenith = Math.abs(luminance(look.fog) - luminance(look.sky));
+      expect(toHorizon, `${altitude}deg`).toBeLessThanOrEqual(toZenith + 0.001);
+    }
+  });
+});

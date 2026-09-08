@@ -344,6 +344,8 @@ export function Campsite({
   const sceneBackground = useMemo(() => new THREE.Color(0x070a0f), []);
   const starsRef = useRef<THREE.Points>(null);
   const rainRef = useRef<THREE.LineSegments>(null);
+  /** How much snow is lying, eased so a squall whitens the ground over seconds. */
+  const snowCover = useRef(0);
   const snowRef = useRef<THREE.Points>(null);
 
   /*
@@ -1094,9 +1096,47 @@ export function Campsite({
     }
     if (ambientRef.current) {
       const ambient = ambientRef.current;
-      const target = look.ambientIntensity + moonlight.ambient * 0.5 * (1 - look.sunShare);
+      /*
+       * Fog lifts the black point, which is the thing fog actually does.
+       *
+       * A graded capture of fog was described as "a slightly bluer sky" with
+       * the treeline reading at HIGHER contrast than on a clear night, which
+       * is backwards: fog is suspended water lit by everything around it, so
+       * the first thing it does is stop anything being properly dark. Without
+       * this the fog setting moved the draw distance and nothing else, and a
+       * player could not tell it from a clear night with a shorter view.
+       *
+       * Ambient rather than a post-process, because a lifted black point IS
+       * ambient — light arriving from every direction at once is the physical
+       * description of both.
+       */
+      const murk = weather.fog * weather.fog;
+      const target =
+        (look.ambientIntensity + moonlight.ambient * 0.5 * (1 - look.sunShare)) * (1 + murk * 1.35);
       ambient.intensity += (target - ambient.intensity) * k;
-      ambient.color.lerp(TMP_COLOR.setHex(look.ambient), k);
+      // And it takes the sky's colour with it, because that is what is lighting it.
+      TMP_COLOR.setHex(look.ambient).lerp(ease.horizon, murk * 0.6);
+      ambient.color.lerp(TMP_COLOR, k);
+    }
+
+    /*
+     * Lightning.
+     *
+     * A storm without a flash is heavy rain, and the difference between the
+     * two is the whole reason the word exists. Driven off elapsed time rather
+     * than a random roll so it cannot fire twice in a frame or stutter, and
+     * gated hard on reduced motion — a full-frame white flash is exactly the
+     * kind of thing §12 exists to let people turn off.
+     */
+    if (ambientRef.current && weather.kind === 'storm' && !settings.reducedMotion) {
+      const beat = state.clock.elapsedTime % 8.5;
+      // Two strikes close together, the way they actually come, then a long
+      // wait. The second is weaker: it is the same bolt's afterglow.
+      const strike = Math.max(pulse(beat, 0.06), pulse(beat - 0.19, 0.09) * 0.55);
+      if (strike > 0) {
+        ambientRef.current.intensity += strike * 5.5;
+        ambientRef.current.color.lerp(TMP_COLOR.setHex(0xc8d4ff), strike * 0.8);
+      }
     }
     if (hemisphereRef.current) {
       const hemisphere = hemisphereRef.current;
@@ -1109,6 +1149,26 @@ export function Campsite({
     groundMaterial.color
       .copy(groundTones.night)
       .lerp(groundTones.day, look.surfaceLift);
+    /*
+     * Snow on the ground, which is where snow mostly is.
+     *
+     * Falling flakes alone are a screensaver: a graded capture of snow was
+     * indistinguishable from a storm because nothing had settled anywhere. The
+     * ground is the cheapest surface to cover and by far the largest, so it is
+     * most of the read — and it is honest, since a campsite that has been snowed
+     * on has white ground and a fire burning a hole in it.
+     *
+     * Only for the snow kinds, and eased by the same frame factor as everything
+     * else here, so walking into a squall whitens the clearing over a few
+     * seconds rather than between frames.
+     */
+    const settled = weather.kind === 'snow' || weather.kind === 'snow-squall'
+      ? Math.min(0.72, weather.precipitation * 0.95)
+      : 0;
+    snowCover.current += (settled - snowCover.current) * Math.min(1, delta * 0.35);
+    if (snowCover.current > 0.004) {
+      groundMaterial.color.lerp(TMP_COLOR.setHex(0xc9ced6), snowCover.current);
+    }
 
     // The two discs. Neither is a light; both are just something to look at.
     if (sunDiscRef.current) {
@@ -1695,4 +1755,14 @@ function mulberry(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/**
+ * A short spike at `t = 0`, zero elsewhere. The shape of a lightning flash:
+ * instant on, quick off, nothing in between.
+ */
+function pulse(t: number, width: number): number {
+  if (t < 0 || t > width) return 0;
+  const k = 1 - t / width;
+  return k * k;
 }

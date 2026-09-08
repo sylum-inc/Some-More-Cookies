@@ -139,17 +139,24 @@ test.describe('gallery', () => {
            * into a module's privates to set nine numbers is worse than a
            * harness that states which nine it means.
            */
-          const CHARACTER: Record<string, { precipitation: number; fog: number; cloud: number }> = {
-            clear: { precipitation: 0, fog: 0.04, cloud: 0.05 },
-            'high-cloud': { precipitation: 0, fog: 0.06, cloud: 0.4 },
-            overcast: { precipitation: 0, fog: 0.12, cloud: 0.92 },
-            'light-rain': { precipitation: 0.3, fog: 0.2, cloud: 0.95 },
-            rain: { precipitation: 0.7, fog: 0.3, cloud: 1 },
-            storm: { precipitation: 1, fog: 0.35, cloud: 1 },
-            fog: { precipitation: 0.02, fog: 0.9, cloud: 0.7 },
-            snow: { precipitation: 0.5, fog: 0.45, cloud: 0.95 },
-            'snow-squall': { precipitation: 0.9, fog: 0.75, cloud: 1 },
-            wind: { precipitation: 0, fog: 0.03, cloud: 0.3 },
+          const CHARACTER: Record<
+            string,
+            { precipitation: number; fog: number; cloud: number; wind: number }
+          > = {
+            clear: { precipitation: 0, fog: 0.04, cloud: 0.05, wind: 0.6 },
+            'high-cloud': { precipitation: 0, fog: 0.06, cloud: 0.4, wind: 0.9 },
+            overcast: { precipitation: 0, fog: 0.12, cloud: 0.92, wind: 1.2 },
+            'light-rain': { precipitation: 0.3, fog: 0.2, cloud: 0.95, wind: 1.4 },
+            rain: { precipitation: 0.7, fog: 0.3, cloud: 1, wind: 2.2 },
+            storm: { precipitation: 1, fog: 0.35, cloud: 1, wind: 4.4 },
+            fog: { precipitation: 0.02, fog: 0.9, cloud: 0.7, wind: 0.35 },
+            snow: { precipitation: 0.5, fog: 0.45, cloud: 0.95, wind: 1.3 },
+            'snow-squall': { precipitation: 0.9, fog: 0.75, cloud: 1, wind: 4.8 },
+            // The one whose entire signature is the wind, and the one the
+            // first version of this helper forgot: it set every scalar the
+            // weather derives except the one that makes a gale a gale, so the
+            // wind frame captured as a slightly dimmer clear night.
+            wind: { precipitation: 0, fog: 0.03, cloud: 0.3, wind: 4.2 },
           };
           const character = CHARACTER[kind as string] ?? CHARACTER.clear!;
           ritual.weather.kind = kind;
@@ -158,6 +165,7 @@ test.describe('gallery', () => {
           ritual.weather.precipitation = character.precipitation;
           ritual.weather.fog = character.fog;
           ritual.weather.cloudCover = character.cloud;
+          ritual.weather.windSpeed = character.wind;
           // Far enough out that nothing rolls a new sky mid-capture.
           ritual.weather.secondsUntilTransition = 100_000;
         },

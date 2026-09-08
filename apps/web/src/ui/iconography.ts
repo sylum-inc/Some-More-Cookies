@@ -85,9 +85,11 @@ export function weatherSprite(kind: string): SpriteName {
     case 'fog':
       return 'state-weather-fog';
     case 'high-cloud':
-    case 'overcast':
       return 'state-weather-cloud';
+    case 'overcast':
+      return 'state-weather-overcast';
     case 'wind':
+      return 'state-weather-wind';
     case 'clear':
     default:
       return 'state-weather-clear';

@@ -413,15 +413,39 @@ export function createMachineDecal(options: {
   const fade = Math.min(0.75, options.decalFade);
   const ink = `rgba(26,28,32,${(1 - fade * 0.7).toFixed(3)})`;
 
-  // Brand, set in a restrained functional way.
-  ctx.fillStyle = ink;
-  ctx.font = `bold ${Math.floor(size * 0.11)}px "Helvetica Neue", Arial, sans-serif`;
-  ctx.textBaseline = 'top';
-  ctx.fillText('SOME MORE', size * 0.07, size * 0.07);
+  /*
+   * The brand, at a size that survives being a machine in a wood at night.
+   *
+   * This was set at eleven per cent of the plate in the same weight as the
+   * technical block under it, which is a defensible piece of typography and
+   * completely illegible in the product: the plate covers a few centimetres of
+   * a machine seen from two metres, through a 320x240 buffer and an affine
+   * wobble, so twenty-eight texture pixels of cap height arrive as about six
+   * screen pixels of grey mush. An art director's note was that the machine
+   * the game is *named after* has no logo — "a low-contrast grey-brown smear
+   * over noise text" — and that is exactly what it was.
+   *
+   * So the hierarchy is made real rather than tasteful. The name is nearly
+   * twice the height it was and sits alone; the model number gets the second
+   * rank; and the paragraph of specification below is demoted to what it
+   * honestly is at this distance — texture that says "this is equipment", not
+   * text anybody reads. An oxidised-red rule frames the whole plate, which is
+   * the one saturated colour on the object and is what makes it read as an
+   * enamelled placard rather than as a sticker.
+   */
+  ctx.strokeStyle = `rgba(138,59,42,${(0.9 - fade * 0.4).toFixed(3)})`;
+  ctx.lineWidth = Math.max(2, size * 0.012);
+  ctx.strokeRect(size * 0.035, size * 0.035, size * 0.93, size * 0.93);
 
-  ctx.font = `${Math.floor(size * 0.055)}px "Helvetica Neue", Arial, sans-serif`;
-  ctx.fillText('SM-01', size * 0.07, size * 0.21);
-  ctx.fillText('TRANSFORMATION FREEZER', size * 0.07, size * 0.28);
+  ctx.fillStyle = ink;
+  ctx.font = `bold ${Math.floor(size * 0.19)}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.textBaseline = 'top';
+  ctx.fillText('SOME MORE', size * 0.07, size * 0.075);
+
+  ctx.font = `bold ${Math.floor(size * 0.085)}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.fillText('SM-01', size * 0.07, size * 0.275);
+  ctx.font = `${Math.floor(size * 0.05)}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.fillText('TRANSFORMATION FREEZER', size * 0.28, size * 0.305);
 
   // A functional rule, the Rams-influenced touch.
   ctx.fillStyle = `rgba(26,28,32,${(0.5 - fade * 0.3).toFixed(3)})`;

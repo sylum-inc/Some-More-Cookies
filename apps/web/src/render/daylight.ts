@@ -257,8 +257,19 @@ export function skyLook(
   night: { readonly sky: number; readonly fog: number },
   cloudCover = 0,
 ): SkyLook {
+  /*
+   * The manifest's night fog stands in as the night HORIZON as well.
+   *
+   * Because the two are the same thing. The band just above the treeline at
+   * night is the haze, and now that distance fog resolves to the horizon (see
+   * below), a campsite that authored its own fog would otherwise have it
+   * quietly replaced by a shared constant at the one hour it matters most —
+   * which is the whole reason twelve environments state a night fog at all.
+   * With this substitution the far treeline at midnight resolves to exactly
+   * the colour the pine hollow asked for, and the mesa's to the mesa's.
+   */
   const stops = STOPS.map((stop) =>
-    stop === NIGHT ? { ...stop, sky: night.sky, fog: night.fog } : stop,
+    stop === NIGHT ? { ...stop, sky: night.sky, horizon: night.fog, fog: night.fog } : stop,
   );
   const altitude = Number.isFinite(sunAltitudeDeg) ? sunAltitudeDeg : -90;
   const blended = sample(stops, altitude);
@@ -267,13 +278,40 @@ export function skyLook(
   // Overcast: sky and fog converge, and the sun stops being a disc long before
   // it stops being a light.
   const flat = mix(blended.sky, blended.fog, cloud * 0.55);
+  /*
+   * Distance fog resolves to the HORIZON, not to a colour of its own.
+   *
+   * This is the one that was inverting aerial perspective at every hour. The
+   * ramp carried a `fog` colour authored independently of the sky, so a tree
+   * at forty metres was blended toward a warm grey that had nothing to do with
+   * what was actually behind it — and measured on a clear night, the far
+   * treeline came out at luminance 32 against a sky at 9. Three and a half
+   * times *brighter* than the thing behind it, with a warm cast, at night,
+   * from no light source.
+   *
+   * That is not a stylistic error, it is backwards physics. Distance-fogged
+   * geometry converges toward the sky it is seen against; it cannot overshoot
+   * past that value, because what fog is made of is the sky in front of the
+   * object. So the fog colour is the horizon colour, mixed only slightly
+   * toward the manifest's own authored fog so a canyon still gets a canyon's
+   * haze. At dusk the far trees now resolve to the ember band and read as
+   * near-black cutouts against the brighter sky above them; at noon they
+   * resolve to the pale blue and sit behind it rather than in front.
+   *
+   * One line, six frames.
+   */
+  const horizon = mix(blended.horizon, flat, cloud * 0.82);
   return {
     sky: flat,
     // Cloud kills a sunset before it kills anything else: an overcast horizon
     // is the same grey as the zenith, which is exactly why overcast days have
     // no dusk to speak of.
-    horizon: mix(blended.horizon, flat, cloud * 0.82),
-    fog: mix(blended.fog, flat, cloud * 0.35),
+    horizon,
+    // The sky it is actually seen against, with a quarter of the campsite's
+    // own authored haze still in it. See the note above. At night the two are
+    // the same colour by construction, so a campsite keeps its own dark
+    // exactly.
+    fog: mix(horizon, blended.fog, 0.25),
     ambient: blended.ambient,
     // A grey lid is a huge diffuse source: less direct light, slightly more fill.
     ambientIntensity: blended.ambientIntensity * (1 + cloud * 0.18),

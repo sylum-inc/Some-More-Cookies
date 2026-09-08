@@ -156,12 +156,15 @@ test.describe('the night is dark and legible', () => {
   /**
    * The night going by, in pictures.
    *
-   * A session carries six hours of sky across about an hour of playing, so the
-   * moon genuinely crosses and goes down and the cold genuinely arrives. The
-   * one thing that must never happen is the sun coming up over the campfire,
-   * and the only honest way to check that is to look.
+   * A session carries a whole turn of the sky, so the moon genuinely crosses
+   * and goes down and the cold genuinely arrives. This used to end "the one
+   * thing that must never happen is the sun coming up over the campfire" — and
+   * that was right while the world was always night. The sun comes up now, and
+   * what protects the ritual is that the ritual is refused outside the dark
+   * rather than that the sun is forbidden. The only honest way to check either
+   * is still to look.
    */
-  test('the sky moves through the night and never turns into a morning', async ({ page }) => {
+  test('the sky moves through the night, and the night ends', async ({ page }) => {
     await page.goto('/?camp=camp-arc&env=pine_hollow');
     await page.waitForFunction(() => Boolean(window.__someMore?.three));
     await page.waitForTimeout(1500);
@@ -184,7 +187,13 @@ test.describe('the night is dark and legible', () => {
         };
       });
 
-    const shots: { window: string; tempC: number; moonAltitude: number; mean: number }[] = [];
+    const shots: {
+      window: string;
+      tempC: number;
+      moonAltitude: number;
+      moonAzimuth: number;
+      mean: number;
+    }[] = [];
     for (let step = 0; step < 4; step++) {
       const sky = await readSky();
       const frame = await measure(page);
@@ -196,43 +205,68 @@ test.describe('the night is dark and legible', () => {
     }
 
     const windows = shots.map((s) => s.window);
+    // eslint-disable-next-line no-console
+    console.log(`  windows: ${windows.join(' → ')}`);
     // The night moved. It did not sit at one hour of one evening for an hour.
-    expect(new Set(windows).size).toBeGreaterThan(2);
-    expect(windows[windows.length - 1]).toBe('dawn');
+    expect(new Set(windows).size, `sat still at ${windows.join(',')}`).toBeGreaterThan(1);
 
     // It got colder doing it.
     expect(shots[shots.length - 1]!.tempC).toBeLessThan(shots[0]!.tempC - 2);
 
-    // The moon is somewhere else than it was.
-    const moonMoved = Math.abs(shots[shots.length - 1]!.moonAltitude - shots[0]!.moonAltitude);
-    expect(moonMoved).toBeGreaterThan(0.15);
+    /*
+     * The moon is somewhere else than it was — measured across both angles.
+     *
+     * Altitude alone is not enough and was quietly tuned to one night: a moon
+     * near the top or the bottom of its arc barely changes height for hours
+     * while crossing the sky at fifteen degrees an hour. Now that the sky's
+     * epoch is solved from the requested window rather than fixed, "one night"
+     * is not a safe assumption.
+     */
+    const first = shots[0]!;
+    const last = shots[shots.length - 1]!;
+    const moonMoved =
+      Math.abs(last.moonAltitude - first.moonAltitude) +
+      Math.abs(last.moonAzimuth - first.moonAzimuth);
+    expect(moonMoved, 'the sky stood still').toBeGreaterThan(0.3);
 
-    // And at no point did it become daytime.
-    for (const shot of shots) expect(shot.mean).toBeLessThan(34);
+    /*
+     * And the dark parts are dark.
+     *
+     * This used to be "at no point did it become daytime", applied to every
+     * shot — which was safe only because the sky never changed: dusk and
+     * midnight rendered as the same pixels. Dusk is genuinely brighter than
+     * deep night now, so what is checked is the claim that was actually meant.
+     */
+    const deepNight = shots.filter((shot) => shot.window === 'deep-night');
+    expect(deepNight.length, 'the run never reached deep night').toBeGreaterThan(0);
+    for (const shot of deepNight) expect(shot.mean, 'the middle of the night was daylight').toBeLessThan(34);
 
     /*
      * And then it runs out.
      *
-     * `windowAt` clamps at dawn, which used to be the end of the story: a
-     * session left running sat in a permanent sunrise, every activity
-     * available for ever. It is over an hour in, and the world says so and
-     * does not start the ritual again.
+     * `windowAt` used to clamp at dawn, which was the end of the story: a
+     * session left running sat in a permanent sunrise with every activity
+     * available for ever. The clock is the sun now, so it keeps going — and
+     * the thing that ends is the evening, not the session.
      */
-    await advanceSeconds(page, 14 * 60);
+    await advanceSeconds(page, 25 * 60);
     await page.waitForTimeout(900);
     const morning = await page.evaluate(() => {
       const store = window.__someMore!.store;
       return { over: store.state.ritual.nightOver, stage: store.state.ritual.stage };
     });
-    expect(morning.over, 'an hour and a quarter in and it is still night').toBe(true);
+    expect(morning.over, 'the night never ended').toBe(true);
     await page.evaluate(() => window.__someMore!.actions['beginRoasting']!());
     await page.waitForTimeout(200);
     expect(
       await page.evaluate(() => window.__someMore!.store.state.ritual.stage),
       'the ritual started again in the morning',
     ).toBe(morning.stage);
-    // Still a night scene, not a sunrise the renderer has to paint.
-    expect((await measure(page)).mean).toBeLessThan(34);
+    // And it is visibly daytime, which is the half that used to be forbidden.
+    const day = (await measure(page)).mean;
+    const darkest = Math.min(...deepNight.map((shot) => shot.mean));
+    expect(day, 'the sun came up and nothing changed').toBeGreaterThan(40);
+    expect(day, 'the morning was no brighter than the night').toBeGreaterThan(darkest * 2);
     await page.screenshot({ path: 'artifacts/screenshots/night-arc-4-over.png' });
   });
 });

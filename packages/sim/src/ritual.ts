@@ -219,6 +219,7 @@ import {
   type FishingEvent,
   type FishingState,
 } from './fishing.js';
+import { sunState } from './astronomy.js';
 import { createEvidence, createTrace, type Trace } from './significance.js';
 import { rollVariations, type SeededVariationSpec, type VariationSet } from './variation.js';
 import {
@@ -463,11 +464,64 @@ function createPresence(): PresenceInput {
   };
 }
 
-/** The order the night moves through. */
-const WINDOW_ORDER: readonly ActivityWindow[] = ['dusk', 'early-night', 'deep-night', 'pre-dawn', 'dawn'];
+/** The parts of the day the ritual belongs to. Everything else is daylight. */
+const NIGHT_WINDOWS: ReadonlySet<ActivityWindow> = new Set<ActivityWindow>([
+  'dusk',
+  'early-night',
+  'deep-night',
+  'pre-dawn',
+]);
 
-/** Real minutes of play before the night moves on one window. */
-const WINDOW_SECONDS = 14 * 60;
+/**
+ * Whether it is dark enough to be the evening rather than the day after it.
+ *
+ * `dawn` is deliberately not night. It is the turn — the world says "that is
+ * the night gone" there — and it is the first window in which the ritual is
+ * refused.
+ */
+export function isNight(window: ActivityWindow): boolean {
+  return NIGHT_WINDOWS.has(window);
+}
+
+/**
+ * What time of day it is, from where the sun actually is.
+ *
+ * This replaces a stopwatch. `windowAt` counted fourteen-minute windows from
+ * whichever one the session started in and clamped at dawn for ever, while the
+ * astronomy module advanced a real sun on its own schedule — two clocks, and
+ * they disagreed. Measured: the stopwatch declared the night over with the sun
+ * still 7.6° below the horizon and every star at full brightness, so the world
+ * said "the sky has gone grey behind the trees" into a pitch-black sky.
+ *
+ * Altitude alone cannot tell morning from afternoon — the sun is at the same
+ * height either side of noon — so which half of the sky it is in says which
+ * way it is going. Which half that is was established against the model rather
+ * than assumed: the first version had it backwards and labelled a climbing sun
+ * `dusk`, and `windowFromSun` was walking the day in reverse. `sunclock.test.ts`
+ * checks the two agree by sampling the real sun an hour apart and comparing
+ * the direction it actually moved, so nobody has to reason about the
+ * convention again.
+ */
+/** Whether a body at this azimuth is on its way up. See `windowFromSun`. */
+export function isRising(azimuthRad: number): boolean {
+  return Math.sin(azimuthRad) < 0;
+}
+
+export function windowFromSun(altitudeRad: number, azimuthRad: number): ActivityWindow {
+  const altitude = Number.isFinite(altitudeRad) ? (altitudeRad * 180) / Math.PI : -90;
+  const rising = isRising(azimuthRad);
+  if (altitude > 20) return 'midday';
+  if (rising) {
+    if (altitude < -18) return 'deep-night';
+    if (altitude < -6) return 'pre-dawn';
+    if (altitude < 3) return 'dawn';
+    return 'morning';
+  }
+  if (altitude > 3) return 'afternoon';
+  if (altitude > -6) return 'dusk';
+  if (altitude > -18) return 'early-night';
+  return 'deep-night';
+}
 
 /**
  * How much of a real night a session carries you across.
@@ -481,17 +535,73 @@ const WINDOW_SECONDS = 14 * 60;
 const NIGHT_SPAN_MS = 6 * 3600 * 1000;
 
 /**
- * Where in the night a session starts and where it has got to.
+ * When the sun is actually in a given window, on a given date and at a given
+ * place.
  *
- * 0 is the start of dusk and 1 is full dawn; the windows divide it evenly.
- * The same number drives the sky, the cold, and which animals are about, so
- * they cannot drift apart.
+ * `startWindow` used to wind a stopwatch. Now that the sun is the clock it has
+ * to place the *sun*, and the obvious way to do that — map each window to a
+ * clock hour — is wrong, because the same hour is a different part of the day
+ * in a different month. Half past eight in the evening is dusk in August, full
+ * dark in March and broad daylight in June. Asking for dusk and being given
+ * night is not a rounding error; it is the wrong window.
+ *
+ * So it is solved rather than tabulated: walk the real sky in five-minute
+ * steps, find the stretch that is the window being asked for, and start in the
+ * middle of it. Two days of scanning, so a window that straddles midnight is
+ * still found whole, and the midpoint so a session does not begin half a step
+ * from the next boundary.
+ *
+ * This runs once, when a campsite is made.
  */
-export function nightProgress(startWindow: ActivityWindow, elapsedSeconds: number): number {
-  const start = Math.max(0, WINDOW_ORDER.indexOf(startWindow));
-  const span = (WINDOW_ORDER.length - 1) * WINDOW_SECONDS;
-  return clamp01((start * WINDOW_SECONDS + elapsedSeconds) / span);
+function epochForWindow(
+  baseMs: number,
+  latitudeDeg: number,
+  longitudeDeg: number,
+  window: ActivityWindow,
+): number {
+  const base = new Date(baseMs);
+  // Start half a day early so the first run of any window is a complete one.
+  const from = Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), base.getUTCDate()) - 12 * 3600_000;
+  const STEP_MS = 5 * 60_000;
+  const STEPS = (48 * 3600_000) / STEP_MS;
+
+  let runStart = -1;
+  let previous = false;
+  for (let i = 0; i <= STEPS; i++) {
+    const at = from + i * STEP_MS;
+    const sun = sunState(new Date(at), latitudeDeg, longitudeDeg);
+    const inside = windowFromSun(sun.altitude, sun.azimuth) === window;
+    if (inside && !previous) runStart = at;
+    // The first run that both began and ended inside the scan is the one.
+    if (!inside && previous && runStart > from) return runStart + (at - runStart) / 2;
+    previous = inside;
+  }
+  // A window this date never reaches — a polar summer has no deep night — so
+  // the campsite gets the date it was given and whatever sky that is.
+  return baseMs;
 }
+
+/**
+ * Hours of dark at the reference latitude, and how long that should take.
+ *
+ * The night is the product, so its length is chosen and the rest of the cycle
+ * follows from it: about an hour of play from dusk to first light, which is
+ * what it has always been and what "leaves an evening long enough to have one"
+ * measures. A whole turn of the sky is therefore a little over two hours, most
+ * of it daylight — which is the price of a wasted night, and a payable one.
+ */
+/**
+ * The date a campsite gets when nobody says otherwise.
+ *
+ * A real one, so the fallback sky is a real sky — mid-August at the reference
+ * latitude, which is the same night `curatedSky` is built on and a good one:
+ * clear, a modest moon, the Perseids running.
+ */
+const REFERENCE_NIGHT = Date.UTC(2024, 7, 12);
+
+const DARK_HOURS = 10.2;
+const NIGHT_MINUTES = 60;
+const SKY_TIME_SCALE = (DARK_HOURS * 3600 * 1000) / (NIGHT_MINUTES * 60 * 1000);
 
 /**
  * How much colder it is than the weather alone would make it.
@@ -505,32 +615,39 @@ export function nightChill(progress: number): number {
 }
 
 /**
- * How long the light takes to come up once the last window has run.
+ * How far through the dark it is, 0 at dusk and 1 at first light.
  *
- * The night does not stop dead at dawn: there is a stretch where it is getting
- * light and the camp is winding down, and then it is over. Four minutes, which
- * is long enough to bank the coals and short enough that it is plainly an
- * ending rather than another part of the night.
+ * Taken from the sun rather than from elapsed session time, for the same
+ * reason the window is. During daylight this sits at one end or the other and
+ * `airChill` overrides it anyway, which is why it does not need a day branch.
  */
-const DAWN_GRACE_SECONDS = 4 * 60;
+export function nightProgressFromSun(altitudeRad: number, azimuthRad: number): number {
+  const altitude = Number.isFinite(altitudeRad) ? (altitudeRad * 180) / Math.PI : -90;
+  const rising = isRising(azimuthRad);
+  // 0 with the sun just above the horizon, 1 with it deep under.
+  const depth = clamp01((3 - altitude) / 21);
+  return rising ? clamp01(1 - depth * 0.5) : clamp01(depth * 0.5);
+}
 
 /**
- * Whether the night has run out.
+ * What the air is doing to the temperature, given the hour.
  *
- * It never used to. `windowAt` walks dusk to dawn and then clamps there, so a
- * session left running sat in a permanent sunrise — every activity available
- * for ever, nothing competing with anything, and no evening to spend well or
- * badly. A night that cannot end is a night in which no choice costs anything.
+ * The night curve is unchanged: the cold comes on through the dark, is worst
+ * just before it gets light, and eases at dawn. What is new is that the day
+ * exists, and a day is warmer than the baseline rather than merely less cold —
+ * so a player who waits out an afternoon is genuinely warm, and the fire is
+ * something they keep for later rather than something they need.
  *
- * What ends is the *night*, not the session: the player is not thrown out, the
- * campsite does not lock, and the trail is where it was. What they cannot do
- * is start the ritual again, because it is morning.
+ * `daylight` is the sun model's own 0..1 term, which crosses from nothing to
+ * everything between six degrees below the horizon and six above.
  */
-export function nightIsOver(startWindow: ActivityWindow, elapsedSeconds: number): boolean {
-  const start = Math.max(0, WINDOW_ORDER.indexOf(startWindow));
-  const span = (WINDOW_ORDER.length - 1) * WINDOW_SECONDS;
-  return start * WINDOW_SECONDS + elapsedSeconds >= span + DAWN_GRACE_SECONDS;
+export function airChill(daylight: number, progress: number): number {
+  const cold = nightChill(progress);
+  return cold + (DAY_WARMTH - cold) * clamp01(daylight);
 }
+
+/** How much warmer than the weather's own baseline a sunlit afternoon is. */
+const DAY_WARMTH = 3;
 
 /**
  * What the world says when the fire has got away from you.
@@ -577,15 +694,35 @@ function capitalise(text: string): string {
 /** Said once, as the night turns over into its next part. */
 export function describeWindow(window: ActivityWindow): string | null {
   switch (window) {
+    case 'dawn':
+      return 'There is grey in the east. That went quickly.';
+    case 'morning':
+      return 'The sun is properly up, and the cold is coming out of everything.';
+    case 'midday':
+      return 'The light is straight down and the wood has gone quiet. Not much moves at this hour.';
+    case 'afternoon':
+      return 'The shadows have started to lean the other way.';
+    case 'dusk':
+      /*
+       * Dusk speaks now, and did not used to.
+       *
+       * While the night was the whole world, dusk was only ever where a
+       * session began — something you arrived after rather than something that
+       * happened to you, so it said nothing. With the sky going all the way
+       * round it is something a player can sit through and wait for, and it is
+       * the moment the evening comes back. It carries that without instructing:
+       * a player knows what dark is for here.
+       *
+       * A session that *starts* at dusk still hears nothing, because
+       * `windowChangedTo` only fires on a change.
+       */
+      return 'The light is going out of the day. Whatever you meant to do before dark, it is now.';
     case 'early-night':
       return 'The last of the light has gone out of the sky.';
     case 'deep-night':
       return 'It is properly late now, and properly cold.';
     case 'pre-dawn':
       return 'The coldest part of it. Everything has gone quiet.';
-    case 'dawn':
-      return 'There is grey in the east. That went quickly.';
-    case 'dusk':
     default:
       return null;
   }
@@ -966,14 +1103,21 @@ export function createRitual(options: RitualOptions): RitualState {
        * `skyEpochMs` is the middle of the night by construction — see
        * `nightEpoch` — so half the span back from it is late evening.
        */
-      epochMs:
-        (options.skyEpochMs ?? 0) > 0
-          ? (options.skyEpochMs as number) -
-            NIGHT_SPAN_MS / 2 +
-            nightProgress(options.startWindow ?? 'dusk', 0) * NIGHT_SPAN_MS
-          : 0,
-      // Six hours of sky over fifty-six minutes of session.
-      timeScale: NIGHT_SPAN_MS / ((WINDOW_ORDER.length - 1) * WINDOW_SECONDS * 1000),
+      /*
+       * Tonight's real date, at the hour the session asked to start at.
+       *
+       * This used to wind a stopwatch back from the middle of the night, and
+       * to fall back to epoch zero when no date was supplied — which put a
+       * test's sun somewhere in 1970 and, now that the sun is the clock, meant
+       * a ritual created without a date started at an arbitrary time of day.
+       */
+      epochMs: epochForWindow(
+        (options.skyEpochMs ?? 0) > 0 ? (options.skyEpochMs as number) : REFERENCE_NIGHT,
+        options.latitudeDeg ?? 44,
+        options.longitudeDeg ?? -73,
+        options.startWindow ?? 'dusk',
+      ),
+      timeScale: SKY_TIME_SCALE,
       latitudeDeg: options.latitudeDeg ?? 44,
       longitudeDeg: options.longitudeDeg ?? -73,
       skyOpenness: world.skyOpenness ?? 0.6,
@@ -1082,7 +1226,11 @@ export function stepRitual(ritual: RitualState, dt: number = SIM_DT): void {
    * four in the morning than it did at ten — the same fire, the same wood, a
    * night that has got about eight degrees harder to sit out in.
    */
-  ritual.weather.nightChill = nightChill(nightProgress(ritual.options.startWindow, ritual.elapsed));
+  const sun = ritual.stargazing.sky.sun;
+  ritual.weather.nightChill = airChill(
+    sun.daylight,
+    nightProgressFromSun(sun.altitude, sun.azimuth),
+  );
 
   // Weather first: it feeds the fire.
   stepWeather(ritual.weather, dt, stream(ritual, 'weather-step'));
@@ -1171,19 +1319,6 @@ export function machineNoise(machine: MachineState): number {
   return clamp01(machine.compressor * 0.75 + machine.fan * 0.3 + machine.vapour * 0.2);
 }
 
-/**
- * Which part of the night it is.
- *
- * A session drifts forward through the windows rather than sitting in one:
- * stay out long enough and the animals that come change, which is the only
- * "progression" this product has and is never announced.
- */
-export function windowAt(startWindow: ActivityWindow, elapsedSeconds: number): ActivityWindow {
-  const start = Math.max(0, WINDOW_ORDER.indexOf(startWindow));
-  const advanced = Math.floor(elapsedSeconds / WINDOW_SECONDS);
-  const index = Math.min(WINDOW_ORDER.length - 1, start + advanced);
-  return WINDOW_ORDER[index] ?? startWindow;
-}
 
 /**
  * The cues the world is giving off this step.
@@ -1302,11 +1437,29 @@ function stepThePlace(ritual: RitualState, dt: number): void {
 function stepWorld(ritual: RitualState, dt: number): void {
   const presence = ritual.presence;
   const previousWindow = ritual.window;
-  ritual.window = windowAt(ritual.options.startWindow, ritual.elapsed);
+  /*
+   * What time it is, from the sun rather than from a stopwatch.
+   *
+   * The sky is stepped further down this function, so this reads the one the
+   * last step left — a thirtieth of a second stale, against a sun that takes
+   * an hour to cross a window boundary.
+   */
+  ritual.window = windowFromSun(
+    ritual.stargazing.sky.sun.altitude,
+    ritual.stargazing.sky.sun.azimuth,
+  );
   ritual.windowChangedTo = ritual.window === previousWindow ? null : ritual.window;
 
-  // And the night running out. Latched: once it is morning it stays morning.
-  ritual.nightOver = nightIsOver(ritual.options.startWindow, ritual.elapsed);
+  /*
+   * And whether the evening is over — a phase, not a terminus.
+   *
+   * It used to latch: once it was morning it was morning for ever, because the
+   * clock stopped at dawn and there was nothing after it. The sky goes all the
+   * way round now, so a player who waits out a day gets another night and
+   * another evening. What a wasted night costs is therefore a whole turn of
+   * the sky rather than the session, which is a real price and a payable one.
+   */
+  ritual.nightOver = !isNight(ritual.window);
 
   /*
    * And the fire asking for you.

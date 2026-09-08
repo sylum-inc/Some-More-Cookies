@@ -47,7 +47,28 @@ import { horizontalDistance, vec3, type Vec3 } from './types.js';
 /* -------------------------------------------------------------------------- */
 
 /** When an animal is abroad. Mirrors the content schema exactly. */
-export type ActivityWindow = 'dusk' | 'early-night' | 'deep-night' | 'pre-dawn' | 'dawn';
+/**
+ * Which part of the day it is.
+ *
+ * The five night values came first and were the whole vocabulary, because the
+ * world was always night: `windowAt` counted fourteen-minute windows from dusk
+ * and clamped at dawn for ever. Now that the sky turns all the way round the
+ * other three exist too, and every one of them is derived from where the sun
+ * actually is rather than from a stopwatch — see `windowFromSun`.
+ *
+ * A species that declares no day window is not thereby banned from daylight:
+ * `speciesAppearanceRate` treats out-of-window as rare rather than impossible,
+ * which is the honest model of an animal keeping its own hours.
+ */
+export type ActivityWindow =
+  | 'dawn'
+  | 'morning'
+  | 'midday'
+  | 'afternoon'
+  | 'dusk'
+  | 'early-night'
+  | 'deep-night'
+  | 'pre-dawn';
 
 /** Everything an animal can notice. Mirrors the content schema exactly. */
 export type WildlifeCue =

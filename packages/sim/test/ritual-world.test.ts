@@ -20,7 +20,6 @@ import {
   toggleRadio,
   tuneToStation,
   turnRadioDial,
-  windowAt,
   worldCues,
   type RitualState,
   type RitualWorldContent,
@@ -272,12 +271,22 @@ describe('stillness is a mechanic, through the ritual', () => {
 });
 
 describe('the night moves', () => {
-  it('advances the activity window as a session runs long', () => {
-    expect(windowAt('early-night', 0)).toBe('early-night');
-    expect(windowAt('early-night', 15 * 60)).toBe('deep-night');
-    expect(windowAt('early-night', 60 * 60)).toBe('dawn');
-    // It never wraps past dawn: a session does not loop the sun.
-    expect(windowAt('early-night', 10 * 60 * 60)).toBe('dawn');
+  it('advances the activity window as a session runs long, and does loop the sun', () => {
+    /*
+     * This used to end "it never wraps past dawn: a session does not loop the
+     * sun", and asserted a stopwatch that clamped there. The sun is the clock
+     * now and it does loop — see `sunclock.test.ts` for the whole turn. What
+     * is checked here is that a running session genuinely moves through it.
+     */
+    const ritual = makeRitual();
+    const seen = new Set([ritual.window]);
+    for (let i = 0; i < Math.round((150 * 60) / SIM_DT); i++) {
+      stepRitual(ritual, SIM_DT);
+      seen.add(ritual.window);
+    }
+    expect(seen.size, 'a two-and-a-half hour session sat in one window').toBeGreaterThan(4);
+    expect(seen.has('deep-night')).toBe(true);
+    expect(seen.has('midday'), 'the session never reached the middle of the day').toBe(true);
   });
 
   it('reaches the ritual, so the deep-night species become possible', () => {

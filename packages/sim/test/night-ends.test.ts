@@ -5,7 +5,6 @@ import {
   createRitual,
   describeDaybreak,
   describeFailingFire,
-  nightIsOver,
   stepRitual,
   tendFire,
   type RitualState,
@@ -99,16 +98,6 @@ describe('the night runs out', () => {
     expect(ritual.nightOver).toBe(true);
     expect(ritual.stage, 'the night ending took the marshmallow away').toBe('roasting');
     expect(ritual.marshmallow).not.toBeNull();
-  });
-
-  it('reads the clock the same way from any starting window', () => {
-    // A session that opens at dusk gets the whole night; one that opens later
-    // gets what is left of it, which is what the window means.
-    expect(nightIsOver('dusk', 0)).toBe(false);
-    expect(nightIsOver('dusk', 70 * 60)).toBe(true);
-    expect(nightIsOver('pre-dawn', 0)).toBe(false);
-    // Starting at pre-dawn is one window plus the grace from morning.
-    expect(nightIsOver('pre-dawn', 20 * 60)).toBe(true);
   });
 
   it('says something about the light rather than about the evening', () => {

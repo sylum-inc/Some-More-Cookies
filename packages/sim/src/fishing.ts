@@ -215,13 +215,24 @@ export function createFishing(): FishingState {
  */
 export const BEST_CASE_GAP_SECONDS = 180;
 
-/** Which parts of the night the fish are moving. */
+/**
+ * Which parts of the day the fish are moving.
+ *
+ * Dawn and dusk are the two good ones and always were; what is new is the
+ * middle of the day, which is the worst fishing there is. A bright flat noon
+ * over clear water sends everything deep, and that is a real thing anybody who
+ * has stood in a river knows — so an afternoon at the water is not a wasted
+ * afternoon, it is simply a slower one than the hour either side of dark.
+ */
 const WINDOW_ACTIVITY: Record<ActivityWindow, number> = {
+  dawn: 1,
+  morning: 0.7,
+  midday: 0.35,
+  afternoon: 0.55,
   dusk: 1,
   'early-night': 0.85,
   'deep-night': 0.6,
   'pre-dawn': 0.95,
-  dawn: 1,
 };
 
 export interface FishingConditions {

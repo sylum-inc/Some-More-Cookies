@@ -134,6 +134,15 @@ export interface CampsiteProps {
   sky?: SkyState;
 }
 
+/**
+ * How far above the horizon the moon is pinned when it is down.
+ *
+ * Dark adaptation, which the renderer has no model of, plus the fact that a
+ * light at grazing elevation puts almost nothing on flat ground. See
+ * `bodyPosition`, and `e2e/night.spec.ts` for the line this holds.
+ */
+const MOON_FLOOR = 12;
+
 /** Scratch, so easing the sky every frame allocates nothing. */
 const TMP_COLOR = new THREE.Color();
 
@@ -708,7 +717,7 @@ export function Campsite({
     const above = Math.max(0, Math.sin(moon.altitude));
     const strength = moon.visible ? moon.illumination * above : 0;
     return {
-      position: bodyPosition(moon.altitude, moon.azimuth),
+      position: bodyPosition(moon.altitude, moon.azimuth, MOON_FLOOR),
       // The floor stands for dark adaptation, which the renderer has no
       // model of: a person who has been sitting by a fire for ten minutes can
       // genuinely see the treeline. Without it a moonless night is a black
@@ -1228,16 +1237,28 @@ function hexOf(color: string): number {
 /**
  * Where a body in the sky sits in the scene, from its altitude and azimuth.
  *
- * Azimuth is measured from north and +Z is north here. The floor under the
- * height is the one cheat: a light source below the horizon would rake the
- * scene from underneath, which reads as a bug rather than as night, and the
- * body's *intensity* is what actually says whether it is up.
+ * Azimuth is measured from north and +Z is north here.
+ *
+ * `floor` is the one cheat and it matters more than it looks. A light below
+ * the horizon would rake the scene from underneath, which reads as a bug
+ * rather than as night — but how far above the horizon it is pinned decides
+ * how much of its light lands on flat ground, because a horizontal surface
+ * takes light by the sine of the elevation. Dropping the moon's floor from
+ * twelve to six halved the light on the forest floor and took the far side of
+ * the clearing from a dark wood to a black rectangle: 10.7 to 5.4 against the
+ * D7 legibility floor of 6. The moon keeps twelve. The sun does not need one,
+ * because when the sun is down its intensity is zero.
  */
-function bodyPosition(altitude: number, azimuth: number, distance = 90): [number, number, number] {
+function bodyPosition(
+  altitude: number,
+  azimuth: number,
+  floor = 6,
+  distance = 90,
+): [number, number, number] {
   const horizontal = Math.cos(altitude) * distance;
   return [
     Math.sin(azimuth) * horizontal,
-    Math.max(6, Math.sin(altitude) * distance),
+    Math.max(floor, Math.sin(altitude) * distance),
     Math.cos(azimuth) * horizontal,
   ];
 }

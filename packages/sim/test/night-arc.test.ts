@@ -11,9 +11,7 @@ import {
   createRitual,
   describeWindow,
   nightChill,
-  nightProgress,
   stepRitual,
-  windowAt,
 } from '../src/ritual.js';
 import { nightEpoch, sunState } from '../src/astronomy.js';
 import { SIM_DT } from '../src/types.js';
@@ -33,23 +31,6 @@ function run(ritual: ReturnType<typeof createRitual>, seconds: number): void {
 }
 
 describe('the shape of a night', () => {
-  it('runs from dusk to first light in about an hour', () => {
-    // Fourteen minutes to a window, five windows, so a whole night is about
-    // seventy minutes and a session that starts after dark is shorter still.
-    expect(windowAt('dusk', 0)).toBe('dusk');
-    expect(windowAt('dusk', 60 * 50)).toBe('pre-dawn');
-    expect(windowAt('dusk', 60 * 57)).toBe('dawn');
-    // And stays there. The night does not loop.
-    expect(windowAt('dusk', 60 * 300)).toBe('dawn');
-  });
-
-  it('places a session inside the night rather than at one instant of it', () => {
-    expect(nightProgress('dusk', 0)).toBe(0);
-    expect(nightProgress('dusk', 56 * 60)).toBeCloseTo(1, 3);
-    // Arriving late starts you late.
-    expect(nightProgress('deep-night', 0)).toBeCloseTo(0.5, 3);
-  });
-
   it('gets colder as it goes, worst before it gets light, easing at dawn', () => {
     expect(nightChill(0)).toBeCloseTo(0, 3);
     expect(nightChill(0.5)).toBeLessThan(-2);
@@ -70,57 +51,75 @@ describe('the shape of a night', () => {
     expect(ritual.fire.config.ambientC).toBeCloseTo(late, 5);
   });
 
-  it('says so, once, as each part of the night turns over', () => {
-    const ritual = night();
+  it('says so, once, as each part of the day turns over', () => {
+    /*
+     * Every part now, not only the night's four.
+     *
+     * Dusk in particular says something it never used to. While the world was
+     * always night, dusk was only ever where a session began — something you
+     * arrived after rather than something that happened to you. Now that the
+     * sky goes all the way round it is a thing a player can sit through and
+     * wait for, and it is the moment the evening comes back.
+     */
+    const ritual = night({ startWindow: 'dusk' });
     const said: string[] = [];
-    for (let i = 0; i < 60 * 60 * 75; i++) {
+    for (let i = 0; i < 60 * 60 * 150; i++) {
       stepRitual(ritual, SIM_DT);
       if (ritual.windowChangedTo) {
         const line = describeWindow(ritual.windowChangedTo);
         if (line) said.push(line);
       }
     }
-    /*
-     * Three, not four: a session starts after dark by default, so dusk is
-     * something you arrived after rather than something that happens to you.
-     * Starting at dusk gets you the fourth, which the line below checks.
-     */
-    expect(said).toHaveLength(3);
-    expect(new Set(said).size).toBe(3);
-    expect(said[said.length - 1]).toMatch(/grey in the east/);
-    // Dusk is where a night starts, so it is not something that happens to you.
-    expect(describeWindow('dusk')).toBeNull();
 
-    const fromDusk = night({ startWindow: 'dusk' });
-    const early: string[] = [];
-    for (let i = 0; i < 60 * 60 * 75; i++) {
-      stepRitual(fromDusk, SIM_DT);
-      if (fromDusk.windowChangedTo) {
-        const line = describeWindow(fromDusk.windowChangedTo);
-        if (line) early.push(line);
-      }
+    // A whole turn of the sky, so every window but the one it began in.
+    expect(said.length).toBeGreaterThanOrEqual(7);
+    expect(said[0]).toMatch(/last of the light/);
+    // Starting at dusk means dusk is not announced — you were already in it —
+    // but coming back round to it a day later is announced.
+    expect(said.filter((line) => /before dark/.test(line))).toHaveLength(1);
+    expect(said.some((line) => /grey in the east/.test(line))).toBe(true);
+    expect(said.some((line) => /straight down/.test(line))).toBe(true);
+
+    // Nothing is said twice in a row, and nothing carries a number or a verdict.
+    for (let i = 1; i < said.length; i++) expect(said[i]).not.toBe(said[i - 1]);
+    for (const line of said) {
+      expect(line, 'a window reported a number').not.toMatch(/\d/);
+      expect(line.toLowerCase()).not.toMatch(/score|complete|failed|missed/);
     }
-    expect(early).toHaveLength(4);
-    expect(early[0]).toMatch(/last of the light/);
   });
 
-  it('the sky actually moves, and never puts the sun up over the campfire', () => {
+  it('the sky moves, and the sun really does come up', () => {
+    /*
+     * This test used to assert the opposite, and was right to at the time: the
+     * world was always night, `curatedSky` pinned the hour at two in the
+     * morning, and a sun over the campfire would have been the sky model's one
+     * unforgivable bug.
+     *
+     * The world is not always night any more. What the rule protected — never
+     * a blazing sun over a campfire ritual — is now held somewhere better: the
+     * *ritual* is refused outside the dark, so the sun coming up ends the
+     * evening instead of shining into it.
+     */
     const ritual = night();
     const first = { ...ritual.stargazing.sky.moon };
     run(ritual, 56 * 60);
     const last = ritual.stargazing.sky.moon;
-    // Six hours of sky: the moon has gone a long way, not fifteen degrees.
-    expect(Math.abs(last.altitude - first.altitude) + Math.abs(last.azimuth - first.azimuth)).toBeGreaterThan(0.5);
+    // The sky is going somewhere, and not by fifteen degrees.
+    expect(
+      Math.abs(last.altitude - first.altitude) + Math.abs(last.azimuth - first.azimuth),
+    ).toBeGreaterThan(0.5);
 
-    // And the one thing the sky model must never do (spec §5.5): the world is
-    // always night. Checked across the whole arc, not only at the ends.
-    for (let i = 0; i <= 12; i++) {
+    // Sampled across a whole turn: it is genuinely dark for part of it and
+    // genuinely light for another part.
+    const altitudes: number[] = [];
+    for (let i = 0; i <= 36; i++) {
       const at = new Date(
-        ritual.stargazing.epochMs + ((i / 12) * 56 * 60) * 1000 * ritual.stargazing.timeScale,
+        ritual.stargazing.epochMs + (i / 36) * 150 * 60 * 1000 * ritual.stargazing.timeScale,
       );
-      const sun = sunState(at, 44, -73);
-      expect(sun.altitude).toBeLessThan(-0.05);
+      altitudes.push(sunState(at, 44, -73).altitude);
     }
+    expect(Math.min(...altitudes), 'it was never properly dark').toBeLessThan(-0.3);
+    expect(Math.max(...altitudes), 'the sun never came up').toBeGreaterThan(0.3);
   });
 
   it('is the same night twice, given the same campsite', () => {

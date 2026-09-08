@@ -21,7 +21,7 @@ import {
   type WaterBasin,
   type WeatherState,
 } from '@somemore/sim';
-import { skyLook, type SkyLook } from '../render/daylight.js';
+import { luminance, skyLook, type SkyLook } from '../render/daylight.js';
 
 /** Ground below this is under water, so nothing is planted in it. */
 const WATERLINE = -0.14;
@@ -228,6 +228,10 @@ export function Campsite({
         uniforms: {
           uHorizon: { value: new THREE.Color(0x0c1119) },
           uZenith: { value: new THREE.Color(0x070a0f) },
+          uCloud: { value: new THREE.Color(0x4a4f58) },
+          /** 0..1 cover, and a slow drift so the deck is not a painting. */
+          uCover: { value: 0 },
+          uTime: { value: 0 },
         },
         vertexShader: `
           varying vec3 vDirection;
@@ -239,7 +243,56 @@ export function Campsite({
         fragmentShader: `
           uniform vec3 uHorizon;
           uniform vec3 uZenith;
+          uniform vec3 uCloud;
+          uniform float uCover;
+          uniform float uTime;
           varying vec3 vDirection;
+
+          /*
+           * A cloud deck, because the sky had none.
+           *
+           * \`cloudCover\` moved the sky's colour and its fog and the sun's
+           * intensity, and never drew a cloud — so overcast, rain, storm and
+           * snow all rendered as the same empty gradient with a different
+           * icon in the HUD corner. Three octaves of value noise on a plane
+           * the view direction is projected onto, which is a flat deck seen
+           * in perspective: cells crowd together toward the horizon exactly
+           * the way real cloud does, and that convergence is most of what
+           * says "sky" rather than "texture".
+           */
+          float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+          }
+
+          float noise(vec2 p) {
+            vec2 i = floor(p);
+            vec2 f = fract(p);
+            vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(
+              mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+              mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+              u.y
+            );
+          }
+
+          float clouds(vec3 dir) {
+            // Below the horizon there is no deck to see.
+            if (dir.y < 0.02) return 0.0;
+            // Project onto a plane a little above the eye. The divide is what
+            // crowds the cells toward the horizon.
+            vec2 p = dir.xz / dir.y;
+            p += vec2(uTime * 0.004, uTime * 0.0015);
+            float f = noise(p * 0.55) * 0.55;
+            f += noise(p * 1.3) * 0.28;
+            f += noise(p * 2.9) * 0.17;
+            // Cover opens and closes the gaps rather than fading the whole
+            // deck: at 0.3 you get scattered cloud with sky between, at 0.95
+            // an unbroken lid, which is the difference between high-cloud and
+            // overcast and cannot be done with opacity alone.
+            float edge = mix(0.86, 0.12, uCover);
+            return smoothstep(edge, edge + 0.34, f) * smoothstep(0.02, 0.30, dir.y);
+          }
+
           void main() {
             /*
              * A band, not a wash.
@@ -254,7 +307,13 @@ export function Campsite({
              */
             float h = clamp(vDirection.y, 0.0, 1.0);
             float t = smoothstep(0.0, 0.14, h);
-            gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
+            vec3 sky = mix(uHorizon, uZenith, t);
+            // Cloud is lit from below at dusk and from above at noon; rather
+            // than track that, the deck takes a little of whatever the sky
+            // under it is doing, which lands close enough at either end and
+            // means a red sunset gets red-bellied cloud for free.
+            vec3 deck = mix(uCloud, uHorizon, 0.28);
+            gl_FragColor = vec4(mix(sky, deck, clouds(vDirection)), 1.0);
           }
         `,
         side: THREE.BackSide,
@@ -284,7 +343,8 @@ export function Campsite({
   const sceneFog = useMemo(() => new THREE.Fog(0x0b1016, 2.5, 30), []);
   const sceneBackground = useMemo(() => new THREE.Color(0x070a0f), []);
   const starsRef = useRef<THREE.Points>(null);
-  const rainRef = useRef<THREE.Points>(null);
+  const rainRef = useRef<THREE.LineSegments>(null);
+  const snowRef = useRef<THREE.Points>(null);
 
   /*
    * How far the drawn world has to go.
@@ -885,12 +945,67 @@ export function Campsite({
     [],
   );
 
-  // --- Precipitation ------------------------------------------------------
-  const rainCount = 260;
+  /* --- Precipitation ------------------------------------------------------
+   *
+   * Rain is drawn as line segments and snow as points, which is not a stylistic
+   * preference — it is the only way either of them can look like itself.
+   *
+   * Both used to be the same 260 attenuated points. A `PointsMaterial` sprite
+   * is an axis-aligned square, and with `sizeAttenuation` on, a drop a metre
+   * from the camera is drawn several times larger than one at ten metres — so
+   * a 4.5-centimetre drop close to the lens became a grey block roughly
+   * fifteen screen pixels across. A capture of heavy rain showed four large
+   * grey squares hanging in the air and nothing else, which is what finally
+   * made this visible; the harness had been setting the weather's *kind*
+   * without its scalars, so no rain had ever actually been captured.
+   *
+   * Rain is a streak. It has a direction, it leans with the wind, and it is
+   * the lean that says a storm is a storm. Two vertices per drop, and the
+   * whole thing is one draw call exactly as the points were.
+   *
+   * Snow keeps points, because a flake really is a small round thing — but
+   * with attenuation OFF and a size in pixels rather than metres, so a flake
+   * is the same two pixels at every depth. That is how the hardware being
+   * imitated did snow, and it is why theirs never had the near-field blobs.
+   */
+  const rainCount = 420;
   const rainGeometry = useMemo(() => {
-    const positions = new Float32Array(rainCount * 3);
+    // Two vertices a drop: head and tail. The tail is placed in the frame loop
+    // because its offset depends on the wind, which changes.
+    const positions = new Float32Array(rainCount * 6);
     const rng = mulberry(0x7a1f);
     for (let i = 0; i < rainCount; i++) {
+      const x = (rng() - 0.5) * 26;
+      const y = rng() * 12;
+      const z = (rng() - 0.5) * 26;
+      positions[i * 6] = x;
+      positions[i * 6 + 1] = y;
+      positions[i * 6 + 2] = z;
+      positions[i * 6 + 3] = x;
+      positions[i * 6 + 4] = y - 0.3;
+      positions[i * 6 + 5] = z;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    return geometry;
+  }, []);
+
+  const rainMaterial = useMemo(
+    () =>
+      new THREE.LineBasicMaterial({
+        color: 0x8fa3b8,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      }),
+    [],
+  );
+
+  const snowCount = 320;
+  const snowGeometry = useMemo(() => {
+    const positions = new Float32Array(snowCount * 3);
+    const rng = mulberry(0x2c93);
+    for (let i = 0; i < snowCount; i++) {
       positions[i * 3] = (rng() - 0.5) * 26;
       positions[i * 3 + 1] = rng() * 12;
       positions[i * 3 + 2] = (rng() - 0.5) * 26;
@@ -900,12 +1015,13 @@ export function Campsite({
     return geometry;
   }, []);
 
-  const rainMaterial = useMemo(
+  const snowMaterial = useMemo(
     () =>
       new THREE.PointsMaterial({
-        color: 0xaebccb,
-        size: 0.045,
-        sizeAttenuation: true,
+        color: 0xd8dce4,
+        // Pixels, not metres. See the note above about near-field blobs.
+        size: 2,
+        sizeAttenuation: false,
         transparent: true,
         opacity: 0,
         depthWrite: false,
@@ -929,6 +1045,21 @@ export function Campsite({
     ease.horizon.lerp(TMP_COLOR.setHex(look.horizon), k);
     (domeMaterial.uniforms.uHorizon!.value as THREE.Color).copy(ease.horizon);
     (domeMaterial.uniforms.uZenith!.value as THREE.Color).copy(ease.sky);
+    domeMaterial.uniforms.uCover!.value = weather.cloudCover;
+    domeMaterial.uniforms.uTime!.value = state.clock.elapsedTime;
+    /*
+     * The deck's own colour, which is the sky's plus a lift.
+     *
+     * Not a fixed grey: a cloud at noon is white-grey against blue and a cloud
+     * at midnight is a slightly paler black against black, and a constant
+     * would make the night sky look like it had a fog bank painted on it. So
+     * it tracks the zenith and lifts by an amount that falls off as the sky
+     * darkens.
+     */
+    const lift = 0.16 + luminance(ease.sky.getHex()) * 0.55;
+    (domeMaterial.uniforms.uCloud!.value as THREE.Color)
+      .copy(ease.sky)
+      .lerp(TMP_COLOR.setHex(0xffffff), lift);
     ease.fog.lerp(TMP_COLOR.setHex(look.fog), k);
 
     if (state.scene.background !== sceneBackground) state.scene.background = sceneBackground;
@@ -1018,18 +1149,53 @@ export function Campsite({
       starsRef.current.rotation.y += delta * 0.0016;
     }
 
+    const isSnow = weather.kind === 'snow' || weather.kind === 'snow-squall';
+    const falling = weather.precipitation;
+
     if (rainRef.current) {
-      const strength = weather.precipitation;
-      rainMaterial.opacity = strength * 0.55;
+      const strength = isSnow ? 0 : falling;
+      rainMaterial.opacity = strength * 0.62;
       rainRef.current.visible = strength > 0.02;
       if (strength > 0.02) {
         const positions = rainGeometry.getAttribute('position') as THREE.BufferAttribute;
-        const isSnow = weather.kind === 'snow' || weather.kind === 'snow-squall';
-        const fallSpeed = isSnow ? 1.1 : 11;
-        rainMaterial.size = isSnow ? 0.075 : 0.04;
+        // The lean is the whole picture. A vertical streak is drizzle however
+        // fast it falls; twelve degrees of shear is what a storm looks like.
+        const lean = Math.min(0.42, weather.windSpeed * 0.055);
+        const length = 0.26 + strength * 0.34;
         for (let i = 0; i < rainCount; i++) {
-          let y = positions.getY(i) - fallSpeed * delta;
-          let x = positions.getX(i) + weather.windSpeed * delta * (isSnow ? 0.5 : 0.2);
+          const head = i * 2;
+          let y = positions.getY(head) - (9 + strength * 7) * delta;
+          let x = positions.getX(head) + weather.windSpeed * delta * 0.22;
+          if (y < 0) {
+            y = 12;
+            // A drop that lands is a new drop somewhere else. Presentation
+            // only, so `Math.random` is allowed here (ADR-0001 is about
+            // `packages/sim`); making rain deterministic would make it
+            // visibly repeat.
+            x = (Math.random() - 0.5) * 26;
+          }
+          if (x > 13) x -= 26;
+          const z = positions.getZ(head);
+          positions.setXYZ(head, x, y, z);
+          positions.setXYZ(head + 1, x - lean * length, y - length, z);
+        }
+        positions.needsUpdate = true;
+      }
+    }
+
+    if (snowRef.current) {
+      const strength = isSnow ? falling : 0;
+      snowMaterial.opacity = strength * 0.9;
+      snowRef.current.visible = strength > 0.02;
+      if (strength > 0.02) {
+        const positions = snowGeometry.getAttribute('position') as THREE.BufferAttribute;
+        for (let i = 0; i < snowCount; i++) {
+          let y = positions.getY(i) - 1.05 * delta;
+          // Flakes drift rather than fall: a sideways wander each one keeps to
+          // itself, so the field does not move as a sheet.
+          let x =
+            positions.getX(i) +
+            (weather.windSpeed * 0.35 + Math.sin(state.clock.elapsedTime * 0.8 + i) * 0.22) * delta;
           if (y < 0) {
             y = 12;
             x = (Math.random() - 0.5) * 26;
@@ -1275,7 +1441,8 @@ export function Campsite({
       ))}
 
       {/* Precipitation */}
-      <points ref={rainRef} geometry={rainGeometry} material={rainMaterial} frustumCulled={false} />
+      <lineSegments ref={rainRef} geometry={rainGeometry} material={rainMaterial} frustumCulled={false} />
+      <points ref={snowRef} geometry={snowGeometry} material={snowMaterial} frustumCulled={false} />
 
       {/*
         Night light.

@@ -63,6 +63,7 @@ import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
 import { AssemblyTable, PlacedStack, RoastingStick, Sandwich } from './RitualObjects.js';
 import { createCameraMotion, shakeCamera, stepCameraMotion } from './cameraMotion.js';
+import { createHandGeometry } from '../render/hand.js';
 import { Radio } from './Radio.js';
 import { Wildlife } from './Wildlife.js';
 import { Shore } from './Shore.js';
@@ -506,16 +507,32 @@ function poseFor(
         fov: 42,
       };
     case 'machine':
-      // Standing squarely in front of the unit, close enough that its controls
-      // are reachable and its decals legible.
+      /*
+       * Standing squarely in front of the unit — standing being the operative
+       * word.
+       *
+       * This used to sit at 1.12 m and aim at 0.68 m, which is a crouch
+       * looking down, and looking down puts the horizon above the top of the
+       * frame. Six stages run through this pose, and an art review's verdict
+       * on all six was the same: an object floating in a black void, reading
+       * as an asset viewer rather than as a machine in a clearing. Nothing was
+       * missing from the scene; the camera was simply pointed at a patch of
+       * unlit ground with the sky out of shot.
+       *
+       * So: eye height, matching `at-fire`, aimed at the machine's own middle
+       * rather than at its feet, and far enough back that the treeline comes
+       * into the top of the frame and the fire's light on the ground comes
+       * into the bottom. Still close enough for the controls to be reachable
+       * and the placard legible, which is what the distance was protecting.
+       */
       return {
         position: [
-          LAYOUT.machine[0] + MACHINE_FRONT[0] * 1.55,
-          1.12,
-          LAYOUT.machine[2] + MACHINE_FRONT[1] * 1.55,
+          LAYOUT.machine[0] + MACHINE_FRONT[0] * 2.05,
+          1.44,
+          LAYOUT.machine[2] + MACHINE_FRONT[1] * 2.05,
         ],
-        target: [LAYOUT.machine[0], 0.68, LAYOUT.machine[2]],
-        fov: 50,
+        target: [LAYOUT.machine[0], 0.92, LAYOUT.machine[2]],
+        fov: 52,
       };
     case 'reveal': {
       // Square on the open chamber, slightly to the free-edge side and low
@@ -688,6 +705,29 @@ export function World({
   const lastStage = useRef<RitualStage>(ritual.stage);
   /** The sandwich in the player's hands, moved every frame. */
   const heldSandwichRef = useRef<THREE.Group>(null);
+  const handRef = useRef<THREE.Group>(null);
+  const handGeometry = useMemo(() => createHandGeometry(), []);
+  /*
+   * The hand's material.
+   *
+   * A mid skin tone with the geometry's three tone bands multiplied into it,
+   * so what a hand actually looks like on screen is decided by the light it is
+   * standing in: orange down one side at a fire, blue-grey by moonlight,
+   * neither at noon. Flat shading, because the hardware being imitated had no
+   * other kind and because at 320x240 a smooth hand reads as a mitten.
+   */
+  const handMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        color: 0xb0765a,
+        roughness: 1,
+        vertexColors: true,
+        flatShading: true,
+      }),
+    [settings],
+  );
+  useEffect(() => () => handGeometry.dispose(), [handGeometry]);
   /** What the player is turning to look at, or null once they have arrived. */
   const lookGoal = useRef<[number, number, number] | null>(null);
   /** Eye height last step, so a look goal is not abandoned while the stance is still moving. */
@@ -1031,6 +1071,28 @@ export function World({
       // Turned to face whoever is holding it, so it reads as a sandwich rather
       // than as a slab seen edge on.
       held.rotation.y = player.facing + Math.PI / 2;
+    }
+
+    /*
+     * And the hand under it.
+     *
+     * Parked just below and behind the hold point rather than at it, because
+     * the sandwich has to sit *in* the hand: at the hold point exactly, the
+     * fist would be inside the graham cracker. Facing is the player's own, so
+     * the forearm always runs back toward the camera and out of the bottom of
+     * the frame — which is the whole reason this exists, since an arm that
+     * ends inside the picture is a severed arm.
+     */
+    const hand = handRef.current;
+    if (hand) {
+      const [hx, hy, hz] = holdPointFor(player);
+      const forward = Math.cos(player.facing);
+      const forwardZ = Math.sin(player.facing);
+      hand.position.set(hx - forward * 0.06, hy - 0.075, hz - forwardZ * 0.06);
+      hand.rotation.y = -player.facing + Math.PI / 2;
+      // Tipped with the head, so looking down at what you are holding brings
+      // the hand up rather than sliding it off the bottom of the screen.
+      hand.rotation.x = player.pitch * 0.35;
     }
 
     // A look delta is consumed once, not once per simulation step.
@@ -1623,6 +1685,24 @@ export function World({
         happens when the store says something changed, and a thing you are
         holding has to keep up with your feet, not with the store.
       */}
+      {/*
+        The hand holding it.
+
+        Two art reviews named the same absence twice each: the s'more hangs
+        unheld at eye level in the payoff shot, and no frame in the game has
+        anything at all in its near plane. One piece of geometry answers both —
+        a first-person hand is dark, close, moves with the head, and is the
+        cheapest foreground available.
+
+        Not cast into the shadow map: at this distance a hand's own shadow
+        lands on the lens rather than on anything a player would want to see.
+      */}
+      {showSandwichInHand && (
+        <group ref={handRef}>
+          <mesh geometry={handGeometry} material={handMaterial} castShadow={false} />
+        </group>
+      )}
+
       {showSandwichInHand && ritual.sandwich && (
         <group ref={heldSandwichRef}>
           <Sandwich

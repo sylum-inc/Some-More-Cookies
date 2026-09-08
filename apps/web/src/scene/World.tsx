@@ -62,6 +62,7 @@ import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
 import { AssemblyTable, PlacedStack, RoastingStick, Sandwich } from './RitualObjects.js';
+import { createCameraMotion, shakeCamera, stepCameraMotion } from './cameraMotion.js';
 import { Radio } from './Radio.js';
 import { Wildlife } from './Wildlife.js';
 import { Shore } from './Shore.js';
@@ -643,6 +644,21 @@ export function World({
   const targetRef = useRef(new THREE.Vector3(0, 0.32, 0));
   const eyeScratch = useMemo(() => vec3(), []);
   const lookScratch = useMemo(() => vec3(), []);
+  /*
+   * The weight of a head.
+   *
+   * The camera is the player's own eyes and stays there — nothing here moves
+   * it anywhere it was not already. What it adds is the part a real body does
+   * for free and an inert camera does not: a stride, a lean into a turn, a
+   * breath that never stops, and something a thrown log can kick. All of it
+   * scales to exactly zero under reduced motion (spec §12), because head bob
+   * is the most reliable way there is to make somebody motion-sick.
+   */
+  const motion = useMemo(() => createCameraMotion(), []);
+  const lastFacing = useRef(0);
+  const lastEye = useRef<{ x: number; z: number } | null>(null);
+  const cameraRight = useMemo(() => new THREE.Vector3(), []);
+  const cameraForward = useMemo(() => new THREE.Vector3(), []);
   /**
    * The bearing the anchored framing uses. Captured when an interaction
    * begins and held for its duration, so the composed shot does not swing
@@ -1099,11 +1115,78 @@ export function World({
         lookScratch.y = Math.sin(pitch);
         lookScratch.z = Math.sin(player.facing) * cosPitch;
       }
-      camera.position.set(eyeScratch.x, eyeScratch.y, eyeScratch.z);
+      /*
+       * The body under the eyes.
+       *
+       * Computed before the camera is placed and applied as an offset *along
+       * the camera's own axes*, so the bob is always relative to where the
+       * player is looking rather than to the world — walking north and walking
+       * east have to feel the same.
+       */
+      let turnRate = player.facing - lastFacing.current;
+      // Shortest way round, or crossing the seam at ±π reads as a violent turn.
+      while (turnRate > Math.PI) turnRate -= Math.PI * 2;
+      while (turnRate < -Math.PI) turnRate += Math.PI * 2;
+      lastFacing.current = player.facing;
+      // The camera's own right and forward, from the look direction. Up is
+      // world up: a bob that tilts with the pitch feels like a broken neck.
+      cameraForward.set(lookScratch.x, 0, lookScratch.z).normalize();
+      cameraRight.set(cameraForward.z, 0, -cameraForward.x);
+
+      /*
+       * Sidestepping, measured rather than asked for.
+       *
+       * The move intent knows whether a key said "strafe", but the pointer
+       * path has no such thing — it walks toward a tapped point, and walking
+       * sideways round the fire is exactly the case worth leaning into. So
+       * this is the real lateral displacement projected onto the camera's own
+       * right, which covers both input paths and cannot disagree with what the
+       * body actually did.
+       */
+      let strafe = 0;
+      if (lastEye.current && delta > 0) {
+        const dx = eyeScratch.x - lastEye.current.x;
+        const dz = eyeScratch.z - lastEye.current.z;
+        const travelled = Math.hypot(dx, dz);
+        if (travelled > 1e-5) strafe = (dx * cameraRight.x + dz * cameraRight.z) / travelled;
+      }
+      lastEye.current = { x: eyeScratch.x, z: eyeScratch.z };
+
+      /*
+       * Things that hit the camera.
+       *
+       * The scene has always known when a log lands and when the SM-01's
+       * compressor kicks; the camera never felt any of it. These are the
+       * moments a body would actually register, and nothing else — a shake for
+       * every event is a shake for none of them.
+       */
+      if (ritual.machine.events.includes('compressor-start')) shakeCamera(motion, 0.5);
+      if (ritual.machine.events.includes('latch-clunk')) shakeCamera(motion, 0.3);
+      if (ritual.machine.events.includes('pressure-equalise')) shakeCamera(motion, 0.24);
+      // A storm arriving, once, on the step the weather turns over.
+      if (ritual.weather.changedTo === 'storm') shakeCamera(motion, 0.45);
+
+      const sway = stepCameraMotion(
+        motion,
+        {
+          speed: player.speed,
+          turnRate: delta > 0 ? turnRate / delta : 0,
+          strafe,
+          settled: player.seated || ritual.stargazing.posture === 'reclined',
+          scale: settings.reducedMotion ? 0 : 1,
+        },
+        delta,
+      );
+
+      camera.position.set(
+        eyeScratch.x + cameraRight.x * sway.right + cameraForward.x * sway.forward,
+        eyeScratch.y + sway.up,
+        eyeScratch.z + cameraRight.z * sway.right + cameraForward.z * sway.forward,
+      );
       targetRef.current.set(
-        eyeScratch.x + lookScratch.x,
-        eyeScratch.y + lookScratch.y,
-        eyeScratch.z + lookScratch.z,
+        camera.position.x + lookScratch.x,
+        camera.position.y + lookScratch.y,
+        camera.position.z + lookScratch.z,
       );
       /*
        * Close work narrows the lens, and nothing else.
@@ -1128,11 +1211,14 @@ export function World({
         : ritual.stargazing.binoculars
           ? BINOCULAR_FOV
           : EXPLORE_FOV;
-      if (Math.abs(perspective.fov - fovTarget) > 0.05) {
-        perspective.fov += (fovTarget - perspective.fov) * (1 - Math.exp(-4 * delta));
+      camera.lookAt(targetRef.current);
+      // Roll last, because `lookAt` rebuilds the whole orientation from world
+      // up and would throw away anything applied before it.
+      if (sway.roll !== 0) camera.rotateZ(sway.roll);
+      if (Math.abs(perspective.fov - (fovTarget + sway.fov)) > 0.01) {
+        perspective.fov += (fovTarget + sway.fov - perspective.fov) * (1 - Math.exp(-9 * delta));
         perspective.updateProjectionMatrix();
       }
-      camera.lookAt(targetRef.current);
       if (onFrame && typeof performance !== 'undefined') onFrame(performance.now() - frameStart);
       return;
     }

@@ -11,17 +11,25 @@
 import { approach, clamp01, lerp, smoothstep } from './math.js';
 import { fbm1D, type Rng } from './rng.js';
 
-export type WeatherKind =
-  | 'clear'
-  | 'high-cloud'
-  | 'overcast'
-  | 'light-rain'
-  | 'rain'
-  | 'storm'
-  | 'fog'
-  | 'snow'
-  | 'snow-squall'
-  | 'wind';
+/**
+ * Exported as data as well as a type, for the same reason `ACTIVITY_WINDOWS`
+ * is: anything downstream that needs to cover every kind — the icon set, a
+ * validator — should read this list rather than keep a copy that goes stale.
+ */
+export const WEATHER_KINDS = [
+  'clear',
+  'high-cloud',
+  'overcast',
+  'light-rain',
+  'rain',
+  'storm',
+  'fog',
+  'snow',
+  'snow-squall',
+  'wind',
+] as const;
+
+export type WeatherKind = (typeof WEATHER_KINDS)[number];
 
 /** Rare, memorable events. Gifts, never gates (spec §5.5). */
 export type SkyEvent = 'meteor-shower' | 'heat-lightning' | 'aurora' | 'moonbow' | 'none';

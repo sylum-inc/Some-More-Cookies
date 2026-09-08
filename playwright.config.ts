@@ -126,6 +126,11 @@ export default defineConfig({
     { name: 'night', testMatch: /night\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     { name: 'daylight', testMatch: /daylight\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*
+     * Not a test — a contact sheet. Produces `artifacts/gallery/` for a person
+     * to grade, and asserts nothing, so it is deliberately not in the CI gate.
+     */
+    { name: 'gallery', testMatch: /gallery\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
      * Two browser contexts at one campfire, against a real service.
      *
      * Its own project because it fails on a different thing again: not "the

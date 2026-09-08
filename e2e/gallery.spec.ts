@@ -122,9 +122,42 @@ test.describe('gallery', () => {
            * sampling the sky pixel of each one.
            */
           ritual.stargazing.secondsUntilSkyRefresh = 0;
+          /*
+           * The kind AND everything derived from it.
+           *
+           * `stepWeather` eases the scalars toward their target rather than
+           * assigning them — precipitation, fog and cloud all have time
+           * constants of several seconds, so setting only `kind` and waiting a
+           * second and a half changes the HUD's weather glyph and almost
+           * nothing else. The first version of this captured nine weather
+           * states that were pixel-for-pixel the same clear night with a
+           * different icon in the corner, and the grade of that set was a
+           * grade of this helper rather than of the game.
+           *
+           * The character table is the sim's own; it is duplicated here rather
+           * than imported because it is not exported, and a harness reaching
+           * into a module's privates to set nine numbers is worse than a
+           * harness that states which nine it means.
+           */
+          const CHARACTER: Record<string, { precipitation: number; fog: number; cloud: number }> = {
+            clear: { precipitation: 0, fog: 0.04, cloud: 0.05 },
+            'high-cloud': { precipitation: 0, fog: 0.06, cloud: 0.4 },
+            overcast: { precipitation: 0, fog: 0.12, cloud: 0.92 },
+            'light-rain': { precipitation: 0.3, fog: 0.2, cloud: 0.95 },
+            rain: { precipitation: 0.7, fog: 0.3, cloud: 1 },
+            storm: { precipitation: 1, fog: 0.35, cloud: 1 },
+            fog: { precipitation: 0.02, fog: 0.9, cloud: 0.7 },
+            snow: { precipitation: 0.5, fog: 0.45, cloud: 0.95 },
+            'snow-squall': { precipitation: 0.9, fog: 0.75, cloud: 1 },
+            wind: { precipitation: 0, fog: 0.03, cloud: 0.3 },
+          };
+          const character = CHARACTER[kind as string] ?? CHARACTER.clear!;
           ritual.weather.kind = kind;
           ritual.weather.nextKind = kind;
           ritual.weather.transition = 1;
+          ritual.weather.precipitation = character.precipitation;
+          ritual.weather.fog = character.fog;
+          ritual.weather.cloudCover = character.cloud;
           // Far enough out that nothing rolls a new sky mid-capture.
           ritual.weather.secondsUntilTransition = 100_000;
         },

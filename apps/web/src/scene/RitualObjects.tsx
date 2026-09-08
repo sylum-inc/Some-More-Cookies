@@ -42,6 +42,29 @@ export function RoastingStick({ marshmallow, settings, bearing }: RoastingStickP
   const mesh = useMemo(() => createMarshmallowMesh(marshmallow), [marshmallow]);
   useEffect(() => () => mesh.dispose(), [mesh]);
 
+  /*
+   * The marshmallow, which was rendering as a navy-and-white football.
+   *
+   * Two faults, both visible the moment somebody cropped a roasting frame and
+   * looked at it. `patchColor` only ever produces cream, gold, brown and
+   * black — there is no blue anywhere in the doneness ramp — so the navy was
+   * the scene's own night ambient, `0x33445f`, which is a strongly saturated
+   * blue. On a dark forest floor that reads as moonlight and is exactly right.
+   * On a near-white albedo forty centimetres from a fire it reads as blue
+   * plastic, and every face turned away from the flame became a blue wedge.
+   *
+   * The wedges were the second fault: flat shading on a twelve-patch sphere
+   * gives twelve hard facets, so what should be a gradient of browning came
+   * out as a beach ball. Doneness on a real marshmallow is continuous — the
+   * gold creeps round the curve — and it is the one thing this object exists
+   * to communicate.
+   *
+   * So: smooth normals, and a warm emissive floor. The floor is not physical
+   * and is not pretending to be; it is the fire's bounce off the sugar, which
+   * a single point light in the pit cannot produce, and it is what stops the
+   * shadow side from being lit by the moon alone. Scaled by the fire setting
+   * so a player who has turned the fire down does not get a glowing sweet.
+   */
   const marshmallowMaterial = useMemo(
     () =>
       createPs1Material({
@@ -49,13 +72,33 @@ export function RoastingStick({ marshmallow, settings, bearing }: RoastingStickP
         map: getTexture('marshmallow', { size: 64 }),
         vertexColors: true,
         roughness: 0.78,
-        flatShading: true,
+        flatShading: false,
+        emissive: 0x3a1d0c,
+        emissiveIntensity: 0.85 * settings.fireBrightness,
       }),
     [settings],
   );
 
+  /*
+   * The stick, which was a pure black bar running off the edge of the frame.
+   *
+   * No colour was given, so it was white albedo times a bark texture times
+   * whatever light reached a seven-millimetre cylinder pointing away from the
+   * fire — which at night is nothing. A skewer is not black; it is a pale
+   * peeled green stick that goes brown at the end you have been holding over
+   * a fire. The emissive floor is the same argument as the marshmallow's and
+   * a third of the strength, because wood is not sugar.
+   */
   const stickMaterial = useMemo(
-    () => createPs1Material({ settings, map: getTexture('bark', { size: 32 }), roughness: 1 }),
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 32 }),
+        color: 0xa88752,
+        roughness: 1,
+        emissive: 0x241408,
+        emissiveIntensity: 0.6 * settings.fireBrightness,
+      }),
     [settings],
   );
 
@@ -135,7 +178,13 @@ export function RoastingStick({ marshmallow, settings, bearing }: RoastingStickP
         rotation={[Math.PI / 2, 0, 0]}
         castShadow
       >
-        <cylinderGeometry args={[0.007, 0.009, 0.68, 5]} />
+        {/*
+          Tapered properly and a touch thicker at the hand end. A cylinder of
+          constant thickness at this length reads as a bar rather than as a
+          stick somebody cut, and the taper is most of what says which end is
+          which.
+        */}
+        <cylinderGeometry args={[0.005, 0.013, 0.68, 5]} />
       </mesh>
 
       {/* Two levels on purpose: the outer group lays the marshmallow along the

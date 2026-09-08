@@ -1467,6 +1467,7 @@ export function World({
         fire={ritual.fire}
         settings={settings}
         maxParticles={qualitySettings.maxParticles}
+        shadows={qualitySettings.enableShadows}
         onWorkBed={({ x, z, inward }) => {
           if (!atThePit(player)) return;
           /*

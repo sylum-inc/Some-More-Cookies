@@ -324,6 +324,10 @@ export function Campsite({
         map: getTexture('dirt', { size: 64, seed }),
         color: palette.ground,
         roughness: 1,
+        // The per-vertex tint `createTerrainGeometry` bakes in. It multiplies
+        // against `color`, so the hour still moves the whole floor together
+        // and this only varies it.
+        vertexColors: true,
       }),
     [settings, seed, palette.ground],
   );

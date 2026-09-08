@@ -11,7 +11,7 @@ export const SPRITE_SHEET_SIZE = { width: 256, height: 352 } as const;
 
 /** The same bezel again as a contiguous 3x3, for CSS `border-image`. */
 export const SPRITE_FRAME = 'sprites/frame.png';
-export const SPRITE_FRAME_SLICE = 13;
+export const SPRITE_FRAME_SLICE = 9;
 
 export type SpriteName =
   | 'bezel-bl'

@@ -1117,6 +1117,52 @@ changed the default start to a literal dusk, and a light sky the fire has to
 compete with is not this product. Sessions open at `early-night`, which is
 where they always effectively opened.
 
+### Session 16: an art director graded it, and the interface was the problem
+
+Twenty-nine screens were captured and handed to a critic who writes no code and
+only looks at pictures. The verdict was **6.1/10** and the sentence that did the
+work was "you have made a genuinely beautiful night and bolted a browser onto
+it": the world graded 7.5, the interface graded 4, and the interface is on
+screen in every frame.
+
+**The heads-up display stopped being words.** Eighty-eight icons in one atlas,
+drawn by code across five subagent-authored families (verbs, objects, state,
+bezel, life) plus two more the critique demanded. Every channel moved onto one
+shared plate. Two things that were forbidden by the product's own §5.3 came out
+in the process, and neither had been noticed by reading the code:
+
+- The roasting readout was the word "BURNING" over an **amber bar that filled**.
+  It is the marshmallow itself now, as one of six drawn states, with the word
+  underneath — the bar was colour doing the job twice, where §12 asks for a
+  channel that is *not* colour.
+- The eight bite targets were **circles containing the numerals 1 to 8**. A
+  counter on screen, and it looked like a debug control. Each is now the
+  sandwich seen from above with the bite taken out of the side that target
+  aims at, so the row says *where* rather than *how many*.
+
+**Three findings had the same shape: built, but never reaching the frame.** The
+sky dome was outside the far plane. The shadow camera's far plane sat exactly on
+the campsite. The fire's `distance: 5` was drawing a hard ellipse on the dirt
+rather than fading. Each looked plausible in a screenshot and each needed a
+measurement to see. The pattern is worth naming: **a render feature that is
+silently clipped looks exactly like one that was never written**, and the only
+thing that tells them apart is sampling pixels.
+
+**And the contact sheet itself was lying.** The gallery advanced a fixed number
+of minutes per shot and hoped; what it captured was `midday` twice, filing the
+second under `hour-dusk`. The critic's "there is no dusk in this build" was
+exactly right about the evidence and exactly wrong about the cause. Worse, the
+weather was left to the seed, which ran overcast for the whole capture — so nine
+weather states rendered as one clear night with a different HUD glyph, and the
+first grade of that set was a grade of the harness rather than of the game.
+
+The rule this leaves behind: **a harness that samples reality at arbitrary
+moments has not covered anything.** The gallery now names the hour it wants and
+solves for it with the same function the campsite uses to decide when a visit
+starts, and sets every scalar the weather derives rather than only its kind.
+
+Round one took it to **6.4** with seven errors named. The loop continues.
+
 
 ## What the tools measured
 

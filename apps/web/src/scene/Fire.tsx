@@ -55,6 +55,12 @@ export interface FireProps {
    */
   onWorkBed?: (work: { x: number; z: number; inward: number }) => void;
   /**
+   * Whether the fire is allowed to cast. Off on the low tier: a point light's
+   * shadow is six cube faces re-rendered every frame, which is the one thing
+   * a phone that already dropped to 180 lines cannot afford.
+   */
+  shadows?: boolean;
+  /**
    * Arranging: dragging one piece of fuel across the pit.
    *
    * Position only. What the wood does when it gets there — lie flat, or ride
@@ -89,6 +95,7 @@ export function Fire({
   fire,
   settings,
   maxParticles,
+  shadows = false,
   onWorkBed,
   onMoveLog,
   glow,
@@ -671,8 +678,48 @@ export function Fire({
       <instancedMesh ref={flamesRef} args={[flameGeometry, flameMaterial, flameCount]} />
       <points ref={sparksRef} geometry={sparkGeometry} material={sparkMaterial} />
 
-      <pointLight ref={lightRef} position={[0, 0.35, 0]} distance={26} decay={1.35} castShadow={false} />
-      <pointLight ref={emberLightRef} position={[0, 0.06, 0]} distance={5} decay={2} />
+      {/*
+        The fire's two lights, and why neither has a tight `distance` any more.
+        
+        Three.js's `distance` is not a soft horizon: it multiplies the falloff
+        by a window that reaches exactly zero at that radius, and the window's
+        slope is discontinuous there. On flat ground that draws a hard-edged
+        ellipse you can trace with a finger — an art review called the ember
+        frame "the single most damning image here" and described precisely
+        that: a clean-edged orange ellipse sitting *on* the dirt rather than
+        light falling *across* it. The radius of the ellipse was 5 metres,
+        which is the number that used to be on the line below.
+        
+        So the cut-off is pushed out past anything the player can see standing
+        at the pit, and `decay` — a real inverse-square for the embers — does
+        the falloff instead. The intensities in the frame loop are unchanged:
+        at the distances that matter the window was already near 1, so what
+        this removes is the edge and not the light.
+        
+        The key light casts, which is the other half of the same note. A fire
+        is the only light in this scene at night, and the reason the clearing
+        read as flat is that nothing in it had a shadow — the log a metre from
+        the pit should throw one straight away from the flame, across the dirt,
+        moving as the fire breathes. That is the cheapest atmosphere available
+        here and the scene was not spending it.
+      */}
+      <pointLight
+        ref={lightRef}
+        position={[0, 0.35, 0]}
+        distance={70}
+        decay={1.35}
+        castShadow={shadows}
+        shadow-mapSize-width={512}
+        shadow-mapSize-height={512}
+        shadow-camera-near={0.12}
+        // Short, because a point light's shadow camera is six faces and the
+        // precision is spent on whatever this range covers. Everything worth
+        // shadowing here is inside the fire ring's own few metres.
+        shadow-camera-far={9}
+        shadow-bias={-0.004}
+        shadow-normalBias={0.02}
+      />
+      <pointLight ref={emberLightRef} position={[0, 0.06, 0]} distance={26} decay={2} />
     </group>
   );
 }

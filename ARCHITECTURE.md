@@ -223,6 +223,87 @@ The sky is **eased in the frame loop, not set from a render**: React re-renders
 when the store says something changed, which is not every frame and is on no
 schedule the sun cares about.
 
+A later art review found three more, and all three had the same shape — the
+thing had been built, and something one layer down meant it never reached the
+frame:
+
+- **`scene.background` is one flat colour, so there was no dusk.** A sunset is
+  an orange band under an indigo one, and a single field has nowhere to put the
+  band; midday and dusk graded as the same picture. The ramp gained a `horizon`
+  colour at every stop, and `Campsite` draws a **gradient dome**: an inverted
+  sphere, two uniforms, eight lines of GLSL, `depthTest` off and `renderOrder`
+  -1 so it is painted first and everything else covers it. The first version
+  was a 420-metre sphere against a far plane of 200 and was clipped in its
+  entirety — which looked plausible, because the flat background left behind is
+  the dome's own zenith colour. It took measuring the horizon strip against the
+  zenith strip to see the two were the same number.
+- **The gradient must be a band, not a wash.** Ramping over the first 25
+  degrees of elevation puts the whole visible sky inside the ramp — the camera
+  sits pitched down at a fire — so a sunset came out as a uniformly red dome.
+  Eight degrees is about what a real one occupies and puts the transition at
+  the treeline.
+- **Nothing in this scene had ever cast a shadow.** `gl.shadowMap.enabled` has
+  been true since the render layer was built and every prop sets `castShadow`,
+  but no *light* did, so the map had no caster. Fixing that was not enough
+  either: a directional light's shadow camera sits *at the light*, and the sun
+  is placed 90 metres out, so a `far` of 90 put the entire clearing on the clip
+  plane and it still cast nothing. The fire is the same story at the other end
+  — a point light with `distance: 5` does not fade out at five metres, it
+  reaches exactly zero there with a discontinuous slope, which draws a
+  hard-edged ellipse on flat ground that a reviewer described as light sitting
+  *on* the dirt rather than falling across it.
+
+**Shadows are a quality tier, not a switch.** The sun casts on `mid` and
+`high`; the fire's key light casts there too, over a nine-metre shadow camera,
+because a point light is six cube faces and the precision is worth spending
+only on the fire ring. On `low` neither casts.
+
+### 4.1b The heads-up display is drawn, not styled
+
+`ui/sprites/atlas.ts` and `public/sprites/atlas.png` are **generated**, by
+`tools/sprites/build.mjs`, from JavaScript modules in `tools/sprites/icons/`
+that *draw* each 32-pixel icon into an indexed buffer. There is no image asset
+and no artist (ADR-0002); the PNG encoder is hand-rolled over `zlib.deflateSync`
+because the alternative is a dependency that exists to write a format this
+repository already knows how to write.
+
+Deterministic on purpose: sprites are sorted by name and packed into a fixed
+grid, so regenerating without changing a drawing produces a byte-identical PNG.
+That means the atlas can be committed and reviewed like source, and a diff in it
+means somebody changed a drawing.
+
+The bezel is emitted **twice** — once into the atlas like any other sprite, and
+once as a contiguous 96×96 nine-slice, because `border-image` is the one part of
+CSS that nine-slices properly and it wants the pieces adjacent. A kilobyte buys
+a frame that costs one CSS property instead of eight absolutely positioned
+elements that have to agree about their own thickness.
+
+Every HUD channel draws on **one shared plate** (`ui/styles.ts`): warm-black,
+square-cornered, monospaced, with a stamped rule down its leading edge. Before
+that each channel styled its own slate rounded rectangle, so they disagreed
+about width, colour and radius, and two of them stacked at different offsets.
+
+### 4.1c The camera has a neck
+
+`scene/cameraMotion.ts` is pure and frameless: numbers in, offsets out, no
+three.js, so the whole feel is unit-testable without a browser. Bob tied to
+distance travelled rather than to time; roll into the turn; a landing dip at
+each footfall; fore-and-aft lean from acceleration; a decaying impulse other
+systems can kick; and **look lag on a real damped spring rather than an ease**,
+because an ease can only arrive and a head on a neck arrives and then comes
+back. The spring is integrated in fixed 1/120 sub-steps: at that stiffness an
+explicit integrator goes unstable around a 30 ms frame, and a camera that
+explodes on a stutter is worse than no camera lag.
+
+**Every term scales to exactly zero under reduced motion** (spec §12), and the
+tests assert that at zero the module is bit-for-bit the old inert camera. The
+state still advances at zero, so turning the setting back on mid-session does
+not jump.
+
+The vignette it reports reaches the screen as a **CSS custom property**, written
+from the frame loop. A value that changes sixty times a second must not
+re-render a React tree to move one gradient.
+
 ### 4.2 The fidelity bump
 
 Implemented as a **material tier** rather than a separate renderer, so the world stays cohesive:

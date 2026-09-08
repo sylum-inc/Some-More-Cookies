@@ -48,7 +48,7 @@ const FRAME_TILES = [
   ['bezel-bl', 'bezel-bottom', 'bezel-br'],
 ];
 /** Where the frame's own artwork stops and the world starts, in pixels. */
-const FRAME_SLICE = 13;
+const FRAME_SLICE = 9;
 
 async function loadSprites() {
   const dir = join(HERE, 'icons');

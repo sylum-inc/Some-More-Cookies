@@ -1161,7 +1161,39 @@ moments has not covered anything.** The gallery now names the hour it wants and
 solves for it with the same function the campsite uses to decide when a visit
 starts, and sets every scalar the weather derives rather than only its kind.
 
-Round one took it to **6.4** with seven errors named. The loop continues.
+Round one took it to **6.4** with seven errors named.
+
+### Session 17: the grade went down, and that was the point
+
+Round two came back at **6.3** — lower than round one — and the critic's own
+explanation was the most useful sentence of the whole exercise: round one's 6.4
+had been scored against nine weather frames that were all the same clear night,
+because the harness set the weather's *kind* without the scalars everything
+derives from. Once the evidence was honest the weather system turned out to
+have almost no art in it, and the gains the round had genuinely made were paid
+straight back. **An improving number against a broken measurement is worse than
+a falling number against a good one**, and it took a critic who could not see
+the code to make that visible.
+
+Rounds two and three then produced the same finding in five different files,
+which is written up as a category in ARCHITECTURE §4.1d: a render feature that
+is silently discarded looks exactly like one that was never written. Every
+star in the game painted the fog colour by a defaulted boolean. Tree tone bands
+computed as sRGB byte ratios and applied in a linear space. A sky dome outside
+the far plane. A shadow camera whose far plane sat on the campsite. A point
+light whose `distance` drew a hard-edged ellipse on the ground. Three rounds
+were spent adjusting art that was never reaching the screen.
+
+The most valuable single change was one line and came straight from the review:
+distance fog resolving to a colour with nothing behind it, which had every
+distant tree in the game reading as a pale cutout in front of a dark sky at
+every hour of the day.
+
+Where it ended: the sun casts, the sky has a horizon and a cloud deck, nine
+weathers are nine pictures, the HUD is eighty-eight drawn icons on one plate
+with no meter or counter left in it, the camera has a neck, and there is a hand
+in the frame. It is not the 8.5 the brief asked for, and the remaining distance
+is written down rather than rounded off.
 
 
 ## What the tools measured

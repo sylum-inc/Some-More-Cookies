@@ -47,6 +47,17 @@ interface Box {
   readonly size: [number, number, number];
   /** Rotation about X then Y, in radians. Fingers are not axis-aligned. */
   readonly tilt?: [number, number];
+  /**
+   * A multiplier on this part's tone bands, for the parts that are not skin.
+   *
+   * The cuff and sleeve are cloth and want to be much darker than a hand: an
+   * art review's note was that the hand is "the brightest object in a night
+   * frame", which is the wrong way round — the food is what the player is
+   * looking at and it has to win. Dark cloth also does the other half of the
+   * foreground's job, which is to be a dark shape at the edge that the eye
+   * travels past.
+   */
+  readonly tone?: number;
 }
 
 /**
@@ -59,22 +70,44 @@ interface Box {
  */
 const PARTS: readonly Box[] = [
   // Palm.
-  { at: [0, 0, 0], size: [0.088, 0.096, 0.052] },
-  // The bank of fingers, curled over. One block, with the knuckle line cut in
-  // by the two ridges below rather than by four separate boxes — four boxes at
-  // this size is four pixels and a lot of triangles.
-  { at: [0, 0.012, 0.044], size: [0.084, 0.07, 0.05], tilt: [0.34, 0] },
-  { at: [0, 0.05, 0.03], size: [0.086, 0.018, 0.042] },
-  // Thumb, lying across the front of the fingers, which is how a hand holds
-  // something light.
-  { at: [-0.046, -0.012, 0.03], size: [0.03, 0.03, 0.062], tilt: [0.2, 0.38] },
+  { at: [0, 0, 0], size: [0.086, 0.09, 0.05] },
   /*
-   * Forearm, running back toward the camera and out of the bottom of the
-   * frame. Long enough to leave it, short enough not to *be* it: the first
-   * version was 28 cm starting from a fist 27 cm away, so it reached the lens
-   * exactly and rendered as a featureless wall down one side of the screen.
+   * Four fingers, curled over whatever is being held — as four separate boxes,
+   * which is the whole point.
+   *
+   * The first version drew the bank of fingers as ONE box with a ridge cut
+   * across it, on the reasoning that four boxes at this size are four pixels
+   * and a lot of triangles. That reasoning was wrong and an art director put it
+   * plainly: "a two-tone tapering slab with one notch — no fingers, no thumb,
+   * no wrist". A hand is read from its silhouette, and the silhouette of a hand
+   * is *the gaps between the fingers*. Four boxes with a pixel of air between
+   * them is the cheapest hand there is, and it is what the hardware being
+   * imitated actually shipped.
+   *
+   * Each is a little shorter and lower than the one inboard of it, because
+   * fingers are, and because a bank of four identical ones is the slab again.
    */
-  { at: [0.014, -0.042, -0.125], size: [0.064, 0.068, 0.2], tilt: [0.16, 0] },
+  { at: [-0.03, 0.014, 0.046], size: [0.017, 0.062, 0.05], tilt: [0.4, 0] },
+  { at: [-0.009, 0.02, 0.05], size: [0.017, 0.066, 0.054], tilt: [0.36, 0] },
+  { at: [0.012, 0.016, 0.048], size: [0.017, 0.062, 0.052], tilt: [0.38, 0] },
+  { at: [0.032, 0.008, 0.042], size: [0.016, 0.054, 0.046], tilt: [0.44, 0] },
+  // The knuckle line, which is what says the fingers are curled rather than
+  // splayed.
+  { at: [0, 0.046, 0.026], size: [0.086, 0.016, 0.038] },
+  // Thumb, lying across the front, which is how a hand holds something light.
+  { at: [-0.048, -0.014, 0.028], size: [0.028, 0.028, 0.058], tilt: [0.22, 0.4] },
+  // Wrist: narrower than both the fist and the sleeve, so there is a join.
+  { at: [0.008, -0.03, -0.052], size: [0.058, 0.06, 0.06], tilt: [0.14, 0] },
+  /*
+   * A cuff, and then the sleeve.
+   *
+   * The cuff is the trick: it hides where the arm stops being modelled. Without
+   * it the forearm has to terminate somewhere, and wherever that is reads as an
+   * amputation — with it, the arm goes into a sleeve and the sleeve goes out of
+   * frame, which is a thing eyes accept without asking.
+   */
+  { at: [0.012, -0.04, -0.1], size: [0.078, 0.08, 0.036], tilt: [0.16, 0], tone: 0.42 },
+  { at: [0.014, -0.046, -0.16], size: [0.07, 0.072, 0.14], tilt: [0.16, 0], tone: 0.34 },
 ];
 
 /**
@@ -158,10 +191,11 @@ function appendBox(
       [pa, pb, pc],
       [pa, pc, pd],
     ]) {
+      const tone = face.tone * (box.tone ?? 1);
       for (const point of tri) {
         positions.push(point[0], point[1], point[2]);
         normals.push(normal[0], normal[1], normal[2]);
-        colors.push(face.tone, face.tone, face.tone);
+        colors.push(tone, tone, tone);
       }
     }
   }

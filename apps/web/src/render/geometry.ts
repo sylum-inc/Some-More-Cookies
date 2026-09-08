@@ -1241,11 +1241,36 @@ function groundTint(position: THREE.BufferAttribute, seed: number): THREE.Buffer
     const fine = valueNoise2D(x / 2.1, z / 2.1, seed ^ 0x5bd1);
     // Centred on 1, so a vertex with average noise is exactly the colour the
     // manifest asked for and nothing shifts the campsite's identity.
-    const tone = 1 + (broad - 0.5) * 0.26 + (fine - 0.5) * 0.12;
+    let tone = 1 + (broad - 0.5) * 0.26 + (fine - 0.5) * 0.12;
+
+    /*
+     * The worn ring, which the campsite's own prose has described for three
+     * rounds and the ground has never had.
+     *
+     * "Deep rust-brown needle litter over compacted dirt, worn to bare soil in
+     * a ring around the fire" is on screen every time somebody looks at the
+     * hearth, and until now it described a uniform brown field. A ring of bare
+     * earth around a pit is the single most reliable sign that a place is used
+     * rather than generated, and it costs nothing: bare soil is paler and
+     * greyer than duff, because what makes duff dark is the needles.
+     *
+     * Between one and a half and three metres — inside that is the fire ring's
+     * own stones and ash, outside it is where people actually sit. The edge is
+     * deliberately soft and noisy: a hard ring would read as a decal, which is
+     * the failure this whole session has been correcting elsewhere.
+     */
+    const fromFire = Math.hypot(x, z);
+    const ring = Math.max(
+      0,
+      Math.min(1, (fromFire - 1.35) / 0.7) * Math.min(1, (3.4 - fromFire) / 0.9),
+    );
+    const worn = ring * (0.72 + broad * 0.45);
+    tone *= 1 + worn * 0.3;
     const lift = Math.max(-1, Math.min(1, y * 1.4));
-    colors[i * 3] = tone * (1 + lift * 0.05);
+    // Bare soil is greyer as well as paler: the red comes out with the needles.
+    colors[i * 3] = tone * (1 + lift * 0.05) * (1 - worn * 0.06);
     colors[i * 3 + 1] = tone * (1 + lift * 0.015);
-    colors[i * 3 + 2] = tone * (1 - lift * 0.045);
+    colors[i * 3 + 2] = tone * (1 - lift * 0.045) * (1 + worn * 0.1);
   }
   return new THREE.BufferAttribute(colors, 3);
 }

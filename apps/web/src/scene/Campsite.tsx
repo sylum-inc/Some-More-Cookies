@@ -381,11 +381,46 @@ export function Campsite({
     return createTerrainGeometry(size, segments, seed, 0.7, basin);
   }, [seed, basin, extent]);
 
+  /*
+   * The forest floor's texture, at a size where it is a texture.
+   *
+   * Three rounds of art review said the ground has no material — "a smooth
+   * radial gradient of brown", measured at 3.6 of 255 in high-frequency detail
+   * across the largest surface in the game. The dirt texture was there the
+   * whole time and had been since the render layer was built. What was missing
+   * was one line: `PlaneGeometry` lays its UVs 0..1 across the entire mesh, and
+   * this mesh is forty-six metres wide, so a sixty-four pixel texture was being
+   * magnified to about seventy centimetres a texel. At that scale a speckle is
+   * not a speckle, it is a gradient — which is exactly what three reviews
+   * described.
+   *
+   * Cloned rather than repeated in place because `getTexture` caches by key and
+   * everything else that draws dirt wants it at its own scale.
+   *
+   * Two metres a tile. Small enough that the near ground has grain a player can
+   * see from standing height, large enough that the tiling does not read as
+   * wallpaper at the treeline — and it is 3 cm a texel, which after the 320x240
+   * downsample is around the size of the ordered dither cell, so the two
+   * cooperate rather than fight.
+   */
+  const groundTexture = useMemo(() => {
+    const base = getTexture('dirt', { size: 64, seed });
+    if (!base) return null;
+    const tiled = base.clone();
+    tiled.wrapS = THREE.RepeatWrapping;
+    tiled.wrapT = THREE.RepeatWrapping;
+    const size = Math.max(46, extent * 2 + 12);
+    tiled.repeat.set(size / 2, size / 2);
+    tiled.needsUpdate = true;
+    return tiled;
+  }, [seed, extent]);
+  useEffect(() => () => groundTexture?.dispose(), [groundTexture]);
+
   const groundMaterial = useMemo(
     () =>
       createPs1Material({
         settings,
-        map: getTexture('dirt', { size: 64, seed }),
+        map: groundTexture,
         color: palette.ground,
         roughness: 1,
         // The per-vertex tint `createTerrainGeometry` bakes in. It multiplies
@@ -393,7 +428,7 @@ export function Campsite({
         // and this only varies it.
         vertexColors: true,
       }),
-    [settings, seed, palette.ground],
+    [settings, groundTexture, palette.ground],
   );
 
   /**

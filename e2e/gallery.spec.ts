@@ -16,6 +16,35 @@ import { driveRitual, openWorld } from './stages.js';
  * apart out at the treeline in the rain has not been reviewed, and the only
  * way to know is to have the frame in front of you.
  */
+/**
+ * The sim's own weather character table, restated.
+ *
+ * Duplicated rather than imported because it is not exported, and a harness
+ * reaching into a module's privates to set nine numbers is worse than one that
+ * says which nine it means. It lives out here rather than inside the
+ * `page.evaluate` because the spec needs it too: it is what the harness waits
+ * for the world to agree with before taking a picture.
+ */
+const WEATHER_CHARACTER: Record<
+  string,
+  { precipitation: number; fog: number; cloud: number; wind: number }
+> = {
+  clear: { precipitation: 0, fog: 0.04, cloud: 0.05, wind: 0.6 },
+  'high-cloud': { precipitation: 0, fog: 0.06, cloud: 0.4, wind: 0.9 },
+  overcast: { precipitation: 0, fog: 0.12, cloud: 0.92, wind: 1.2 },
+  'light-rain': { precipitation: 0.3, fog: 0.2, cloud: 0.95, wind: 1.4 },
+  rain: { precipitation: 0.7, fog: 0.3, cloud: 1, wind: 2.2 },
+  storm: { precipitation: 1, fog: 0.35, cloud: 1, wind: 4.4 },
+  fog: { precipitation: 0.02, fog: 0.9, cloud: 0.7, wind: 0.35 },
+  snow: { precipitation: 0.5, fog: 0.45, cloud: 0.95, wind: 1.3 },
+  'snow-squall': { precipitation: 0.9, fog: 0.75, cloud: 1, wind: 4.8 },
+  // The one whose entire signature is the wind, and the one the
+  // first version of this helper forgot: it set every scalar the
+  // weather derives except the one that makes a gale a gale, so the
+  // wind frame captured as a slightly dimmer clear night.
+  wind: { precipitation: 0, fog: 0.03, cloud: 0.3, wind: 4.2 },
+};
+
 test.describe('gallery', () => {
   test('captures every screen', async ({ page }) => {
     const shot = async (name: string): Promise<void> => {
@@ -101,8 +130,9 @@ test.describe('gallery', () => {
     // name `window` means the browser's.
     const setSky = async (hour: ActivityWindow, weather: WeatherKind): Promise<void> => {
       const epoch = epochForWindow(Date.now(), 44, -73, hour);
+      const expected = WEATHER_CHARACTER[weather] ?? WEATHER_CHARACTER.clear!;
       await page.evaluate(
-        ([epochMs, kind]) => {
+        ([epochMs, kind, expected]) => {
           const ritual = window.__someMore!.store.state.ritual as unknown as {
             stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
             weather: Record<string, unknown>;
@@ -139,26 +169,7 @@ test.describe('gallery', () => {
            * into a module's privates to set nine numbers is worse than a
            * harness that states which nine it means.
            */
-          const CHARACTER: Record<
-            string,
-            { precipitation: number; fog: number; cloud: number; wind: number }
-          > = {
-            clear: { precipitation: 0, fog: 0.04, cloud: 0.05, wind: 0.6 },
-            'high-cloud': { precipitation: 0, fog: 0.06, cloud: 0.4, wind: 0.9 },
-            overcast: { precipitation: 0, fog: 0.12, cloud: 0.92, wind: 1.2 },
-            'light-rain': { precipitation: 0.3, fog: 0.2, cloud: 0.95, wind: 1.4 },
-            rain: { precipitation: 0.7, fog: 0.3, cloud: 1, wind: 2.2 },
-            storm: { precipitation: 1, fog: 0.35, cloud: 1, wind: 4.4 },
-            fog: { precipitation: 0.02, fog: 0.9, cloud: 0.7, wind: 0.35 },
-            snow: { precipitation: 0.5, fog: 0.45, cloud: 0.95, wind: 1.3 },
-            'snow-squall': { precipitation: 0.9, fog: 0.75, cloud: 1, wind: 4.8 },
-            // The one whose entire signature is the wind, and the one the
-            // first version of this helper forgot: it set every scalar the
-            // weather derives except the one that makes a gale a gale, so the
-            // wind frame captured as a slightly dimmer clear night.
-            wind: { precipitation: 0, fog: 0.03, cloud: 0.3, wind: 4.2 },
-          };
-          const character = CHARACTER[kind as string] ?? CHARACTER.clear!;
+          const character = expected;
           ritual.weather.kind = kind;
           ritual.weather.nextKind = kind;
           ritual.weather.transition = 1;
@@ -169,9 +180,51 @@ test.describe('gallery', () => {
           // Far enough out that nothing rolls a new sky mid-capture.
           ritual.weather.secondsUntilTransition = 100_000;
         },
-        [epoch, weather] as const,
+        [epoch, weather, expected] as const,
       );
-      await page.waitForTimeout(1400);
+      /*
+       * Wait for the WORLD to agree, not for a stopwatch.
+       *
+       * A fixed 1400 ms was not enough and the way that showed is worth
+       * recording: a grader reported that the snow frame contained no snow and
+       * carried the *storm* glyph, and the fog frame carried the *rain* glyph
+       * — each one exactly one state behind its own filename. The captures
+       * were of the previous weather with the next weather's name on them,
+       * which is the third time in this session that a harness has handed a
+       * reviewer a picture of something other than what it claimed.
+       *
+       * So it waits on the thing it actually set. The scalars ease at a rate
+       * of a few tenths per second, so agreement is checked against them
+       * rather than against the kind alone — the kind flips instantly and is
+       * exactly what made the old wait look sufficient.
+       */
+      await page.waitForFunction(
+        (want) => {
+          const weather = window.__someMore!.store.state.ritual.weather as unknown as {
+            kind: string;
+            precipitation: number;
+            cloudCover: number;
+            fog: number;
+          };
+          return (
+            weather.kind === want.kind &&
+            Math.abs(weather.precipitation - want.precipitation) < 0.05 &&
+            Math.abs(weather.cloudCover - want.cloud) < 0.05 &&
+            Math.abs(weather.fog - want.fog) < 0.05
+          );
+        },
+        {
+          kind: weather as string,
+          precipitation: expected.precipitation,
+          cloud: expected.cloud,
+          fog: expected.fog,
+        },
+        { timeout: 20_000 },
+      );
+      // And then a moment for the scene to draw what it now agrees about:
+      // snow accumulating on the ground eases in over a couple of seconds by
+      // design, so that the clearing whitens rather than snapping.
+      await page.waitForTimeout(2600);
     };
 
     /*

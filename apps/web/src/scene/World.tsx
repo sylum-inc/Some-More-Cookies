@@ -720,7 +720,13 @@ export function World({
     () =>
       createPs1Material({
         settings,
-        color: 0xb0765a,
+        /*
+         * Darker than it was. An art review found the hand "the brightest
+         * object in a night frame", which is the wrong way round: the s'more
+         * is what the player is looking at and it has to win the frame. A hand
+         * lit from below by a fire is mostly in its own shadow anyway.
+         */
+        color: 0x8a5a42,
         roughness: 1,
         vertexColors: true,
         flatShading: true,

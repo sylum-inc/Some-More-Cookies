@@ -94,11 +94,16 @@ describe('the hand', () => {
       expect(color.getZ(i)).toBeCloseTo(r, 6);
       tones.add(Number(r.toFixed(4)));
     }
-    expect(tones.size, [...tones].join(', ')).toBe(3);
-    // And the range has to be worth having: three values within a few per cent
-    // of each other is one value with extra triangles.
+    /*
+     * Three face bands times the per-part tone, so the exact count is not the
+     * property — what matters is that the range is worth having and that the
+     * cloth ends up genuinely darker than the skin. An art review's note was
+     * that the hand was the brightest object in a night frame, which is the
+     * wrong way round: the food is what the player is looking at.
+     */
     const sorted = [...tones].sort((a, b) => a - b);
-    expect(sorted[sorted.length - 1]! / sorted[0]!).toBeGreaterThan(2);
+    expect(tones.size, 'a hand with one value is a slab').toBeGreaterThan(3);
+    expect(sorted[sorted.length - 1]! / sorted[0]!).toBeGreaterThan(4);
   });
 
   it('is cheap enough to sit in front of the camera every frame', () => {
@@ -116,3 +121,60 @@ describe('the hand', () => {
 function position(geometry: { getAttribute: (name: string) => { count: number } }): number {
   return geometry.getAttribute('position').count / 3;
 }
+
+describe('the hand reads as a hand', () => {
+  const geometry = createHandGeometry();
+
+  it('has gaps between the fingers', () => {
+    /*
+     * The failure this exists for, in an art director's words: "a two-tone
+     * tapering slab with one notch — no fingers, no thumb, no wrist". The
+     * first version drew the finger bank as ONE box with a ridge cut across
+     * it, to save triangles. A hand is read from its silhouette and the
+     * silhouette of a hand is the gaps BETWEEN the fingers, so that saving
+     * removed the only thing that made it a hand.
+     *
+     * Measured as vertical slices through the knuckle depth: a solid bank
+     * fills every slice, and four fingers leave holes.
+     */
+    const position = geometry.getAttribute('position');
+    // The finger boxes live forward of the palm; sample across that slab.
+    const columns = new Array<number>(24).fill(0);
+    for (let i = 0; i < position.count; i++) {
+      const z = position.getZ(i);
+      if (z < 0.03) continue;
+      const x = position.getX(i);
+      const bucket = Math.floor(((x + 0.06) / 0.12) * columns.length);
+      if (bucket >= 0 && bucket < columns.length) columns[bucket]! += 1;
+    }
+    // Count runs of empty columns across the finger bank: four fingers give at
+    // least three gaps between them.
+    let gaps = 0;
+    let inGap = false;
+    for (const column of columns) {
+      if (column === 0 && !inGap) {
+        gaps += 1;
+        inGap = true;
+      } else if (column !== 0) {
+        inGap = false;
+      }
+    }
+    expect(gaps, `column occupancy: ${columns.join(',')}`).toBeGreaterThanOrEqual(3);
+  });
+
+  it('ends in a cuff rather than in mid-air', () => {
+    // A forearm that simply stops reads as an amputation. The darkest parts of
+    // the geometry are the cloth, and they have to be the ones furthest back.
+    const position = geometry.getAttribute('position');
+    const color = geometry.getAttribute('color');
+    let darkestZ = Infinity;
+    let darkest = Infinity;
+    for (let i = 0; i < color.count; i++) {
+      if (color.getX(i) < darkest) {
+        darkest = color.getX(i);
+        darkestZ = position.getZ(i);
+      }
+    }
+    expect(darkestZ, 'the darkest material is at the far end, where cloth is').toBeLessThan(-0.08);
+  });
+});

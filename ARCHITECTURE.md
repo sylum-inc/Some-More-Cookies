@@ -304,6 +304,56 @@ The vignette it reports reaches the screen as a **CSS custom property**, written
 from the frame loop. A value that changes sixty times a second must not
 re-render a React tree to move one gradient.
 
+### 4.1d Five defaults that were doing the art direction
+
+Three rounds of art review produced one finding over and over, in different
+files, and it is worth stating as a category rather than five times as
+anecdotes: **a render feature that is silently discarded looks exactly like one
+that was never written.** A screenshot cannot tell a star field that was drawn
+flat from one that was authored flat, or a culled mesh from a very dark one.
+Every item below was found by measuring a mechanism, and none of them could
+have been found by looking harder at a picture.
+
+| What looked wrong | What was actually wrong |
+| --- | --- |
+| "The night sky is sensor noise — uniformly sized, uniformly bright dots" | `PointsMaterial.fog` defaults to **true**. The star dome sits past the fog's far plane, and three.js's fog chunk does not tint at a fog factor of 1 — it *replaces* the fragment colour. Every star was drawn at the campsite's fog colour whatever its magnitude. |
+| "There is not one green pixel in the canopy" | Vertex colours multiply into albedo in the renderer's **linear** working space. The tone bands were ratios between sRGB *bytes*, so the same ratio was a much smaller step than intended. |
+| "A hard-edged orange ellipse sits on the dirt" | A point light's `distance` is not a soft horizon: it multiplies the falloff by a window that reaches exactly zero at that radius with a discontinuous slope. |
+| "No shadows, no sun angle at noon" | `shadowMap.enabled` was true and every prop set `castShadow`, but no *light* did. Then, once the sun cast: a directional light's shadow camera sits **at the light**, and the sun is placed 90 m out, so a `far` of 90 put the whole clearing on the clip plane. |
+| "Midday and dusk are the same frame" | The gradient sky dome was a 420 m sphere against a far plane of 200, clipped in its entirety — and the flat background left behind is the dome's own zenith colour, so it looked plausible. |
+
+A sixth belongs with them even though it is the harness rather than the
+renderer: the contact sheet advanced a fixed number of minutes per shot and
+captured `midday` twice, filing the second under `hour-dusk`, and left the
+weather to the seed, which ran overcast for a whole run. **Nine weather states
+were graded as one clear night with a different icon in the corner.** A harness
+that samples reality at arbitrary moments has not covered anything; it names
+the hour it wants and pins every scalar now.
+
+**The rule this leaves:** when a visual is wrong, establish whether the pixels
+you are looking at are the ones the code intended to produce *before* changing
+the intent. Three separate rounds were spent adjusting art that was never
+reaching the screen.
+
+### 4.1e Aerial perspective is a law, not a palette choice
+
+Distance fog resolves to the **horizon sky colour**, not to an independently
+authored constant. Fog is the sky in front of an object, so a fogged object
+converges toward the sky it is seen against and cannot overshoot past it —
+measured before the fix, the far treeline on a clear night sat at luminance 32
+against a sky at 9, warm, from no light source. Every distant tree in the game
+was a pale cutout in front of a dark sky.
+
+Each campsite keeps its own dark because the manifest's night **fog** colour
+stands in as the night **horizon**, which is what it always was: the band above
+the treeline at night is the haze. `daylight.test.ts` asserts the law rather
+than the numbers, across three campsites, ten sun altitudes and three cloud
+covers.
+
+Density is the other half. Fog starting at 2.5 m washes a clearing you can see
+across; it starts at about a third of the draw distance, which leaves the
+campsite unfogged and a tree at the treeline around forty per cent hazed.
+
 ### 4.2 The fidelity bump
 
 Implemented as a **material tier** rather than a separate renderer, so the world stays cohesive:

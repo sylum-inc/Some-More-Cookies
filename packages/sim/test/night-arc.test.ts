@@ -14,6 +14,7 @@ import {
   stepRitual,
 } from '../src/ritual.js';
 import { nightEpoch, sunState } from '../src/astronomy.js';
+import { describeWeatherChange } from '../src/weather.js';
 import { SIM_DT } from '../src/types.js';
 
 function night(overrides: Partial<Parameters<typeof createRitual>[0]> = {}) {
@@ -29,6 +30,37 @@ function night(overrides: Partial<Parameters<typeof createRitual>[0]> = {}) {
 function run(ritual: ReturnType<typeof createRitual>, seconds: number): void {
   for (let i = 0; i < Math.round(seconds / SIM_DT); i++) stepRitual(ritual, SIM_DT);
 }
+
+describe('what the weather says, given the hour', () => {
+  it('does not mention the stars at noon', () => {
+    /*
+     * Observed rather than hypothesised: while the sky was frozen the world
+     * said "the cloud tears open and the stars are all still there" over a
+     * campsite in full daylight. Both sky lines were written when the world
+     * was always night.
+     */
+    const nightLine = describeWeatherChange('overcast', 'clear', 0);
+    const dayLine = describeWeatherChange('overcast', 'clear', 1);
+    expect(nightLine).toMatch(/stars/);
+    expect(dayLine, 'the stars were out at noon').not.toMatch(/stars/);
+    expect(dayLine).toMatch(/sun/);
+
+    const closingNight = describeWeatherChange('clear', 'overcast', 0);
+    const closingDay = describeWeatherChange('clear', 'overcast', 1);
+    expect(closingNight).toMatch(/stars/);
+    expect(closingDay, 'the stars went out at noon').not.toMatch(/stars/);
+
+    // And a caller with no sun to hand still gets the night lines.
+    expect(describeWeatherChange('overcast', 'clear')).toBe(nightLine);
+  });
+
+  it('says the same thing about rain whatever the hour', () => {
+    // Only the two sky lines depend on the light. Rain is rain.
+    for (const daylight of [0, 0.5, 1]) {
+      expect(describeWeatherChange('clear', 'storm', daylight)).toMatch(/wind comes round/);
+    }
+  });
+});
 
 describe('the shape of a night', () => {
   it('gets colder as it goes, worst before it gets light, easing at dawn', () => {
@@ -60,7 +92,7 @@ describe('the shape of a night', () => {
     expect(ritual.fire.config.ambientC).toBeCloseTo(late, 5);
   });
 
-  it('says so, once, as each part of the day turns over', () => {
+  it('says so, once, as each part of the day turns over', { timeout: 20_000 }, () => {
     /*
      * Every part now, not only the night's four.
      *

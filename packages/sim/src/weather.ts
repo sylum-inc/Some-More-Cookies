@@ -228,8 +228,19 @@ export function rainIsComing(weather: WeatherState): boolean {
  * person sitting by a fire notices the wind turn and knows what it means,
  * which is a thing worth knowing rather than a number worth reading. Null when
  * the change is not the sort anybody would remark on.
+ *
+ * `daylight` is the sun model's own 0..1 term, and two of these lines need it:
+ * the sky clearing and the sky closing over were both written about stars,
+ * because the world was always night. With the sun going round, "the cloud
+ * tears open and the stars are all still there" is what the world said at noon
+ * — observed, not hypothesised. It defaults to nought, so a caller with no sun
+ * to hand gets exactly the night lines it always got.
  */
-export function describeWeatherChange(from: WeatherKind, to: WeatherKind): string | null {
+export function describeWeatherChange(
+  from: WeatherKind,
+  to: WeatherKind,
+  daylight = 0,
+): string | null {
   if (from === to) return null;
   const wetter = CHARACTER[to].precipitation - CHARACTER[from].precipitation;
   const windier = CHARACTER[to].wind - CHARACTER[from].wind;
@@ -244,8 +255,17 @@ export function describeWeatherChange(from: WeatherKind, to: WeatherKind): strin
   if (wetter < -0.25) return 'It is easing off. The dripping is just the trees now.';
   if (windier > 2) return 'The wind gets up. Sparks go sideways and the flames lean with it.';
   if (colder < -3) return 'The cold arrives all at once, the way it does out here.';
-  if (to === 'clear' && CHARACTER[from].cloud > 0.6) return 'The cloud tears open and the stars are all still there.';
-  if (CHARACTER[to].cloud - CHARACTER[from].cloud > 0.4) return 'The stars go out one patch at a time.';
+  const day = daylight > 0.5;
+  if (to === 'clear' && CHARACTER[from].cloud > 0.6) {
+    return day
+      ? 'The cloud tears open and the sun comes down through it all at once.'
+      : 'The cloud tears open and the stars are all still there.';
+  }
+  if (CHARACTER[to].cloud - CHARACTER[from].cloud > 0.4) {
+    return day
+      ? 'The light goes flat and every shadow in the clearing disappears.'
+      : 'The stars go out one patch at a time.';
+  }
   return null;
 }
 

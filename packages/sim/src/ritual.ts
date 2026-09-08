@@ -1254,7 +1254,11 @@ export function stepRitual(ritual: RitualState, dt: number = SIM_DT): void {
   // watching it go out.
   ritual.fire.rain = clamp01(ritual.weather.precipitation);
   if (ritual.weather.changedTo) {
-    const telling = describeWeatherChange(ritual.weather.kind, ritual.weather.changedTo);
+    const telling = describeWeatherChange(
+      ritual.weather.kind,
+      ritual.weather.changedTo,
+      ritual.stargazing.sky.sun.daylight,
+    );
     if (telling) {
       ritual.weatherEvents.push({
         at: ritual.elapsed,

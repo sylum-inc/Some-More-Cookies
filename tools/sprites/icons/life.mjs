@@ -39,13 +39,13 @@
  * `dither()` that respects a silhouette — only recolours pixels already drawn,
  * so ground texture never leaks past the edge of a patch.
  */
-function ditherIn(pix, x, y, w, h, key, phase = 0, over = null) {
+function ditherIn(pix, x, y, w, h, key, phase = 0, onlyOver = null) {
   for (let dy = 0; dy < h; dy++) {
     for (let dx = 0; dx < w; dx++) {
       if ((x + dx + y + dy + phase) % 2 !== 0) continue;
       const current = pix.get(x + dx, y + dy);
       if (current === 'none') continue;
-      if (over && !over.includes(current)) continue;
+      if (onlyOver && !onlyOver.includes(current)) continue;
       pix.set(x + dx, y + dy, key);
     }
   }
@@ -178,9 +178,11 @@ export const SPRITES = [
       // Branch stub under the feet.
       pix.rect(8, 25, 16, 2, 'ink2');
 
-      // Body: a bell, wide at the shoulders, tail below the perch line.
-      pix.poly([[10, 12], [22, 12], [23, 24], [9, 24]], 'ink2');
-      pix.disc(16, 18, 7, 7, 'ink2');
+      // Body: a barrel, wide at the shoulders, tail below the perch line. Built
+      // out of discs rather than a box, or an owl reads as a cabinet.
+      pix.poly([[11, 12], [21, 12], [22, 22], [10, 22]], 'ink2');
+      pix.disc(16, 18, 6.6, 6.6, 'ink2');
+      pix.disc(16, 20, 5.6, 5, 'ink2');
       pix.poly([[13, 22], [19, 22], [18, 26], [14, 26]], 'ink2');
 
       // Head, merged straight into the shoulders — an owl has no neck.
@@ -191,8 +193,8 @@ export const SPRITES = [
       pix.poly([[18, 8], [23, 4], [22, 9]], 'ink2');
 
       // Wing edges, folded down the sides.
-      pix.poly([[10, 14], [12, 14], [13, 23], [10, 22]], 'ink2');
-      pix.poly([[20, 14], [22, 14], [22, 22], [19, 23]], 'ink2');
+      pix.poly([[10, 15], [12, 15], [13, 23], [10, 21]], 'ink2');
+      pix.poly([[20, 15], [22, 15], [22, 21], [19, 23]], 'ink2');
 
       // Toes gripping the branch.
       pix.rect(12, 24, 1, 3, 'ink2');
@@ -242,13 +244,13 @@ export const SPRITES = [
 
       // Antlers: two beams off the brow, each with two tines, the far one
       // shorter so the pair does not read as one flat comb.
-      pix.line(9, 7, 8, 3, 'ink2');
-      pix.line(8, 3, 5, 2, 'ink2');
-      pix.line(8, 5, 5, 5, 'ink2');
+      pix.line(9, 7, 8, 4, 'ink2');
+      pix.line(8, 4, 5, 4, 'ink2');
+      pix.line(8, 6, 6, 7, 'ink2');
       pix.set(9, 6, 'ink2');
-      pix.line(11, 6, 13, 3, 'ink2');
-      pix.line(13, 3, 16, 3, 'ink2');
-      pix.line(13, 5, 15, 6, 'ink2');
+      pix.line(11, 6, 13, 4, 'ink2');
+      pix.line(13, 4, 16, 4, 'ink2');
+      pix.line(13, 6, 15, 7, 'ink2');
 
       cutout(pix);
       eyeshine(pix, 8, 9);
@@ -296,13 +298,16 @@ export const SPRITES = [
     // is held four pixels clear of the spine so the two masses stay separate.
     name: 'life-squirrel',
     draw(pix) {
+      // The plume: thin where it leaves the rump, fattest at shoulder height,
+      // and wider than the animal is. If the tail is not the biggest thing in
+      // the cell it is not a squirrel.
       for (const [x, y, r] of [
-        [18, 25, 3],
-        [21.5, 24, 3],
-        [23.5, 21, 3],
-        [24, 17, 3],
-        [23, 13, 3],
-        [21, 10, 2.8],
+        [18, 24, 3],
+        [22, 23.5, 3.4],
+        [24, 20, 3.5],
+        [24, 15, 3.5],
+        [22, 11, 3.2],
+        [20, 8, 2.6],
       ]) {
         pix.disc(x, y, r, r, 'ink2');
       }
@@ -310,23 +315,23 @@ export const SPRITES = [
       // Haunch and back, sitting upright, kept narrow and well to the left so
       // the plume never closes on it — a tail that touches the spine turns the
       // whole animal into one doughnut.
-      pix.disc(12, 21, 4, 4.4, 'ink2');
-      pix.poly([[8, 14], [14, 13], [16, 22], [8, 23]], 'ink2');
+      pix.disc(11, 20, 4.5, 5, 'ink2');
+      pix.poly([[8, 12], [14, 12], [15, 21], [8, 22]], 'ink2');
 
-      // Chest and the forepaws held together in front of it.
-      pix.poly([[7, 15], [11, 14], [11, 21], [7, 20]], 'ink2');
-      pix.rect(6, 16, 3, 3, 'ink2');
+      // Chest, and the forepaws held together in front of it.
+      pix.rect(5, 14, 4, 4, 'ink2');
 
-      // Head, blunt nose, and a tufted ear.
-      pix.disc(10, 11, 3.4, 3.2, 'ink2');
-      pix.poly([[5, 13], [10, 9], [10, 14]], 'ink2');
-      pix.poly([[10, 9], [12, 5], [13, 10]], 'ink2');
+      // Head, carried clear of the shoulders, with a blunt nose and a tufted
+      // ear. The notch behind the jaw is what makes it a head and not a lump.
+      pix.disc(11, 9, 3.4, 3.2, 'ink2');
+      pix.poly([[5, 11], [11, 7], [11, 12], [7, 13]], 'ink2');
+      pix.poly([[11, 7], [12, 4], [14, 8]], 'ink2');
 
       // Feet.
-      pix.rect(9, 24, 6, 2, 'ink2');
+      pix.rect(8, 24, 7, 2, 'ink2');
 
       cutout(pix);
-      eyeshine(pix, 7, 11);
+      eyeshine(pix, 8, 9);
       pix.outline();
     },
   },
@@ -354,7 +359,7 @@ export const SPRITES = [
 
       // Head and beak.
       pix.disc(9, 11, 3.6, 3.4, 'ink2');
-      pix.poly([[3, 12], [7, 10], [7, 13]], 'ink2');
+      pix.poly([[4, 12], [7, 10], [7, 13]], 'ink2');
 
       // Legs down to the twig.
       pix.rect(11, 20, 1, 5, 'ink2');
@@ -373,21 +378,22 @@ export const SPRITES = [
     // what keep it from being a butterfly.
     name: 'life-moth',
     draw(pix) {
-      // Forewing: one long straight leading edge, swept back.
-      pix.poly([[15, 10], [4, 6], [4, 13], [15, 17]], 'ink2');
+      // Forewing: a long straight leading edge to a pointed tip, and a trailing
+      // edge swept back to the waist.
+      pix.poly([[15, 11], [4, 7], [5, 14], [15, 17]], 'ink2');
       // Hindwing: smaller, rounder, tucked under.
-      pix.poly([[15, 16], [7, 19], [10, 24], [15, 22]], 'ink2');
+      pix.poly([[15, 16], [8, 19], [11, 24], [15, 22]], 'ink2');
 
       // Furry thorax over a tapering abdomen that clears the wings.
       pix.poly([[13, 9], [16, 9], [16, 26], [14, 26]], 'ink2');
       pix.disc(15, 10, 2.6, 2.4, 'ink2');
 
-      // Feathered antenna: one hair with three barbs, thin enough that it
-      // cannot be mistaken for an ear.
-      pix.line(14, 8, 7, 4, 'ink2');
-      pix.set(12, 5, 'ink2');
-      pix.set(9, 3, 'ink2');
-      pix.set(6, 3, 'ink2');
+      // Antenna: one curved hair with a clubbed tip. It was drawn feathered
+      // first, and a feathered antenna at this size is a bare twig — two of
+      // them made the whole insect read as a bat with ears.
+      pix.line(14, 8, 11, 5, 'ink2');
+      pix.line(11, 5, 8, 4, 'ink2');
+      pix.set(7, 4, 'ink2');
 
       pix.mirrorX();
 
@@ -414,8 +420,8 @@ export const SPRITES = [
       pix.poly([[28, 14], [22, 17], [28, 20]], 'none');
 
       // Body.
-      pix.disc(15, 17, 7.4, 5.4, 'ink2');
-      pix.poly([[6, 17], [13, 12], [13, 22]], 'ink2');
+      pix.disc(15, 17, 7.4, 5.6, 'ink2');
+      pix.poly([[6, 16], [7, 19], [13, 22], [13, 12]], 'ink2');
 
       // Dorsal fin up, anal fin down, pectoral tucked behind the gill.
       pix.poly([[12, 12], [16, 6], [20, 13]], 'ink2');
@@ -555,20 +561,22 @@ export const SPRITES = [
     // cuttings dropped in a ring where it sat.
     name: 'trace-cone',
     draw(pix) {
-      // Teardrop body.
-      pix.disc(16, 20, 5.6, 6.4, 'wood2');
-      pix.poly([[16, 8], [21, 21], [11, 21]], 'wood2');
+      // Egg-shaped body, and a short stem at the BOTTOM — the one detail that
+      // stops a cone from reading as a bottle.
+      pix.disc(16, 16, 6, 8.6, 'wood2');
+      pix.rect(15, 24, 2, 3, 'wood1');
 
       // Courses of scales: a dark seam, a lit lip below it, and vertical splits
-      // offset row to row so they overlap like real scales.
+      // offset row to row so they overlap the way real scales do.
       const scaled = ['wood2', 'wood3'];
-      for (const [ry, phase] of [
-        [11, 0],
-        [14, 1],
-        [17, 0],
-        [20, 1],
-        [23, 0],
-      ]) {
+      const seams = [
+        [9, 0],
+        [12, 1],
+        [15, 0],
+        [18, 1],
+        [21, 0],
+      ];
+      for (const [ry, phase] of seams) {
         for (let x = 9; x <= 23; x++) {
           over(pix, x, ry, 'wood1', scaled);
           over(pix, x, ry + 1, 'wood3', ['wood2']);
@@ -577,30 +585,40 @@ export const SPRITES = [
           for (let d = 1; d <= 2; d++) over(pix, x, ry + d, 'wood1', scaled);
         }
       }
-      ditherIn(pix, 17, 20, 6, 7, 'wood1', 1, ['wood2', 'wood3']);
+      ditherIn(pix, 17, 17, 6, 9, 'wood1', 1, ['wood2', 'wood3']);
+      ditherIn(pix, 10, 9, 6, 8, 'wood4', 0, ['wood3']);
 
-      // Stripped tip: the bare core, three pixels wide, with the stubble of cut
-      // scales still on it.
-      pix.rect(15, 5, 3, 6, 'wood2');
-      pix.line(15, 5, 15, 10, 'wood3');
-      pix.line(17, 6, 17, 10, 'wood1');
-      pix.set(14, 7, 'wood1');
-      pix.set(18, 8, 'wood1');
-      pix.set(14, 9, 'wood1');
+      // Scallop the outline: bite the corner out of the silhouette at every
+      // seam, so the edge of the cone is a stack of scale tips and not an egg.
+      for (const [ry] of seams) {
+        for (const dy of [0, -1]) {
+          for (let x = 8; x <= 23; x++) {
+            if (pix.get(x, ry + dy) === 'none') continue;
+            pix.set(x, ry + dy, 'none');
+            break;
+          }
+          for (let x = 23; x >= 8; x--) {
+            if (pix.get(x, ry + dy) === 'none') continue;
+            pix.set(x, ry + dy, 'none');
+            break;
+          }
+        }
+      }
 
-      // Gnawed flank: scales taken off the lower left, down to smooth core.
-      pix.poly([[11, 19], [15, 21], [14, 26], [11, 25]], 'wood2');
-      pix.line(11, 19, 14, 21, 'wood1');
-      pix.line(11, 20, 11, 25, 'wood3');
-      ditherIn(pix, 12, 22, 4, 4, 'wood1', 0, ['wood2']);
+      // Gnawed flank: the scales taken off the lower left, down to bare core.
+      pix.poly([[12, 18], [16, 20], [15, 26], [12, 25]], 'wood2');
+      pix.line(12, 18, 15, 20, 'wood1');
+      pix.line(12, 19, 12, 25, 'wood3');
+      ditherIn(pix, 13, 21, 4, 5, 'wood1', 0, ['wood2']);
 
-      // Cuttings, dropped where it sat.
-      pix.rect(5, 24, 3, 2, 'wood3');
-      pix.set(5, 24, 'wood4');
-      pix.rect(24, 23, 3, 2, 'wood3');
-      pix.set(24, 23, 'wood4');
-      pix.rect(7, 21, 2, 2, 'wood3');
-      pix.rect(22, 26, 2, 2, 'wood3');
+      // Cuttings, dropped in a ring where it sat.
+      pix.rect(5, 23, 3, 2, 'wood3');
+      pix.set(5, 23, 'wood4');
+      pix.rect(24, 21, 3, 2, 'wood3');
+      pix.set(24, 21, 'wood4');
+      pix.rect(7, 19, 2, 2, 'wood3');
+      pix.rect(23, 25, 2, 2, 'wood3');
+      pix.rect(9, 26, 2, 2, 'wood3');
 
       pix.outline();
     },
@@ -614,29 +632,44 @@ export const SPRITES = [
     name: 'trace-scratch',
     draw(pix) {
       // Slab of bark with a broken edge top and bottom.
-      pix.rect(7, 5, 17, 22, 'wood1');
-      pix.disc(15, 5, 8.5, 2, 'wood1');
-      pix.disc(15, 26, 8.5, 2, 'wood1');
-      pix.set(7, 5, 'none');
-      pix.set(23, 5, 'none');
-      pix.set(7, 26, 'none');
-      pix.set(23, 26, 'none');
+      pix.rect(7, 6, 17, 20, 'wood1');
+      pix.disc(15, 6, 8.5, 1.6, 'wood1');
+      pix.disc(15, 25, 8.5, 1.6, 'wood1');
+      // Break the edges up — a bark slab with four clean corners is a biscuit.
+      for (const [x, y] of [
+        [7, 6], [23, 6], [7, 25], [23, 25],
+        [8, 5], [7, 7], [22, 5], [24, 8],
+        [7, 24], [9, 26], [24, 23], [22, 26],
+      ]) {
+        pix.set(x, y, 'none');
+      }
+      pix.set(6, 12, 'wood1');
+      pix.set(6, 13, 'wood1');
+      pix.set(24, 18, 'wood1');
+      pix.set(24, 19, 'wood1');
 
-      // Grain: raised ridges, lit on their left, and a little dither between.
+      // Grain: raised ridges lit down their left edge, with the grooves between
+      // them left dark. Crisp columns rather than a dither, because a dithered
+      // slab is a texture and vertical ridges are bark.
       for (let x = 8; x <= 22; x += 4) {
         for (let y = 3; y <= 28; y++) {
-          over(pix, x, y, 'wood2', ['wood1']);
+          over(pix, x, y, 'wood3', ['wood1']);
           over(pix, x + 1, y, 'wood2', ['wood1']);
+          over(pix, x + 2, y, 'wood2', ['wood1']);
         }
       }
-      ditherIn(pix, 6, 3, 20, 26, 'wood1', 1, ['wood2']);
+      // Nicks and cracks across the grain.
+      for (const [x, y] of [[9, 9], [13, 20], [17, 11], [21, 23], [10, 24], [18, 7]]) {
+        over(pix, x, y, 'wood1', ['wood2', 'wood3']);
+        over(pix, x + 1, y, 'wood1', ['wood2', 'wood3']);
+      }
 
       // The gouges. Dark lip on the upper-left, open wood below it.
       const claws = [
-        [8, 9, 14, 22],
-        [11, 7, 18, 21],
-        [15, 6, 21, 19],
-        [19, 7, 24, 17],
+        [8, 10, 13, 22],
+        [11, 8, 17, 21],
+        [14, 7, 20, 19],
+        [17, 7, 22, 16],
       ];
       for (const [x0, y0, x1, y1] of claws) {
         pix.line(x0 - 1, y0, x1 - 1, y1, 'ink2');

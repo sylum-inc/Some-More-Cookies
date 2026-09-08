@@ -564,8 +564,15 @@ const NIGHT_SPAN_MS = 6 * 3600 * 1000;
  * from the next boundary.
  *
  * This runs once, when a campsite is made.
+ *
+ * Exported because the screenshot harness needs the same answer for the same
+ * reason: a contact sheet that advances a fixed number of minutes and hopes it
+ * lands on dusk does not land on dusk. The first grade of the gallery reported
+ * "there is no dusk in this build", and it was right — but the cause was the
+ * capture, which reached `midday` twice in a row and labelled the second one
+ * dusk. A harness that asks for an hour by name cannot make that mistake.
  */
-function epochForWindow(
+export function epochForWindow(
   baseMs: number,
   latitudeDeg: number,
   longitudeDeg: number,

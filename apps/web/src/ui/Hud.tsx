@@ -54,6 +54,8 @@ export interface HudProps {
   survey: readonly string[] | null;
   textScale: number;
   highContrast: boolean;
+  /** Pixels of bezel to stay inside of. See the note on the root element. */
+  frameInset?: number;
   subtitlesEnabled: boolean;
   /**
    * Whatever belongs in the middle of the bottom row — today, the bite ring.
@@ -661,7 +663,17 @@ export function Hud(props: HudProps): React.ReactElement {
     <div
       style={{
         position: 'fixed',
-        inset: 0,
+        /*
+         * Inside the bezel, not under it.
+         *
+         * Everything below anchors to `env(safe-area-inset-*)`, which is the
+         * phone's own notch and knows nothing about a steel rail this code
+         * drew over the viewport. With the frame on and no allowance made, the
+         * guidance line ran under the left rail and lost its first character —
+         * found in a screenshot, because no amount of reading the layout would
+         * have shown it.
+         */
+        inset: props.frameInset ?? 0,
         pointerEvents: 'none',
         zIndex: 20,
         fontFamily: FONT_STACK.sans,
@@ -922,14 +934,13 @@ export function Hud(props: HudProps): React.ReactElement {
           aria-live="polite"
           data-testid="guidance"
           style={{
-            fontSize: scale(13),
             letterSpacing: '0.04em',
-            color: highContrast ? '#fff' : 'rgba(240,233,216,0.94)',
-            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
-            background: 'rgba(10,9,8,0.42)',
-            padding: `${scale(3)} ${scale(9)}`,
-            borderRadius: 3,
-            textAlign: 'left',
+            ...plate(textScale, highContrast),
+            // Quieter than the notice: this is the game telling you which keys
+            // exist, not the campsite telling you something happened, and the
+            // two must not read as the same voice.
+            borderLeftColor: 'rgba(214,203,177,0.30)',
+            fontSize: scale(12),
             overflowWrap: 'break-word',
           }}
         >

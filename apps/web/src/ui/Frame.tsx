@@ -28,10 +28,24 @@
 import { SPRITE_FRAME, SPRITE_FRAME_SLICE } from './sprites/atlas.js';
 
 /** How many screen pixels one atlas pixel becomes. Integers only — see `Sprite`. */
-function bezelScale(width: number): number {
+export function bezelScale(width: number): number {
   // A phone gets a thinner bezel in absolute terms, because 26 pixels a side
   // out of 393 is an eighth of the picture and the picture is the product.
   return width < 520 ? 1 : 2;
+}
+
+/**
+ * How far in from the edge of the window the game's own furniture must start.
+ *
+ * The HUD has to know this. It anchors to `env(safe-area-inset-*)`, which
+ * describes the phone's notch and knows nothing about a bezel this code drew —
+ * so with the frame on and no allowance made, the guidance line ran under the
+ * left rail and lost its first character. A screenshot of that is what caught
+ * it; nothing in the layout could have.
+ */
+export function bezelInset(width: number, enabled: boolean): number {
+  if (!enabled || SPRITE_FRAME === null) return 0;
+  return SPRITE_FRAME_SLICE * bezelScale(width);
 }
 
 export interface FrameProps {

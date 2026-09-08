@@ -241,16 +241,41 @@ export function Campsite({
           uniform vec3 uZenith;
           varying vec3 vDirection;
           void main() {
-            // Biased hard toward the bottom: the whole event is the first few
-            // degrees above the treeline, and a linear ramp puts most of the
-            // gradient overhead where nothing is happening.
+            /*
+             * A band, not a wash.
+             *
+             * The first version ramped over the first 25 degrees of elevation,
+             * and because the camera sits pitched down at a fire the entire
+             * visible sky is inside that — so a sunset came out as a uniformly
+             * red dome rather than as a red strip under a violet one, which is
+             * a different and much worse thing. Eight degrees is about what a
+             * real one occupies, and it puts the transition exactly where the
+             * treeline is.
+             */
             float h = clamp(vDirection.y, 0.0, 1.0);
-            float t = smoothstep(0.0, 0.42, h);
+            float t = smoothstep(0.0, 0.14, h);
             gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
           }
         `,
         side: THREE.BackSide,
+        /*
+         * Neither writes depth nor tests it.
+         *
+         * Not writing keeps the dome from occluding anything. Not *testing* is
+         * what lets it sit inside the far plane without the geometry beyond it
+         * punching through — it is drawn first (`renderOrder` below) and
+         * everything else paints over it, which is how a sky has always been
+         * done and is why its radius can be a number that fits the frustum.
+         *
+         * The first version of this was a 420-metre sphere against a camera
+         * whose far plane is 200, so it was clipped in its entirety and the
+         * sky stayed exactly as flat as it had been. The screenshots looked
+         * plausible — the flat background is the dome's own zenith colour —
+         * and it took measuring the horizon strip against the zenith strip to
+         * see that the two were the same number.
+         */
         depthWrite: false,
+        depthTest: false,
         fog: false,
         toneMapped: false,
       }),
@@ -949,7 +974,18 @@ export function Campsite({
     }
 
     if (starsRef.current) {
-      const visibility = sky.starVisibility * (1 - weather.cloudCover * 0.95);
+      /*
+       * And out entirely once the sun is up.
+       *
+       * `starVisibility` is the astronomy module's answer to "how faint a star
+       * could you see", which folds in moonlight and twilight but not the one
+       * thing that settles it — a midday screenshot had a field of stars in a
+       * blue sky. Civil twilight is where the last of them go, so the fade
+       * runs from -6 degrees to zero and nothing survives a risen sun.
+       */
+      const sunDeg = (sky.sun.altitude * 180) / Math.PI;
+      const daylightWash = Math.max(0, Math.min(1, (sunDeg + 6) / 6));
+      const visibility = sky.starVisibility * (1 - weather.cloudCover * 0.95) * (1 - daylightWash);
       starMaterial.opacity = Math.max(0, visibility * 0.95);
       starsRef.current.visible = visibility > 0.02;
       // Very slow rotation — the sky turns over the course of a long session.
@@ -989,7 +1025,7 @@ export function Campsite({
         the frustum test has nothing useful to say about it.
       */}
       <mesh material={domeMaterial} renderOrder={-1} frustumCulled={false}>
-        <sphereGeometry args={[420, 24, 12]} />
+        <sphereGeometry args={[160, 32, 16]} />
       </mesh>
 
       {/* Night sky */}
@@ -1292,6 +1328,14 @@ export function Campsite({
         shadow camera over a 512-pixel map is 8 cm a texel, which on
         `BasicShadowMap` is a hard crunchy edge — which is the correct look
         here — and stretching it to the treeline would make it mush.
+
+        The near and far planes are around `bodyPosition`'s 90-metre distance,
+        not around zero. A directional light's shadow camera sits AT the light
+        and looks toward its target, so a far plane of 90 puts the campsite
+        exactly on the clip plane and everything in it either side: the first
+        version of this cast no shadow at all at noon, which looked identical
+        to having no `castShadow`, and the way it was found was noticing that
+        a log lying in full sun had nothing underneath it.
       */}
       <directionalLight
         ref={sunRef}
@@ -1302,8 +1346,8 @@ export function Campsite({
         castShadow
         shadow-mapSize-width={512}
         shadow-mapSize-height={512}
-        shadow-camera-near={1}
-        shadow-camera-far={90}
+        shadow-camera-near={55}
+        shadow-camera-far={135}
         shadow-camera-left={-20}
         shadow-camera-right={20}
         shadow-camera-top={20}

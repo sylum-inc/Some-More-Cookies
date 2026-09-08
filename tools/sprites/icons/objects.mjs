@@ -6,15 +6,21 @@
  * a 24x24 box centred in a 32x32 cell, light from the upper left, one ramp per
  * material, `outline()` last, and never a letter or a digit anywhere.
  *
- * Materials are load-bearing here, because half of these icons are the same
- * chunky slab in silhouette and the ramp is what tells them apart:
+ * Materials are load-bearing here, but they are not allowed to do the whole
+ * job. An earlier pass of this family had four consecutive icons — sandwich,
+ * graham, chocolate, log — that were the same rounded rectangle in silhouette,
+ * with only interior value telling them apart, which is rule 3 broken four
+ * times in a row. So each of those now breaks its own contour: the ice cream
+ * bulges past the crackers, the bar has a corner snapped off, the log is
+ * end-on. Exactly one of them is still a clean slab, and that one is the
+ * cracker, which really is a clean slab.
  *
  *   wood   logs, sticks, graham crackers, the roasting rod's handle
  *   steel  the SM-01, the radio, the camera, the torch, the binoculars
  *   cream  marshmallow, ice cream, the plate
  *   choc   exactly one thing
  *   stone  exactly one thing
- *   green  the seat's canvas, the only soft thing in the family
+ *   ember  the torch beam and what is alight behind the machine's door
  */
 
 /* -------------------------------------------------------------------------- */
@@ -41,32 +47,67 @@ function ditherIn(pix, x, y, w, h, key, phase = 0, over = null) {
   }
 }
 
-/** A lit block: body, highlight on the top and left, shadow on the bottom and right. */
-function block(pix, x, y, w, h, dark, body, light) {
+/**
+ * A lit block.
+ *
+ * `lit` says which edges of this block are actually facing the light: 't' for
+ * the top, 'l' for the left. An edge that is *not* lit is drawn dark, because
+ * an unlit edge is unlit for a reason — something is standing in front of it.
+ * A machine drawn out of five blocks that each get a highlight on their own
+ * top and left is a machine lit by five different suns, which is what the
+ * binoculars, the camera and the SM-01 used to look like.
+ */
+function block(pix, x, y, w, h, dark, body, light, lit = 'tl') {
   pix.rect(x, y, w, h, body);
-  pix.line(x, y, x + w - 1, y, light);
-  pix.line(x, y, x, y + h - 1, light);
+  if (lit.includes('t')) pix.line(x, y, x + w - 1, y, light);
+  if (lit.includes('l')) pix.line(x, y, x, y + h - 1, light);
   pix.line(x, y + h - 1, x + w - 1, y + h - 1, dark);
   pix.line(x + w - 1, y, x + w - 1, y + h - 1, dark);
+  if (!lit.includes('l')) pix.line(x, y, x, y + h - 1, dark);
+  if (!lit.includes('t')) pix.line(x, y, x + w - 1, y, dark);
 }
 
-/** Two parallel diagonal runs, i.e. a stick with a lit side and a shaded side. */
-function stick(pix, x0, y0, x1, y1, lit, shade) {
-  pix.line(x0, y0, x1, y1, shade);
-  pix.line(x0 - 1, y0, x1 - 1, y1, lit);
+/**
+ * A run of an ellipse's edge, by angle.
+ *
+ * `ring()` lights a whole ellipse evenly, which is exactly wrong for a rim:
+ * a rim is the one place on a round object where the light direction is
+ * legible, so it needs a bright arc on the upper left and a dark one on the
+ * lower right. Angles are screen angles — 0 is right, and y grows downward,
+ * so PI..1.5PI is the upper-left quarter.
+ */
+function arc(pix, cx, cy, rx, ry, from, to, key, thickness = 1) {
+  const step = 0.5 / Math.max(rx, ry, 1);
+  for (let t = from; t <= to; t += step) {
+    for (let k = 0; k < thickness; k++) {
+      pix.set(cx + Math.cos(t) * (rx - k), cy + Math.sin(t) * (ry - k), key);
+    }
+  }
+}
+
+/** A stick with body, a lit upper-left side and a shaded lower-right side. */
+function stick(pix, x0, y0, x1, y1, lit, body, shade) {
+  pix.line(x0, y0 + 1, x1, y1 + 1, shade);
+  pix.line(x0, y0, x1, y1, body);
+  pix.line(x0, y0 - 1, x1, y1 - 1, lit);
 }
 
 /* -------------------------------------------------------------------------- */
 
 export const SPRITES = [
   {
-    // A fat pillow on a skewer. The toast is a wood dither on the underside —
-    // a fifth cream would have been the easy way and the wrong one.
+    // A fat pillow on a skewer. The toast is a wood dither over the cream —
+    // a fifth cream would have been the easy way and the wrong one — and it
+    // climbs the right-hand side rather than sitting in a band on the bottom,
+    // because a marshmallow turns in the fire and browns where it faced it.
     name: 'obj-marshmallow',
     draw(pix) {
-      // Skewer, running out to the lower left, drawn first so the sweet covers it.
+      // Skewer, three runs wide so `outline()` leaves something behind. Two
+      // one-pixel lines came back from the outline pass as a single black
+      // thread, and the stick is the clearest cue the icon has.
+      pix.line(4, 26, 17, 13, 'wood3');
       pix.line(5, 27, 18, 14, 'wood2');
-      pix.line(5, 26, 18, 13, 'wood3');
+      pix.line(6, 27, 19, 14, 'wood1');
 
       // Capsule: a barrel with a rounded cap top and bottom.
       pix.rect(11, 12, 12, 8, 'cream3');
@@ -76,193 +117,295 @@ export const SPRITES = [
       // Light from the upper left.
       pix.disc(14, 12, 3.4, 2.4, 'cream4');
       pix.set(13, 11, 'cream4');
-      ditherIn(17, 14, 7, 9, 'cream2', 0, ['cream3']);
+      ditherIn(pix, 17, 14, 7, 9, 'cream2', 0, ['cream3']);
       pix.line(22, 13, 22, 19, 'cream2');
 
-      // Toasted underside — a wood dither over the cream, never a fifth cream.
+      // Toast: a wood dither climbing the right flank and pooling underneath.
       const cream = ['cream4', 'cream3', 'cream2'];
-      ditherIn(11, 16, 13, 3, 'cream2', 1, ['cream3']);
-      ditherIn(11, 17, 13, 3, 'wood3', 1, cream);
-      ditherIn(11, 19, 13, 2, 'wood3', 0, cream);
+      ditherIn(pix, 18, 12, 6, 6, 'cream2', 1, ['cream3']);
+      ditherIn(pix, 19, 13, 5, 6, 'wood3', 0, cream);
+      ditherIn(pix, 11, 17, 13, 3, 'wood3', 1, cream);
+      ditherIn(pix, 11, 19, 13, 2, 'wood3', 0, cream);
       for (let y = 21; y <= 23; y++) {
         for (let x = 11; x <= 23; x++) if (cream.includes(pix.get(x, y))) pix.set(x, y, 'wood3');
       }
-      ditherIn(11, 20, 13, 4, 'wood2', 0, ['wood3']);
-      ditherIn(12, 22, 11, 2, 'wood1', 1, ['wood2', 'wood3']);
+      ditherIn(pix, 11, 20, 13, 4, 'wood2', 0, ['wood3']);
+      ditherIn(pix, 18, 15, 6, 8, 'wood2', 1, ['wood3']);
+      ditherIn(pix, 12, 22, 11, 2, 'wood1', 1, ['wood2', 'wood3']);
 
       pix.outline();
     },
   },
 
   {
-    // Ice cream between two grahams. The bright band in the middle is the
-    // whole read — crackers alone would just be a slab.
+    // Ice cream between two grahams, and the ice cream is squeezing out past
+    // them on both sides. That bulge is deliberate: it is the only thing that
+    // stops this from being the same rectangle as the cracker and the bar.
     name: 'obj-sandwich',
     draw(pix) {
       // Right side face, in shadow, then the front, then the lit top.
       pix.poly([[22, 12], [25, 9], [25, 21], [22, 24]], 'wood1');
-      pix.poly([[22, 16], [25, 13], [25, 17], [22, 20]], 'cream1');
 
-      // Front: cracker, ice cream, cracker.
-      pix.rect(6, 12, 17, 4, 'wood3');
-      pix.rect(6, 16, 17, 5, 'cream3');
-      pix.rect(6, 21, 17, 4, 'wood3');
+      // Crackers, front on.
+      pix.rect(7, 12, 16, 4, 'wood3');
+      pix.rect(7, 21, 16, 4, 'wood3');
+      pix.line(7, 12, 22, 12, 'wood4');
+      pix.line(7, 15, 22, 15, 'wood2');
+      pix.line(7, 21, 22, 21, 'wood4');
+      pix.line(7, 24, 22, 24, 'wood2');
+      ditherIn(pix, 17, 13, 6, 12, 'wood2', 1, ['wood3']);
 
-      // Cracker shading.
-      pix.line(6, 12, 22, 12, 'wood4');
-      pix.line(6, 15, 22, 15, 'wood2');
-      pix.line(6, 21, 22, 21, 'wood4');
-      pix.line(6, 24, 22, 24, 'wood2');
-      ditherIn(17, 13, 6, 12, 'wood2', 1, ['wood3']);
+      // Ice cream, wider than the biscuits and lumpy at both ends.
+      pix.rect(5, 16, 20, 5, 'cream3');
+      pix.disc(6, 18, 2.2, 2.6, 'cream3');
+      pix.disc(24, 19, 2.2, 2.4, 'cream3');
+      pix.disc(13, 20, 4, 2.4, 'cream3');
+      // One drip escaping down the left, past the lower cracker's edge.
+      pix.rect(5, 21, 3, 3, 'cream3');
+      pix.set(5, 24, 'cream2');
+      pix.set(6, 24, 'cream2');
 
-      // Ice cream: bright at the top, a soft edge at the bottom, one drip.
-      pix.line(6, 16, 22, 16, 'cream4');
-      pix.line(6, 20, 22, 20, 'cream2');
-      ditherIn(16, 17, 7, 4, 'cream2', 0, ['cream3']);
-      pix.rect(11, 20, 2, 2, 'cream3');
-      pix.set(11, 21, 'cream2');
+      // Bright along the top of the cream, soft underneath.
+      pix.line(6, 16, 23, 16, 'cream4');
+      pix.set(5, 17, 'cream4');
+      ditherIn(pix, 16, 18, 10, 6, 'cream2', 0, ['cream3']);
+      ditherIn(pix, 5, 21, 6, 4, 'cream2', 1, ['cream3']);
+      pix.line(8, 20, 20, 20, 'cream2');
 
       // Lit top face of the upper cracker, with its perforations.
-      pix.poly([[6, 12], [9, 9], [25, 9], [22, 12]], 'wood4');
-      for (const x of [11, 15, 19, 23]) pix.set(x, 10, 'wood2');
-      for (const x of [9, 13, 17, 21]) pix.set(x, 11, 'wood2');
+      pix.poly([[7, 12], [10, 9], [25, 9], [22, 12]], 'wood4');
+      for (const x of [12, 16, 20]) pix.set(x, 10, 'wood2');
+      for (const x of [10, 14, 18]) pix.set(x, 11, 'wood2');
+      pix.poly([[22, 16], [25, 13], [25, 17], [22, 20]], 'cream1');
 
       pix.outline();
     },
   },
 
   {
-    // One cracker. Lighter than every other wood in the family, because the
-    // only thing separating a biscuit from a plank here is value and holes.
+    // One cracker, whole. The clean slab of the family — the other three that
+    // used to share this rectangle have all broken their contour, so this one
+    // is allowed to keep it. What separates it from a plank is a chipped,
+    // bevelled edge and the docking holes, not value alone.
     name: 'obj-graham',
     draw(pix) {
-      pix.rect(7, 10, 18, 12, 'wood4');
-      pix.rect(7, 22, 18, 2, 'wood3');
+      pix.rect(7, 9, 18, 15, 'wood4');
+
+      // Bevel: the biscuit is thicker than a card and the edge says so.
+      pix.line(7, 9, 24, 9, 'cream3');
+      pix.line(7, 9, 7, 23, 'cream3');
+      pix.line(7, 22, 24, 22, 'wood3');
+      pix.line(7, 23, 24, 23, 'wood2');
+      pix.line(23, 10, 23, 23, 'wood3');
+      pix.line(24, 10, 24, 23, 'wood2');
 
       // Baked unevenly: darker toward the lower right.
-      ditherIn(15, 15, 10, 7, 'wood3', 0, ['wood4']);
-      ditherIn(19, 18, 6, 4, 'wood2', 1, ['wood3']);
-      pix.line(7, 21, 24, 21, 'wood3');
-      pix.line(24, 11, 24, 21, 'wood3');
-      pix.line(7, 24, 24, 24, 'wood2');
+      ditherIn(pix, 14, 14, 11, 9, 'wood3', 0, ['wood4']);
+      ditherIn(pix, 18, 17, 7, 6, 'wood2', 1, ['wood3']);
+      ditherIn(pix, 8, 10, 8, 6, 'cream3', 1, ['wood4']);
 
-      // The score line down the middle, and the docking holes.
-      pix.line(15, 11, 15, 20, 'wood3');
-      pix.line(16, 11, 16, 20, 'wood2');
-      for (const y of [13, 18]) {
-        for (const x of [9, 11, 13, 18, 20, 22]) pix.set(x, y, 'wood2');
+      // The score, stopping well short of both edges so the slab still reads
+      // as one biscuit rather than as two panels of a folded card. Perforated
+      // rather than solid, which is both what a cracker actually has and the
+      // safe side of rule 6 — a solid bar down the middle of a rectangle is
+      // one squint away from being a digit.
+      for (const y of [13, 14, 16, 17, 19]) {
+        pix.set(15, y, 'wood3');
+        pix.set(16, y, 'wood2');
       }
 
-      // Rounded corners, and a bite out of the right edge.
-      for (const [x, y] of [[7, 10], [24, 10], [7, 23], [24, 23]]) pix.set(x, y, 'none');
-      pix.disc(26, 15, 4.4, 4.4, 'none');
-      pix.disc(23, 10, 2.2, 2.2, 'none');
-      for (const [x, y] of [[22, 11], [21, 13], [21, 17], [22, 19]]) pix.set(x, y, 'wood3');
+      // Docking holes.
+      for (const y of [12, 17]) {
+        for (const x of [10, 12, 19, 21]) pix.set(x, y, 'wood2');
+      }
+      for (const y of [14, 19]) {
+        for (const x of [11, 13, 20, 22]) pix.set(x, y, 'wood2');
+      }
+
+      // Chipped: corners knocked off and three crumbs missing from the edges.
+      for (const [x, y] of [[7, 9], [24, 9], [7, 23], [24, 23], [8, 9], [7, 10]]) {
+        pix.set(x, y, 'none');
+      }
+      for (const [x, y] of [[24, 14], [24, 15], [16, 23], [17, 23]]) {
+        pix.set(x, y, 'none');
+      }
+      pix.set(23, 14, 'wood2');
 
       pix.outline();
     },
   },
 
   {
-    // Segmented bar. Nine cells, grooves in ink, one bevel each.
+    // Segmented bar with a corner snapped clean off. Nine cells, one of them
+    // gone — the notch is what keeps this out of the rectangle pile, and a
+    // broken chocolate bar is more appetising than an unbroken one anyway.
     name: 'obj-chocolate',
     draw(pix) {
-      pix.poly([[23, 12], [26, 9], [26, 20], [23, 23]], 'choc1');
-      pix.poly([[6, 12], [9, 9], [26, 9], [23, 12]], 'choc3');
-      ditherIn(6, 9, 21, 3, 'choc2', 1, ['choc3']);
+      // Squared, not rounded: this is the one hard-cornered object here.
+      pix.rect(6, 10, 20, 15, 'choc2');
 
-      for (const cy of [12, 16, 20]) {
-        for (const cx of [6, 12, 18]) {
+      for (const cy of [10, 15, 20]) {
+        for (const cx of [6, 13, 20]) {
           pix.rect(cx, cy, 6, 4, 'choc2');
-          pix.line(cx, cy, cx + 4, cy, 'choc3');
-          pix.line(cx, cy, cx, cy + 2, 'choc3');
-          pix.line(cx + 5, cy, cx + 5, cy + 3, 'ink2');
-          pix.line(cx, cy + 3, cx + 5, cy + 3, 'ink2');
+          pix.line(cx, cy, cx + 5, cy, 'choc3');
+          pix.line(cx, cy, cx, cy + 3, 'choc3');
+          pix.line(cx + 5, cy, cx + 5, cy + 4, 'choc1');
+          pix.line(cx, cy + 4, cx + 5, cy + 4, 'choc1');
         }
       }
+      ditherIn(pix, 6, 10, 21, 6, 'choc3', 1, ['choc2']);
+      ditherIn(pix, 16, 17, 10, 8, 'choc1', 0, ['choc2']);
 
       // The bar's own outer edge is not a groove.
-      pix.line(6, 23, 22, 23, 'choc1');
-      pix.line(23, 12, 23, 23, 'choc1');
+      pix.line(6, 10, 25, 10, 'choc3');
+      pix.line(6, 10, 6, 24, 'choc3');
+      pix.line(6, 24, 25, 24, 'choc1');
+      pix.line(25, 10, 25, 24, 'choc1');
+
+      // Snap off the top-right cell, along a ragged break.
+      for (const [x, y] of [
+        [26, 9], [20, 10], [21, 10], [22, 10], [23, 10], [24, 10], [25, 10],
+        [21, 11], [22, 11], [23, 11], [24, 11], [25, 11],
+        [22, 12], [23, 12], [24, 12], [25, 12],
+        [24, 13], [25, 13], [25, 14],
+      ]) {
+        pix.set(x, y, 'none');
+      }
+      // The broken face is paler than the moulded top: fresh chocolate.
+      for (const [x, y] of [[20, 11], [21, 12], [22, 13], [23, 13], [23, 14], [24, 14], [24, 15]]) {
+        pix.set(x, y, 'choc3');
+      }
 
       pix.outline();
     },
   },
 
   {
-    // A split round, cut face toward the light.
+    // A split round turned three-quarter on, cut face toward you. The circle
+    // of the end is what breaks the rectangle — a log drawn side-on is just
+    // another slab, and this family had four of those.
     name: 'obj-log',
     draw(pix) {
-      pix.rect(9, 11, 15, 12, 'wood2');
-      pix.disc(23, 17, 3.2, 6, 'wood2');
+      // Barrel running away to the upper right.
+      pix.poly([[10, 12], [21, 9], [25, 17], [16, 24]], 'wood2');
+      pix.disc(23, 13, 3.5, 4.2, 'wood2');
 
-      // Bark: lit along the top, dark along the belly, ridged in between.
-      pix.rect(9, 11, 15, 2, 'wood3');
-      ditherIn(9, 13, 16, 2, 'wood3', 0, ['wood2']);
-      pix.rect(9, 21, 16, 2, 'wood1');
-      ditherIn(9, 19, 17, 2, 'wood1', 1, ['wood2']);
-      for (const x of [15, 20]) pix.line(x, 13, x, 20, 'wood1');
-      pix.line(22, 14, 22, 19, 'wood3');
+      // Bark: lit along the top of the barrel, dark along the belly.
+      pix.poly([[10, 12], [21, 9], [23, 13], [12, 16]], 'wood3');
+      ditherIn(pix, 12, 13, 14, 5, 'wood2', 0, ['wood3']);
+      ditherIn(pix, 14, 18, 12, 7, 'wood1', 1, ['wood2']);
+      pix.line(16, 24, 25, 17, 'wood1');
+      pix.line(15, 23, 24, 16, 'wood1');
+      // Two ridges running the length, so the barrel is bark and not a bag.
+      pix.line(14, 13, 22, 11, 'wood1');
+      pix.line(15, 19, 24, 15, 'wood1');
 
-      // Cut end: pale heartwood, dark rings, dark rim of bark around it.
-      pix.disc(9, 17, 4.2, 6.4, 'cream2');
-      pix.ring(9, 17, 4.2, 6.4, 'wood1');
-      pix.ring(9, 17, 3, 4.6, 'wood1');
-      pix.ring(9, 17, 1.6, 2.6, 'wood1');
-      pix.set(9, 17, 'wood1');
-      ditherIn(8, 18, 6, 6, 'wood3', 1, ['cream2']);
-      pix.set(7, 13, 'cream3');
-      pix.set(8, 13, 'cream3');
+      // Cut end, nearer the middle than the margin so the detail anchors the
+      // icon instead of fighting the outline. Heartwood is warm, not pale.
+      pix.disc(13, 18, 6.5, 7, 'wood3');
+      ditherIn(pix, 8, 18, 12, 8, 'wood2', 0, ['wood3']);
+      pix.disc(11.5, 16, 3.6, 3.6, 'wood4');
+      ditherIn(pix, 11, 16, 6, 6, 'wood3', 1, ['wood4']);
+      // Two rings. Three was a bullseye, and a bullseye is a target.
+      pix.ring(13, 18, 4.6, 5, 'wood2');
+      pix.ring(13, 18, 2.2, 2.4, 'wood2');
+      pix.set(13, 18, 'wood2');
+      // Bark rim around the cut face, bright where it faces the light.
+      pix.ring(13, 18, 6.5, 7, 'wood2');
+      arc(pix, 13, 18, 6.5, 7, Math.PI * 0.95, Math.PI * 1.8, 'wood3');
+      arc(pix, 13, 18, 6.5, 7, Math.PI * 0.05, Math.PI * 0.8, 'wood1');
 
       pix.outline();
     },
   },
 
   {
-    // A crossed pile of split sticks. Thinner than the log, and lying every
-    // which way — a tidy upright bundle reads as a fence at this size.
+    // Split sticks, bundled. Five one-pixel sticks crossing at the centre came
+    // back from `outline()` as a black asterisk — half the icon was ink. These
+    // are three fat ones stacked, with a single one laid across them, so there
+    // is mass for the outline to sit around instead of eat.
     name: 'obj-kindling',
     draw(pix) {
-      stick(pix, 6, 22, 26, 17, 'wood3', 'wood2');
-      stick(pix, 6, 12, 25, 21, 'wood2', 'wood1');
-      stick(pix, 8, 25, 23, 8, 'wood3', 'wood2');
-      stick(pix, 8, 9, 22, 24, 'wood4', 'wood2');
-      stick(pix, 5, 17, 24, 14, 'wood3', 'wood1');
+      stick(pix, 5, 21, 26, 18, 'wood3', 'wood2', 'wood1');
+      stick(pix, 5, 22, 26, 19, 'wood3', 'wood2', 'wood1');
+      stick(pix, 6, 16, 26, 12, 'wood4', 'wood3', 'wood2');
+      stick(pix, 6, 17, 26, 13, 'wood4', 'wood3', 'wood2');
+      stick(pix, 5, 11, 25, 8, 'wood3', 'wood2', 'wood1');
+      stick(pix, 5, 12, 25, 9, 'wood3', 'wood2', 'wood1');
+
+      // One laid across the bundle, so it is a pile and not a fence.
+      stick(pix, 9, 25, 22, 6, 'wood4', 'wood3', 'wood2');
+      stick(pix, 10, 25, 23, 6, 'wood4', 'wood3', 'wood2');
+
+      // Grain along the fat sticks, which is the cheapest way to say wood.
+      ditherIn(pix, 12, 19, 10, 3, 'wood1', 0, ['wood2']);
+      ditherIn(pix, 12, 13, 10, 3, 'wood2', 1, ['wood3']);
 
       // Pale ends, because split wood is bright where it broke.
-      for (const [x, y] of [[6, 22], [25, 21], [8, 25], [22, 24], [5, 17]]) {
-        pix.set(x, y, 'wood4');
-        pix.set(x - 1, y, 'wood3');
+      for (const [x, y] of [[5, 21], [5, 11], [9, 25], [26, 18], [26, 12], [22, 6]]) {
+        for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) pix.set(x + dx, y + dy, 'wood4');
       }
+      pix.set(6, 22, 'cream3');
+      pix.set(6, 12, 'cream3');
+      pix.set(10, 25, 'cream3');
 
       pix.outline();
     },
   },
 
   {
-    // A wad of fine dry stuff. The ragged edge is the whole point: it is what
-    // separates this from the stone, which is the same oval in silhouette.
+    // A nest of dry stuff: a dark hollow up in the top left and a thick rim
+    // rolling round the bottom right.
+    //
+    // The strands are laid *tangent* to the mass, not radiating out of it.
+    // Fourteen one-pixel spokes around an oval is a spider, which is what the
+    // last pass of this drew, and shortening the spokes only made a smaller
+    // spider — a nest is wound, so the strokes have to follow the winding.
+    // What is left of the fringe is a one-and-two-pixel raggedness on the rim,
+    // which reads as fibre; anything longer goes straight back to being a leg.
     name: 'obj-tinder',
     draw(pix) {
-      pix.disc(16, 18, 8, 5, 'wood2');
-      // Uneven strand lengths: an even fringe reads as a sea urchin.
-      const reach = [1, 0.62, 0.85, 0.55, 1, 0.7, 0.9, 0.6, 0.95, 0.65, 1, 0.58, 0.88, 0.72];
-      for (let i = 0; i < reach.length; i++) {
-        const a = (i / reach.length) * Math.PI * 2 + 0.35;
-        const key = i % 3 === 0 ? 'cream2' : i % 3 === 1 ? 'wood3' : 'wood2';
+      // The mass: pale and dry, not the dark brown of the kindling.
+      pix.disc(16, 18, 9, 6, 'wood3');
+      ditherIn(pix, 7, 12, 19, 8, 'wood4', 0, ['wood3']);
+      ditherIn(pix, 14, 18, 13, 7, 'wood2', 1, ['wood3', 'wood4']);
+
+      // Wound: each stroke sits across the mass rather than pointing out of it.
+      for (let i = 0; i < 15; i++) {
+        const a = i * 0.897 + 0.4;
+        const r = 0.5 + ((i * 7) % 5) * 0.12;
+        const cx = 16 + Math.cos(a) * 9 * r;
+        const cy = 18 + Math.sin(a) * 6 * r;
+        const tx = -Math.sin(a) * 3.2;
+        const ty = Math.cos(a) * 2.2;
+        const key = i % 3 === 0 ? 'cream2' : i % 3 === 1 ? 'wood4' : 'wood2';
+        pix.line(cx - tx, cy - ty, cx + tx, cy + ty, key);
+      }
+
+      // Thick rim along the bottom right, which is where a nest has its bulk.
+      arc(pix, 16, 18, 9, 6, Math.PI * 0.02, Math.PI * 0.88, 'wood2', 3);
+      arc(pix, 16, 18, 9, 6, Math.PI * 0.98, Math.PI * 1.88, 'cream2', 2);
+
+      // The hollow, up and to the left, dark enough to read as a hole.
+      pix.disc(14, 16, 5, 3, 'wood1');
+      pix.disc(14, 16.4, 4, 2.2, 'wood2');
+      ditherIn(pix, 10, 14, 9, 4, 'wood1', 0, ['wood2']);
+      arc(pix, 14, 16, 5, 3, Math.PI * 0.9, Math.PI * 1.9, 'wood1', 1);
+      arc(pix, 14, 16, 4.4, 2.6, Math.PI * 0.05, Math.PI * 0.8, 'wood3', 1);
+
+      // Ragged edge: single fibres poking a pixel or two past the rim, so the
+      // silhouette is fuzzy rather than the clean oval the stone already owns.
+      for (let i = 0; i < 11; i++) {
+        const a = i * 0.571 + 0.15;
+        const out = 1 + (i % 3);
         pix.line(
-          16 + Math.cos(a) * 3.2,
-          18 + Math.sin(a) * 2,
-          16 + Math.cos(a) * (5.5 + 4.5 * reach[i]),
-          18 + Math.sin(a) * (3.4 + 3 * reach[i]),
-          key,
+          16 + Math.cos(a) * 8.4,
+          18 + Math.sin(a) * 5.4,
+          16 + Math.cos(a) * (9 + out),
+          18 + Math.sin(a) * (6 + out * 0.7),
+          i % 2 === 0 ? 'cream2' : 'wood3',
         );
       }
-      // Hollow in the middle, lit from the upper left.
-      pix.disc(16, 17.5, 3.6, 2.2, 'wood1');
-      pix.disc(15, 17, 2.4, 1.2, 'wood2');
-      ditherIn(9, 19, 15, 5, 'wood1', 0, ['wood2', 'wood3']);
-      ditherIn(9, 13, 10, 4, 'cream2', 1, ['wood3']);
 
       pix.outline();
     },
@@ -279,8 +422,9 @@ export const SPRITES = [
       pix.poly([[9, 13], [14, 9], [21, 11], [18, 16], [11, 17]], 'stone3');
       pix.poly([[10, 13], [14, 10], [18, 11], [14, 15]], 'stone4');
       pix.poly([[12, 24], [22, 24], [25, 18], [19, 21]], 'stone1');
-      ditherIn(15, 17, 11, 8, 'stone1', 0, ['stone2']);
-      ditherIn(8, 16, 8, 6, 'stone3', 1, ['stone2']);
+      ditherIn(pix, 15, 17, 11, 8, 'stone1', 0, ['stone2']);
+      ditherIn(pix, 8, 16, 8, 6, 'stone3', 1, ['stone2']);
+      ditherIn(pix, 10, 10, 9, 5, 'stone4', 1, ['stone3']);
 
       // One crack, so the facets read as stone rather than as folded paper.
       pix.line(15, 16, 17, 21, 'stone1');
@@ -291,31 +435,47 @@ export const SPRITES = [
   },
 
   {
-    // Hand torch: cone, barrel, and light coming out of the front.
+    // Hand torch, stood up on its end with the head high and to the left.
+    //
+    // Lying on its side it was a grey box with three white hairs coming out of
+    // it, and the hairs did not survive `outline()` — a one-pixel ray comes
+    // back wrapped in ink, which is a scratch, not light. So: a tapered stick
+    // for a silhouette, and the beam is a solid wedge in the ember ramp, well
+    // away from the cream the food is drawn in.
     name: 'obj-torch',
     draw(pix) {
-      // Barrel and tail cap.
-      block(pix, 14, 12, 12, 10, 'steel1', 'steel2', 'steel3');
-      pix.line(14, 12, 25, 12, 'steel4');
-      block(pix, 24, 11, 3, 12, 'steel1', 'steel2', 'steel3');
-      for (const x of [17, 19, 21]) pix.line(x, 13, x, 20, 'steel1');
-      pix.rect(19, 10, 3, 2, 'steel3');
-      pix.set(19, 10, 'steel4');
-      pix.set(20, 10, 'steel4');
+      // The beam, first, so the bezel overlaps its root.
+      pix.poly([[7, 11], [15, 7], [13, 4], [4, 8]], 'ember3');
+      pix.poly([[8, 10], [14, 7], [13, 5], [7, 8]], 'ember4');
+      ditherIn(pix, 4, 4, 12, 6, 'ember4', 0, ['ember3']);
+      ditherIn(pix, 4, 6, 6, 5, 'ember2', 1, ['ember3']);
 
-      // Head: a cone opening to the left.
-      pix.poly([[14, 11], [14, 22], [8, 24], [8, 9]], 'steel2');
-      pix.poly([[14, 11], [14, 15], [8, 15], [8, 9]], 'steel3');
-      pix.line(8, 9, 14, 11, 'steel4');
-      ditherIn(9, 18, 6, 7, 'steel1', 0, ['steel2']);
+      // Head: a cone opening up and to the left.
+      pix.poly([[7, 11], [15, 7], [17, 14], [11, 16]], 'steel2');
+      pix.poly([[7, 11], [15, 7], [16, 11], [9, 14]], 'steel3');
+      pix.line(7, 11, 15, 7, 'steel4');
+      ditherIn(pix, 11, 11, 7, 6, 'steel1', 0, ['steel2']);
 
-      // Lens and the light off it.
-      pix.rect(8, 11, 2, 11, 'cream3');
-      pix.rect(8, 11, 2, 4, 'cream4');
-      pix.set(9, 21, 'cream2');
-      pix.line(7, 12, 4, 9, 'cream4');
-      pix.line(7, 16, 4, 16, 'cream4');
-      pix.line(7, 20, 4, 23, 'cream4');
+      // Lens, hot: the one warm thing on a steel object.
+      pix.line(8, 11, 15, 8, 'ember4');
+      pix.line(8, 12, 15, 9, 'ember3');
+      pix.set(9, 11, 'accent');
+      pix.set(10, 11, 'accent');
+
+      // Barrel, tapering to the tail.
+      pix.poly([[11, 16], [17, 14], [20, 23], [16, 25]], 'steel2');
+      pix.poly([[11, 16], [16, 14], [18, 22], [14, 24]], 'steel3');
+      pix.line(11, 16, 17, 14, 'steel4');
+      ditherIn(pix, 15, 16, 6, 9, 'steel1', 0, ['steel2', 'steel3']);
+      // Knurling: three bands across the barrel, not along it.
+      for (const [x0, y0, x1, y1] of [[12, 18, 18, 16], [13, 20, 19, 19], [14, 22, 19, 21]]) {
+        pix.line(x0, y0, x1, y1, 'steel1');
+      }
+      // Tail cap, and a switch on the lit side.
+      pix.poly([[15, 24], [19, 22], [20, 25], [16, 26]], 'steel2');
+      pix.line(15, 24, 19, 22, 'steel3');
+      pix.rect(11, 17, 2, 3, 'steel4');
+      pix.set(12, 19, 'steel1');
 
       pix.outline();
     },
@@ -339,9 +499,11 @@ export const SPRITES = [
       pix.line(12, 17, 14, 19, 'steel3');
       pix.line(13, 17, 14, 18, 'steel2');
 
-      // Shaft: thin and bright against the handle.
-      pix.line(13, 17, 21, 9, 'steel4');
-      pix.line(14, 18, 22, 10, 'steel3');
+      // Shaft: thin and bright against the handle, but two runs wide so the
+      // outline has something to wrap rather than something to swallow.
+      pix.line(12, 17, 20, 9, 'steel4');
+      pix.line(13, 17, 21, 9, 'steel3');
+      pix.line(14, 18, 22, 10, 'steel2');
 
       // Two prongs off the tip.
       pix.line(20, 10, 27, 8, 'steel3');
@@ -355,7 +517,9 @@ export const SPRITES = [
   },
 
   {
-    // Portable radio: speaker, dial, two knobs, whip aerial.
+    // Portable radio: speaker, dial, two knobs, whip aerial off the top right.
+    // The aerial is this object's whole silhouette claim, which is why the
+    // machine next door had to stop growing one.
     name: 'obj-radio',
     draw(pix) {
       // Aerial first, so the case covers its root.
@@ -365,7 +529,7 @@ export const SPRITES = [
 
       block(pix, 6, 12, 20, 13, 'steel1', 'steel2', 'steel3');
       pix.line(6, 12, 25, 12, 'steel4');
-      ditherIn(17, 20, 9, 5, 'steel1', 0, ['steel2']);
+      ditherIn(pix, 17, 20, 9, 5, 'steel1', 0, ['steel2']);
 
       // Speaker grille.
       pix.disc(13, 18, 5.4, 5.4, 'steel1');
@@ -374,7 +538,8 @@ export const SPRITES = [
         for (let x = 7; x <= 19; x++) if (pix.get(x, y) === 'steel3') pix.set(x, y, 'steel1');
       }
       pix.ring(13, 18, 5.4, 5.4, 'steel4');
-      ditherIn(8, 19, 11, 6, 'steel1', 1, ['steel4']);
+      arc(pix, 13, 18, 5.4, 5.4, Math.PI * 0.05, Math.PI * 0.85, 'steel1');
+      ditherIn(pix, 8, 19, 11, 6, 'steel1', 1, ['steel4']);
 
       // Dial window with a needle, and two knobs.
       pix.rect(19, 14, 6, 3, 'ink2');
@@ -391,22 +556,28 @@ export const SPRITES = [
 
   {
     // Two barrels and a bridge. Nothing else in the family has a hole in it.
+    //
+    // Lit as one object: the left eyecup is the upper-left-most surface, so it
+    // is the only part that gets the steel4 highlight, and every part standing
+    // to the right of another part has its left edge in shadow.
     name: 'obj-binoculars',
     draw(pix) {
-      // Eyecups.
-      block(pix, 8, 8, 5, 4, 'steel1', 'steel2', 'steel3');
-      block(pix, 19, 8, 5, 4, 'steel1', 'steel2', 'steel3');
+      // Eyecups. The right one is behind the bridge's shoulder, hence unlit.
+      block(pix, 8, 8, 5, 4, 'steel1', 'steel2', 'steel4', 'tl');
+      block(pix, 19, 8, 5, 4, 'steel1', 'steel2', 'steel3', 't');
 
-      // Bridge, behind the barrels.
-      block(pix, 12, 13, 8, 6, 'steel1', 'steel2', 'steel3');
+      // Bridge, behind the barrels and to the right of the left one.
+      block(pix, 12, 13, 8, 6, 'steel1', 'steel2', 'steel3', 't');
       pix.rect(14, 11, 4, 5, 'steel3');
       for (const y of [12, 14]) pix.line(14, y, 17, y, 'steel1');
+      pix.line(14, 11, 14, 15, 'steel2');
 
       // Barrels.
-      block(pix, 6, 11, 8, 12, 'steel1', 'steel2', 'steel3');
-      block(pix, 18, 11, 8, 12, 'steel1', 'steel2', 'steel3');
-      ditherIn(10, 15, 4, 8, 'steel1', 0, ['steel2']);
-      ditherIn(22, 15, 4, 8, 'steel1', 0, ['steel2']);
+      block(pix, 6, 11, 8, 12, 'steel1', 'steel2', 'steel3', 'tl');
+      block(pix, 18, 11, 8, 12, 'steel1', 'steel2', 'steel3', 't');
+      ditherIn(pix, 10, 15, 4, 8, 'steel1', 0, ['steel2']);
+      ditherIn(pix, 20, 12, 6, 11, 'steel1', 0, ['steel2']);
+      pix.line(6, 11, 13, 11, 'steel4');
 
       // Objective glass.
       for (const cx of [9.5, 21.5]) {
@@ -422,27 +593,34 @@ export const SPRITES = [
 
   {
     // Camera: body, prism hump, flash, and a lens big enough to be the icon.
+    // The flash is the upper-left-most block and gets the only steel4 edge;
+    // the prism and the winder stand to its right and are shaded accordingly.
     name: 'obj-camera',
     draw(pix) {
-      // Prism and flash sit on top of the body.
-      block(pix, 12, 7, 8, 5, 'steel1', 'steel2', 'steel3');
-      block(pix, 6, 8, 4, 4, 'steel1', 'steel2', 'steel4');
+      block(pix, 12, 7, 8, 5, 'steel1', 'steel2', 'steel3', 't');
+      block(pix, 6, 8, 4, 4, 'steel1', 'steel2', 'steel4', 'tl');
       pix.rect(7, 9, 2, 2, 'cream4');
-      block(pix, 22, 9, 3, 3, 'steel2', 'steel3', 'steel4');
+      block(pix, 22, 9, 3, 3, 'steel1', 'steel3', 'steel3', 't');
 
       // Body.
-      block(pix, 5, 11, 22, 14, 'steel1', 'steel2', 'steel3');
-      pix.line(5, 11, 26, 11, 'steel4');
-      ditherIn(20, 14, 7, 11, 'steel1', 0, ['steel2']);
-      ditherIn(6, 20, 5, 5, 'steel1', 1, ['steel2']);
+      block(pix, 5, 11, 22, 14, 'steel1', 'steel2', 'steel3', 'tl');
+      // Its top edge is only lit where nothing is standing on it.
+      pix.line(5, 11, 11, 11, 'steel4');
+      pix.line(12, 11, 19, 11, 'steel1');
+      pix.line(20, 11, 26, 11, 'steel3');
+      ditherIn(pix, 20, 14, 7, 11, 'steel1', 0, ['steel2']);
+      ditherIn(pix, 6, 20, 5, 5, 'steel1', 1, ['steel2']);
+      ditherIn(pix, 6, 12, 6, 5, 'steel3', 0, ['steel2']);
 
       // Lens.
       pix.disc(16, 18, 5.6, 5.6, 'steel1');
       pix.ring(16, 18, 5.6, 5.6, 'steel3');
+      arc(pix, 16, 18, 5.6, 5.6, Math.PI * 0.05, Math.PI * 0.85, 'steel1');
       pix.disc(16, 18, 4.4, 4.4, 'steel3');
+      ditherIn(pix, 12, 14, 5, 5, 'steel4', 0, ['steel3']);
+      ditherIn(pix, 16, 19, 6, 5, 'steel2', 1, ['steel3']);
       pix.disc(16, 18, 3.4, 3.4, 'ink2');
       pix.disc(16, 18, 2.4, 2.4, 'sky2');
-      ditherIn(12, 14, 5, 5, 'steel4', 0, ['steel3']);
       pix.set(15, 16, 'sky4');
       pix.set(14, 17, 'sky3');
 
@@ -451,97 +629,110 @@ export const SPRITES = [
   },
 
   {
-    // SM-01. Heavy as a chest freezer, round door, latch, lever.
+    // SM-01. The hero object, so it gets the shape nothing else here has.
     //
-    // The hero object, so it gets the full three-quarter box: a lit top face, a
-    // body face, and a side face in shadow, all sharing one steel ramp. The
-    // door is the only warm thing in the icon and it is what your eye lands on.
+    // Drawn as a box with a lever it was, in flat black, the same cut-out as
+    // the radio: wide case, thin stalk off the upper right, one big circle on
+    // the body. So the box is gone. A pot belly, a hopper breaking the top
+    // edge on the *left* — the radio's aerial leaves on the right — and legs
+    // that taper to two feet. The door is the only warm thing in the icon and
+    // it is what your eye lands on.
     name: 'obj-machine',
     draw(pix) {
-      // Lever, first: a pump arm off the back right corner with a ball knob.
-      // It rises clear of the box, which is what keeps the silhouette from
-      // being a plain rectangle.
-      pix.line(20, 13, 25, 8, 'steel2');
-      pix.line(20, 12, 25, 7, 'steel3');
-      pix.line(20, 11, 24, 7, 'steel4');
-      pix.disc(25, 6, 2.2, 2.2, 'steel3');
-      pix.disc(24.6, 5.6, 1.1, 1.1, 'steel4');
-      pix.set(26, 7, 'steel1');
+      // Legs, under everything, splaying out as they go down.
+      pix.poly([[8, 21], [12, 21], [10, 27], [7, 27]], 'steel1');
+      pix.poly([[20, 21], [24, 21], [25, 27], [22, 27]], 'steel1');
+      pix.line(8, 21, 7, 27, 'steel2');
+      pix.line(20, 21, 22, 27, 'steel2');
 
-      // Feet, under everything.
-      pix.rect(5, 25, 4, 2, 'steel1');
-      pix.rect(18, 25, 4, 2, 'steel1');
+      // Hopper, off the top left, wider at its mouth.
+      pix.poly([[4, 4], [13, 4], [11, 11], [7, 11]], 'steel2');
+      pix.poly([[4, 4], [13, 4], [12, 6], [5, 6]], 'steel3');
+      pix.line(4, 4, 13, 4, 'steel4');
+      pix.line(4, 4, 7, 11, 'steel3');
+      ditherIn(pix, 8, 6, 6, 6, 'steel1', 0, ['steel2']);
+      pix.line(13, 5, 11, 11, 'steel1');
 
-      // Side face, in shadow.
-      pix.poly([[22, 13], [25, 10], [25, 22], [22, 25]], 'steel1');
-      ditherIn(22, 10, 4, 13, 'steel2', 1, ['steel1']);
+      // The belly. Widest across the middle, which is the whole silhouette.
+      pix.poly([[9, 10], [22, 10], [26, 17], [23, 24], [9, 24], [5, 17]], 'steel2');
+      pix.poly([[9, 10], [22, 10], [24, 13], [8, 13]], 'steel3');
+      pix.line(9, 10, 22, 10, 'steel4');
+      pix.line(9, 10, 5, 17, 'steel3');
+      ditherIn(pix, 16, 14, 11, 11, 'steel1', 0, ['steel2']);
+      ditherIn(pix, 5, 15, 8, 10, 'steel1', 1, ['steel2']);
+      ditherIn(pix, 6, 11, 10, 6, 'steel3', 1, ['steel2']);
+      pix.line(9, 24, 23, 24, 'steel1');
+      arc(pix, 16, 17, 11, 7, Math.PI * 0.1, Math.PI * 0.8, 'steel1');
 
-      // Lit top face, with cooling slots.
-      pix.poly([[4, 13], [7, 10], [25, 10], [22, 13]], 'steel3');
-      ditherIn(4, 10, 22, 4, 'steel4', 0, ['steel3']);
-      for (const x of [9, 12, 15]) pix.line(x, 12, x + 2, 10, 'steel1');
-      // Pivot boss the lever turns in.
-      pix.rect(20, 11, 3, 2, 'steel2');
-      pix.line(20, 11, 22, 11, 'steel4');
-
-      // Body face.
-      pix.rect(4, 13, 19, 13, 'steel2');
-      pix.line(4, 13, 22, 13, 'steel4');
-      pix.line(4, 13, 4, 25, 'steel3');
-      pix.line(4, 25, 22, 25, 'steel1');
-      pix.line(22, 14, 22, 25, 'steel1');
-      ditherIn(15, 24, 8, 2, 'steel1', 0, ['steel2']);
+      // A collar where the hopper meets the belly, so it is joinery and not
+      // a stalk stuck on.
+      pix.rect(6, 10, 8, 2, 'steel3');
+      pix.line(6, 10, 13, 10, 'steel4');
+      pix.line(6, 11, 13, 11, 'steel1');
 
       // The door. A ring only reads at this size if the band is as wide as the
-      // hole, so: hard ink edge, a fat bright bezel, four bolts, dark glass.
-      pix.disc(11, 19, 5.4, 5.4, 'steel4');
-      ditherIn(11, 19, 7, 7, 'steel3', 1, ['steel4']);
-      ditherIn(12, 21, 6, 5, 'steel2', 0, ['steel3', 'steel4']);
-      for (const [x, y] of [[8, 16], [14, 16], [8, 22], [14, 22]]) pix.set(x, y, 'steel1');
-      pix.disc(11, 19, 3.4, 3.4, 'ink2');
+      // hole, so: a fat bright bezel, four bolts, dark glass, and a fire.
+      pix.disc(17, 17, 5.6, 5.6, 'steel3');
+      arc(pix, 17, 17, 5.6, 5.6, Math.PI * 0.95, Math.PI * 1.85, 'steel4', 2);
+      arc(pix, 17, 17, 5.6, 5.6, Math.PI * 0.05, Math.PI * 0.85, 'steel1', 2);
+      ditherIn(pix, 14, 18, 8, 6, 'steel2', 0, ['steel3']);
+      for (const [x, y] of [[14, 14], [20, 14], [14, 20], [20, 20]]) pix.set(x, y, 'steel1');
+      pix.disc(17, 17, 3.4, 3.4, 'ink2');
 
       // Something is going on in there. Dark glass above it, so the door
       // reads as a window with a fire behind it and not as an orange tile.
-      pix.disc(11, 20.4, 2.2, 1.7, 'ember1');
-      pix.disc(11, 20.8, 1.5, 1.2, 'ember2');
-      pix.set(10, 20, 'ember3');
-      pix.set(11, 21, 'ember3');
-      pix.set(10, 18, 'cream3');
+      pix.disc(17, 18.4, 2.4, 1.8, 'ember1');
+      pix.disc(17, 18.8, 1.6, 1.2, 'ember2');
+      pix.set(16, 18, 'ember3');
+      pix.set(17, 19, 'ember3');
+      pix.set(16, 16, 'steel4');
 
-      // Latch: a handle bar on two brackets, right of the door.
-      pix.rect(17, 14, 5, 11, 'steel1');
-      pix.rect(18, 15, 3, 2, 'steel2');
-      pix.rect(18, 22, 3, 2, 'steel2');
-      pix.rect(18, 15, 2, 9, 'steel3');
-      pix.line(18, 15, 18, 23, 'steel4');
-      pix.line(21, 15, 21, 23, 'steel1');
+      // A tap on the lower right, because something has to come out of it.
+      pix.rect(24, 19, 3, 2, 'steel3');
+      pix.line(24, 19, 26, 19, 'steel4');
+      pix.rect(26, 20, 2, 3, 'steel2');
+      pix.set(26, 23, 'steel1');
 
       pix.outline();
     },
   },
 
   {
-    // A plate, three-quarter on, with a rim and a foot so it is not a stone.
+    // A plate on a foot, three-quarter on. Flat, it was an oval — the same
+    // cut-out as the stone and the tinder, and it read as an egg. So the rim
+    // is raised, the well is sunk dark enough to be a hole, and the pedestal
+    // breaks the bottom of the oval so the silhouette is not a closed curve.
     name: 'obj-plate',
     draw(pix) {
-      pix.disc(16, 20, 10, 5.2, 'cream1');
-      pix.disc(16, 18, 10, 5.2, 'cream3');
-      pix.ring(16, 18, 10, 5.2, 'cream2');
-      pix.ring(16, 18, 6.8, 3.2, 'cream1');
-      pix.disc(16, 18, 6.2, 2.8, 'cream4');
+      // Foot, drawn first and left standing proud below the bowl.
+      pix.disc(16, 26, 5.4, 1.8, 'cream1');
+      pix.disc(16, 25, 5.4, 1.8, 'cream2');
+      pix.poly([[13, 21], [19, 21], [20, 26], [12, 26]], 'cream2');
+      pix.line(13, 21, 12, 26, 'cream3');
+      pix.line(19, 21, 20, 26, 'cream1');
+      ditherIn(pix, 16, 22, 6, 5, 'cream1', 0, ['cream2']);
 
-      // Light upper left, shadow lower right, on both rim and well.
-      ditherIn(16, 19, 11, 7, 'cream2', 0, ['cream3', 'cream4']);
-      ditherIn(18, 21, 9, 5, 'cream1', 1, ['cream2', 'cream3']);
-      pix.line(9, 15, 13, 14, 'cream4');
-      pix.line(21, 22, 24, 20, 'cream1');
+      // The rim: an ellipse with its underside showing, so it has thickness.
+      pix.disc(16, 19, 11, 5, 'cream1');
+      pix.disc(16, 17, 11, 5, 'cream3');
+      ditherIn(pix, 16, 17, 12, 8, 'cream2', 0, ['cream3']);
+      ditherIn(pix, 20, 19, 8, 6, 'cream1', 1, ['cream2']);
+      arc(pix, 16, 17, 11, 5, Math.PI * 0.95, Math.PI * 1.85, 'cream4', 2);
+      arc(pix, 16, 19, 11, 5, Math.PI * 0.05, Math.PI * 0.85, 'cream1', 2);
+
+      // The well, sunk. Dark at its far edge, which is what makes it a hole
+      // rather than a disc painted on a plate.
+      pix.disc(16, 17.4, 6.6, 2.6, 'cream1');
+      pix.disc(16, 18, 6, 2.2, 'cream2');
+      ditherIn(pix, 11, 17, 11, 4, 'cream3', 1, ['cream2']);
+      arc(pix, 16, 17.4, 6.6, 2.6, Math.PI * 0.95, Math.PI * 1.9, 'cream1', 1);
+      arc(pix, 16, 18, 6, 2.2, Math.PI * 0.1, Math.PI * 0.8, 'cream3', 1);
 
       pix.outline();
     },
   },
 
   {
-    // Folding camp chair: canvas seat and back, crossed steel legs.
     name: 'obj-seat',
     draw(pix) {
       /*
@@ -551,29 +742,31 @@ export const SPRITES = [
        * and a leaning back rest — which is a perfectly good drawing of an
        * office chair and has no business in a pine hollow. The campsite's
        * seat has always been a log: the reach id is `log-seat`, the geometry
-       * in the scene is a cylinder lying on its side, and a player who walks
-       * up to it and is shown a swivel chair has been lied to about what is
-       * in front of them.
+       * in the scene is `LAYOUT.logSeat`, a cylinder lying on its side, and a
+       * player who walks up to it and is shown a swivel chair has been lied
+       * to about what is in front of them.
        *
-       * Drawn along its length rather than end-on, because the end-on view of
-       * a log is a circle and a circle at 24 pixels is a stone.
+       * Drawn along its length, end-on to nothing, which is also what keeps it
+       * apart from `obj-log` now that the log has turned its cut face to the
+       * viewer: one of them is a circle, this one is a bench.
        */
 
       // The bark barrel, seen slightly from above so the split face shows.
       pix.rect(4, 14, 24, 8, 'wood2');
-      pix.rect(4, 13, 24, 2, 'wood3');
       pix.line(4, 21, 27, 21, 'wood1');
       pix.line(4, 22, 27, 22, 'wood1');
 
-      // The split: a pale sawn face along the top, which is the seat itself
-      // and the one thing that says "sit here" rather than "firewood".
-      pix.rect(5, 11, 22, 3, 'cream2');
-      pix.line(5, 11, 26, 11, 'cream3');
-      pix.line(5, 13, 26, 13, 'cream1');
+      // The split: a pale sawn face along the top, in three-quarter view, so
+      // it reads as a surface you could put yourself on rather than a stripe.
+      pix.poly([[4, 13], [8, 10], [28, 10], [27, 13]], 'cream2');
+      pix.rect(5, 13, 22, 2, 'cream2');
+      pix.line(8, 10, 27, 10, 'cream3');
+      pix.line(5, 14, 26, 14, 'cream1');
+      ditherIn(pix, 14, 11, 14, 4, 'cream1', 1, ['cream2']);
       // Grain, running the length. Two lines, not a texture — at this size a
       // third one turns the seat into a griddle.
-      pix.line(8, 12, 15, 12, 'cream1');
-      pix.line(19, 12, 24, 12, 'cream1');
+      pix.line(9, 12, 16, 12, 'cream1');
+      pix.line(20, 12, 25, 12, 'cream1');
 
       /*
        * Round the barrel. Four bands rather than a dither: at eight pixels of
@@ -586,17 +779,16 @@ export const SPRITES = [
       pix.line(5, 19, 26, 19, 'wood1');
       pix.line(5, 20, 26, 20, 'wood1');
       // Bark, only in the lit band, where a texture can be seen at all.
-      ditherIn(7, 17, 18, 2, 'wood1', 0, ['wood2']);
+      ditherIn(pix, 7, 17, 18, 2, 'wood1', 0, ['wood2']);
       // And knock the corners off, so the ends are round rather than square.
-      pix.set(4, 13, 'none');
-      pix.set(27, 13, 'none');
-      pix.set(4, 21, 'none');
-      pix.set(27, 21, 'none');
+      for (const [x, y] of [[4, 13], [27, 13], [4, 21], [27, 21], [4, 14], [27, 22]]) {
+        pix.set(x, y, 'none');
+      }
       pix.set(27, 14, 'wood2');
 
       // The cut end, catching the light on the left.
-      pix.poly([[4, 12], [7, 11], [7, 21], [4, 22]], 'wood3');
-      pix.line(4, 12, 4, 22, 'wood2');
+      pix.poly([[4, 12], [8, 11], [7, 21], [4, 21]], 'wood3');
+      pix.line(4, 13, 4, 20, 'wood2');
       // Rings on it, because that is the whole charm of a cut log.
       pix.line(5, 15, 6, 15, 'cream1');
       pix.line(5, 18, 6, 18, 'wood1');

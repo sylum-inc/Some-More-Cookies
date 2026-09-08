@@ -126,7 +126,7 @@ import { CampfirePanel } from './ui/Campfire.js';
 import { PwaNotices } from './pwa/PwaNotices.js';
 import { pwa } from './pwa/register.js';
 import { useViewportSize, useWakeLock } from './pwa/viewport.js';
-import { Frame, MotionVignette } from './ui/Frame.js';
+import { Frame, MotionVignette, bezelInset } from './ui/Frame.js';
 import { Sprite } from './ui/Sprite.js';
 import { biteSprite } from './ui/iconography.js';
 import { ThumbStick } from './ui/ThumbStick.js';
@@ -2089,6 +2089,12 @@ export function App({ store }: AppProps): React.ReactElement {
    * That is a frame-rate defect only a rotating device ever shows.
    */
   const viewport = useViewportSize();
+  /*
+   * The bezel is off under high contrast: a brushed-steel gradient round the
+   * edge of the frame is exactly the kind of decoration the setting exists to
+   * spend its contrast budget on something else.
+   */
+  const showFrame = !state.accessibility.highContrast;
 
   useEffect(() => {
     // Not in dev: a worker holding a cache-first copy of an unbundled module
@@ -2217,9 +2223,10 @@ export function App({ store }: AppProps): React.ReactElement {
         setting exists to protect.
       */}
       <MotionVignette />
-      <Frame width={viewport.width} enabled={!state.accessibility.highContrast} />
+      <Frame width={viewport.width} enabled={showFrame} />
 
       <Hud
+        frameInset={bezelInset(viewport.width, showFrame)}
         ritual={ritual}
         reach={reach}
         grip={throwRef.current}

@@ -124,6 +124,7 @@ export default defineConfig({
      * rendering differences a visual baseline cannot.
      */
     { name: 'night', testMatch: /night\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    { name: 'daylight', testMatch: /daylight\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*
      * Two browser contexts at one campfire, against a real service.
      *

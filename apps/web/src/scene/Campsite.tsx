@@ -17,9 +17,11 @@ import {
   type FuelPatch,
   type PlacedLandmark,
   type PlacedCurio,
+  type SkyState,
   type WaterBasin,
   type WeatherState,
 } from '@somemore/sim';
+import { skyLook, type SkyLook } from '../render/daylight.js';
 
 /** Ground below this is under water, so nothing is planted in it. */
 const WATERLINE = -0.14;
@@ -122,7 +124,18 @@ export interface CampsiteProps {
    * the shore the player wades into are the same shore.
    */
   basin?: WaterBasin;
+  /**
+   * The sky the simulation is actually under, right now.
+   *
+   * Optional, and the fallback is the curated night the scene used to pin
+   * itself to for ever — so a caller that has no ritual (a storybook, a
+   * fixture) still gets a campsite, and the one that does gets the hour.
+   */
+  sky?: SkyState;
 }
+
+/** Scratch, so easing the sky every frame allocates nothing. */
+const TMP_COLOR = new THREE.Color();
 
 const DEFAULT_PALETTE = {
   ground: '#4a4438',
@@ -137,6 +150,7 @@ export function Campsite({
   settings,
   drawDistance,
   walkableRadius,
+  sky: liveSky,
   palette = DEFAULT_PALETTE,
   treeCount = 54,
   understorey = [],
@@ -150,7 +164,37 @@ export function Campsite({
   fuelIds = ['oak'],
   basin,
 }: CampsiteProps): React.ReactElement {
-  const fogRef = useRef<THREE.Fog>(null);
+  /*
+   * The sky is eased in the frame loop rather than set from a render.
+   *
+   * React re-renders when the store says something changed, which is not every
+   * frame and is not on any schedule the sun cares about. Driving the colours
+   * from the prop directly would step the sky forward in visible jumps at
+   * whatever cadence the game happened to be re-rendering at. So the render
+   * decides where the sky is *going* and the frame loop walks it there.
+   */
+  const ambientRef = useRef<THREE.AmbientLight>(null);
+  const hemisphereRef = useRef<THREE.HemisphereLight>(null);
+  const sunRef = useRef<THREE.DirectionalLight>(null);
+  const moonRef = useRef<THREE.DirectionalLight>(null);
+  const sunDiscRef = useRef<THREE.Mesh>(null);
+  const moonDiscRef = useRef<THREE.Mesh>(null);
+  /** Where the colours actually are, as opposed to where they are headed. */
+  const eased = useRef({ sky: new THREE.Color(), fog: new THREE.Color(), started: false });
+  /*
+   * The scene's own fog and background, owned here rather than declared.
+   *
+   * They used to be `<fog attach="fog">` and `<color attach="background">`
+   * inside this component's `<group>` — and `attach` binds to the parent
+   * object, so both were being set on the group. `scene.fog` and
+   * `scene.background` were null the whole time: the campsite had no fog at
+   * all, and the "short draw distance and heavy fog" this file's own header
+   * claims were doing the work were doing none of it. The `fogRef` reads and
+   * writes all worked; they were simply landing on an object nothing renders
+   * from.
+   */
+  const sceneFog = useMemo(() => new THREE.Fog(0x0b1016, 2.5, 30), []);
+  const sceneBackground = useMemo(() => new THREE.Color(0x070a0f), []);
   const starsRef = useRef<THREE.Points>(null);
   const rainRef = useRef<THREE.Points>(null);
 
@@ -195,6 +239,23 @@ export function Campsite({
       }),
     [settings, seed, palette.ground],
   );
+
+  /**
+   * The ground's two colours: the one the manifest asked for, and a daylight
+   * one.
+   *
+   * The forest floor is a dark dirt texture over a dark brown, which is
+   * exactly right lit by a fire from two metres and reads as a hole in the
+   * world at noon — measured at 38/255 under a full sun against a sky at 170.
+   * Adding sunlight until the ground looks right blows out everything that
+   * already looked right, because what is wrong is the albedo. So the palette
+   * moves with the hour instead, which is how the hardware this is pretending
+   * to be did day and night anyway.
+   */
+  const groundTones = useMemo(() => {
+    const night = new THREE.Color(palette.ground);
+    return { night, day: night.clone().lerp(TMP_COLOR.setHex(0xffffff), 0.85) };
+  }, [palette.ground]);
 
   const treeMaterial = useMemo(
     () => createPs1Material({ settings, map: getTexture('foliage', { size: 64, seed }), color: palette.foliage, roughness: 1 }),
@@ -603,7 +664,35 @@ export function Campsite({
   }, [fuelPatches, seed, basin]);
 
   // --- Sky ---------------------------------------------------------------
-  const sky = useMemo(() => curatedSky(), []);
+  /*
+   * The hour, from the simulation, or the curated night if there is no
+   * simulation to ask.
+   *
+   * This used to be `useMemo(() => curatedSky(), [])` — computed once and
+   * never again. The sim has advanced a real sky the whole time, six hours of
+   * it over a session, and none of it arrived: the dusk screenshot and the
+   * dawn screenshot had the same stars in the same places, and the only thing
+   * that changed across a whole night was the fire burning down.
+   */
+  const fallbackSky = useMemo(() => curatedSky(), []);
+  const sky = liveSky ?? fallbackSky;
+
+  /** The manifest's own night, as the bottom of the daylight ramp. */
+  const nightColors = useMemo(
+    () => ({ sky: hexOf(palette.sky), fog: hexOf(palette.fog) }),
+    [palette.sky, palette.fog],
+  );
+
+  const look = useMemo(
+    () => skyLook((sky.sun.altitude * 180) / Math.PI, nightColors, weather.cloudCover),
+    [sky.sun.altitude, nightColors, weather.cloudCover],
+  );
+
+  /** Where the sun is. Its light is `look.sunIntensity`, which is zero when it is down. */
+  const sunPosition = useMemo(
+    () => bodyPosition(sky.sun.altitude, sky.sun.azimuth),
+    [sky.sun.altitude, sky.sun.azimuth],
+  );
 
   /**
    * Where the moon is and how much it is giving.
@@ -618,15 +707,8 @@ export function Campsite({
     // Below the horizon there is no moon, and the night is starlight only.
     const above = Math.max(0, Math.sin(moon.altitude));
     const strength = moon.visible ? moon.illumination * above : 0;
-    const distance = 90;
-    // Azimuth is measured from north; +Z is north in this scene.
-    const horizontal = Math.cos(moon.altitude) * distance;
     return {
-      position: [
-        Math.sin(moon.azimuth) * horizontal,
-        Math.max(12, Math.sin(moon.altitude) * distance),
-        Math.cos(moon.azimuth) * horizontal,
-      ] as [number, number, number],
+      position: bodyPosition(moon.altitude, moon.azimuth),
       // The floor stands for dark adaptation, which the renderer has no
       // model of: a person who has been sitting by a fire for ten minutes can
       // genuinely see the treeline. Without it a moonless night is a black
@@ -718,12 +800,86 @@ export function Campsite({
   );
 
   useFrame((state, delta) => {
+    /*
+     * The hour, walked toward rather than jumped to.
+     *
+     * One-second time constant: fast enough that a player fast-forwarding an
+     * evening sees the sky keep up, slow enough that the sky refreshing on its
+     * own cadence in the simulation never arrives as a step. The first frame
+     * snaps, because easing up from black would look like a fade-in.
+     */
+    const ease = eased.current;
+    const k = ease.started ? Math.min(1, delta * 1.6) : 1;
+    ease.started = true;
+    ease.sky.lerp(TMP_COLOR.setHex(look.sky), k);
+    ease.fog.lerp(TMP_COLOR.setHex(look.fog), k);
+
+    if (state.scene.background !== sceneBackground) state.scene.background = sceneBackground;
+    if (state.scene.fog !== sceneFog) state.scene.fog = sceneFog;
+    sceneBackground.copy(ease.sky);
+
     // Fog tightens with weather, which is both atmosphere and a draw-distance
     // saving exactly when the scene gets busiest.
-    if (fogRef.current) {
-      const reduction = Math.min(1, weather.fog * 0.8 + weather.precipitation * 0.3);
-      fogRef.current.near = 2.5;
-      fogRef.current.far = Math.max(6, drawDistance * (1 - reduction * 0.78));
+    const reduction = Math.min(1, weather.fog * 0.8 + weather.precipitation * 0.3);
+    sceneFog.near = 2.5;
+    sceneFog.far = Math.max(6, drawDistance * (1 - reduction * 0.78));
+    sceneFog.color.copy(ease.fog);
+
+    /*
+     * The key light changes hands.
+     *
+     * Both lights are always mounted and their intensities cross over, because
+     * swapping one for the other at a threshold pops — and at civil twilight
+     * both bodies really are up and neither is doing much, which is precisely
+     * the moment a cut would be visible.
+     */
+    if (sunRef.current) {
+      const sun = sunRef.current;
+      sun.intensity += (look.sunIntensity - sun.intensity) * k;
+      sun.color.lerp(TMP_COLOR.setHex(look.sunColor), k);
+      sun.visible = sun.intensity > 0.005;
+    }
+    if (moonRef.current) {
+      const target = moonlight.intensity * (1 - look.sunShare);
+      moonRef.current.intensity += (target - moonRef.current.intensity) * k;
+      moonRef.current.visible = moonRef.current.intensity > 0.005;
+    }
+    if (ambientRef.current) {
+      const ambient = ambientRef.current;
+      const target = look.ambientIntensity + moonlight.ambient * 0.5 * (1 - look.sunShare);
+      ambient.intensity += (target - ambient.intensity) * k;
+      ambient.color.lerp(TMP_COLOR.setHex(look.ambient), k);
+    }
+    if (hemisphereRef.current) {
+      const hemisphere = hemisphereRef.current;
+      const target = 1.05 + moonlight.ambient * 1.2 * (1 - look.sunShare) + look.sunShare * 1.1;
+      hemisphere.intensity += (target - hemisphere.intensity) * k;
+      hemisphere.color.lerp(ease.sky, k);
+    }
+
+    // And the ground comes up with the sun.
+    groundMaterial.color
+      .copy(groundTones.night)
+      .lerp(groundTones.day, look.surfaceLift);
+
+    // The two discs. Neither is a light; both are just something to look at.
+    if (sunDiscRef.current) {
+      const disc = sunDiscRef.current;
+      disc.visible = look.sunDisc > 0.01;
+      disc.position.set(sunPosition[0], sunPosition[1], sunPosition[2]);
+      disc.lookAt(0, 1.6, 0);
+      const material = disc.material as THREE.MeshBasicMaterial;
+      material.opacity += (look.sunDisc - material.opacity) * k;
+      material.color.lerp(TMP_COLOR.setHex(look.sunColor), k);
+    }
+    if (moonDiscRef.current) {
+      const disc = moonDiscRef.current;
+      const target = look.moonDisc * 0.65;
+      disc.visible = target > 0.01;
+      disc.position.set(moonlight.position[0], moonlight.position[1], moonlight.position[2]);
+      disc.lookAt(0, 1.6, 0);
+      const material = disc.material as THREE.MeshBasicMaterial;
+      material.opacity += (target - material.opacity) * k;
     }
 
     if (starsRef.current) {
@@ -761,16 +917,24 @@ export function Campsite({
 
   return (
     <group>
-      <fog ref={fogRef} attach="fog" args={[palette.fog, 2.5, drawDistance]} />
-      <color attach="background" args={[palette.sky]} />
-
       {/* Night sky */}
       <points ref={starsRef} geometry={starGeometry} material={starMaterial} frustumCulled={false} />
 
-      {/* Moon — a flat disc, which is exactly what a PS1 moon was */}
-      <mesh position={[38, 46, -70]}>
+      {/*
+        Moon and sun — flat discs, which is exactly what PS1 ones were.
+
+        Both are placed from the real azimuth and altitude in the frame loop
+        rather than pinned to a spot in the scene. The moon used to sit at a
+        fixed `[38, 46, -70]` for ever, which was fine while the sky was also
+        fixed for ever and is not fine now that the night turns.
+      */}
+      <mesh ref={moonDiscRef}>
         <circleGeometry args={[3.6, 12]} />
-        <meshBasicMaterial color={0xd8dfe8} toneMapped={false} transparent opacity={0.65 * (1 - weather.cloudCover * 0.8)} />
+        <meshBasicMaterial color={0xd8dfe8} toneMapped={false} transparent opacity={0} />
+      </mesh>
+      <mesh ref={sunDiscRef} visible={false}>
+        <circleGeometry args={[2.6, 14]} />
+        <meshBasicMaterial color={0xffd9a8} toneMapped={false} transparent opacity={0} />
       </mesh>
 
       {/* Ground */}
@@ -1023,20 +1187,59 @@ export function Campsite({
         night the weather model can produce, and the night suite measures the
         far treeline rather than only the ground at your feet.
       */}
-      <ambientLight intensity={1 + moonlight.ambient * 0.5} color={0x33445f} />
+      <ambientLight ref={ambientRef} intensity={1 + moonlight.ambient * 0.5} color={0x33445f} />
       <directionalLight
+        ref={moonRef}
         position={moonlight.position}
         intensity={moonlight.intensity}
         color={0xa8bcd8}
       />
+      {/*
+        And the sun, which is the same idea and the bigger light.
+
+        Mounted always and lit by intensity, so there is never a frame where
+        the scene has no key at all. `look.sunIntensity` is zero while the sun
+        is below the horizon, so at night this costs one unlit light.
+      */}
+      <directionalLight
+        ref={sunRef}
+        position={sunPosition}
+        intensity={0}
+        color={0xfff0d8}
+        visible={false}
+      />
       {/* The sky's own light, from above, so canopies read as canopies. */}
       <hemisphereLight
+        ref={hemisphereRef}
         intensity={1.05 + moonlight.ambient * 1.2}
         color={0x4a5f80}
         groundColor={0x161a14}
       />
     </group>
   );
+}
+
+/** `'#0b1016'` from a manifest, as the integer the renderer wants. */
+function hexOf(color: string): number {
+  const parsed = Number.parseInt(color.replace('#', ''), 16);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/**
+ * Where a body in the sky sits in the scene, from its altitude and azimuth.
+ *
+ * Azimuth is measured from north and +Z is north here. The floor under the
+ * height is the one cheat: a light source below the horizon would rake the
+ * scene from underneath, which reads as a bug rather than as night, and the
+ * body's *intensity* is what actually says whether it is up.
+ */
+function bodyPosition(altitude: number, azimuth: number, distance = 90): [number, number, number] {
+  const horizontal = Math.cos(altitude) * distance;
+  return [
+    Math.sin(azimuth) * horizontal,
+    Math.max(6, Math.sin(altitude) * distance),
+    Math.cos(azimuth) * horizontal,
+  ];
 }
 
 /** A stable small hash of a patch id, so each place scatters differently. */

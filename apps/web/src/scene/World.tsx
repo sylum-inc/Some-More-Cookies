@@ -1184,6 +1184,9 @@ export function World({
       <Campsite
         seed={seedNumber}
         weather={ritual.weather}
+        // The hour the simulation is actually at. Six hours of real sky run
+        // across a session and, until this line, none of it reached the screen.
+        sky={ritual.stargazing.sky}
         settings={settings}
         // The environment's own draw distance, capped by the quality tier so
         // a generous site cannot blow the budget on a weak device.

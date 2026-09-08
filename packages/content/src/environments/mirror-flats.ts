@@ -111,6 +111,19 @@ export const MIRROR_FLATS: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'burrowing_owl',
+      label: 'Burrowing owl',
+      shyness: 0.7,
+      curiosity: 0.55,
+      window: ['dawn', 'morning', 'afternoon'],
+      attractedBy: ['open-sky', 'quiet'],
+      repelledBy: ['footsteps', 'voices'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a scrape at the mouth of a burrow out on the flat'],
+      note: 'Stands on the ground at the edge of its hole in broad daylight, which no owl is supposed to do, and watches you the whole time.',
+    },
+    {
       id: 'brine_fly',
       label: 'Brine flies',
       shyness: 0.1,

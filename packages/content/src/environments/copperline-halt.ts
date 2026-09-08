@@ -100,6 +100,19 @@ export const COPPERLINE_HALT: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'barn_swallow',
+      label: 'Barn swallow',
+      shyness: 0.55,
+      curiosity: 0.5,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['open-sky', 'shelter', 'warmth'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a cup of dried mud under the platform canopy'],
+      note: 'Nests in the station roof and hunts the rails all day, turning at the last possible moment.',
+    },
+    {
       id: 'barn_owl',
       label: 'Barn owl',
       shyness: 0.7,

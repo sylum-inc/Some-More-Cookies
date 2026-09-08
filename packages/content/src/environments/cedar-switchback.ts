@@ -113,6 +113,19 @@ export const CEDAR_SWITCHBACK: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'chestnut_backed_chickadee',
+      label: 'Chestnut-backed chickadee',
+      shyness: 0.42,
+      curiosity: 0.85,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['crumbs', 'quiet', 'shelter'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: true,
+      traces: ['a cedar seed cone worked open on the rail'],
+      note: 'Works through the low branches in a loose gang, upside down as often as not, and is gone up the slope in a minute.',
+    },
+    {
       id: 'varied_thrush',
       label: 'Varied thrush',
       shyness: 0.75,

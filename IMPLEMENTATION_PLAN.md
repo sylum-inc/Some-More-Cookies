@@ -34,7 +34,7 @@ containing one line). Everything below was built from zero.
 | Media storage · photo upload · campsite memory sync | ✅ |
 | Installable PWA · cold offline boot to a finished sandwich | ✅ |
 
-**1,880 unit, integration and seam tests across 109 files**, plus Playwright
+**1,897 unit, integration and seam tests across 111 files**, plus Playwright
 projects for acceptance, activities, accessibility, multiplayer, offline boot,
 service-worker update, mobile layout, night legibility, code redemption, the
 live-ops console, performance budgets and visual regression. 26 further tests
@@ -61,10 +61,12 @@ out of the dark for it — which is the only thing the ritual's output has ever
 been for besides being eaten, and the only place it touches the rest of the
 world.
 
-All of which now happens inside a night that ends. Roughly an hour, dusk to
-dawn, and then the sky goes grey and that is the night gone: everything spent
-away from the fire is time the fire spends burning down, and the fire says so
-once while there is still a bed under it worth saving.
+All of which happens inside a night that ends. About an hour of dark, and then
+the sky genuinely greys and the sun comes up: everything spent away from the
+fire is time the fire spends burning down, and the fire says so once while
+there is still a bed under it worth saving. Then the day runs its course —
+morning, midday, afternoon, dusk — and the night comes back, so nobody is
+ejected and a wasted evening costs a turn of the sky rather than the session.
 
 No step in that sentence is a placeholder button.
 
@@ -1039,6 +1041,81 @@ stop seeing the same animals: `leave_offering` is in the intent schema, the
 client's mapping, the replication path and the server's replay, and the drift
 test now asserts its own claim — that the stream really is every intent kind,
 rather than every kind that existed when it was written.
+
+
+### Session 15: the sun was already there, and nothing drew it
+
+Dawn ending the night created a hole, and looking at it found a bigger one.
+
+The simulation has had a **real sun** since the astronomy module was written:
+`sunState` returns its altitude and azimuth, `stargazing` advances the sky
+across a session, and the sun genuinely crosses the horizon partway through.
+None of it reached the screen. `Campsite` called `curatedSky()` once, inside a
+`useMemo` with an empty dependency array, and painted one fixed night for ever
+— the dusk screenshot and the dawn screenshot have the same stars in the same
+places, and the only thing that changed across six simulated hours was the fire
+burning down. So the line the world said at daybreak, *"the sky has gone grey
+behind the trees"*, was describing something nothing drew.
+
+And there were **two clocks**. A stopwatch counting fourteen-minute windows,
+and a real sun, on separate schedules. Measured: the stopwatch declared the
+night over with the sun still 7.6° below the horizon and every star at full
+brightness.
+
+Now there is one clock and it is the sun, the sky goes all the way round, and
+the ritual stays night-only — so a wasted evening costs a turn of the sky
+rather than the session. Each campsite gained a day bird or two, deliberately
+sparse: the morning after is meant to be mostly evidence.
+
+Six things found by measuring rather than assuming, all of them real:
+
+- **The scene has never had fog.** `<fog attach="fog">` and `<color
+  attach="background">` were children of a `<group>`, and `attach` binds to the
+  parent — so `scene.fog` and `scene.background` were both null. Every read and
+  write through `fogRef` worked; they were landing on an object nothing renders
+  from. The "short draw distance and heavy fog" that file's own header credits
+  for the draw budget were doing none of it.
+- **Daylight is not in the moon's numeric range.** The first ramp peaked at 2.9
+  against a moon that peaks near 3. The scene is tone-mapped, so a noon
+  numerically equal to a full moon renders as a slightly brighter night. On the
+  forest floor: 66/255 at the old peak, 107 at four times the light.
+- **Every surface was authored for firelight at two metres.** The forest floor
+  read as a hole in the world at noon. Lifting the ground's palette with the
+  hour fixes it; adding light until it reads blows out everything that already
+  read.
+- **The rising test was backwards**, so the day ran in reverse and a climbing
+  sun was labelled `dusk`. Established against the model rather than from
+  memory of the azimuth convention, and now pinned by a test that samples the
+  real sun an hour apart and compares the direction it actually moved.
+- **`startWindow` cannot be a clock hour.** Half past eight is dusk in August,
+  full dark in March and daylight in June. It is solved against the real sky
+  now.
+- **The moon's height floor was load-bearing.** Dropping it from twelve to six
+  halved the light landing on flat ground — a horizontal surface takes light by
+  the sine of the elevation — and took the far side of the clearing from a dark
+  wood to a black rectangle: 10.7 to 5.4 against the D7 floor of 6.
+
+Three lessons about the tests themselves:
+
+- **Two e2e assertions were built on the frozen sky, not on what they meant.**
+  "Never turns into a morning" was right while the world was always night and
+  is now the opposite of the product. "At no point did it become daytime",
+  applied to every shot, was safe only because dusk and midnight rendered as
+  the same pixels.
+- **A generous tolerance hides a regenerated baseline.** `--update-snapshots`
+  rewrites nothing when the comparison passes, and the visual tolerances are
+  six to twelve per cent of the frame. Two "regenerations" produced byte-identical
+  files and I read the same stale arrival three times before measuring it. The
+  baselines have to be deleted to be rebuilt.
+- **The window list existed three times** — the sim's type, a hand-written
+  duplicate union in the content schema, and a third copy in the runtime
+  validator. All three went stale at once and twelve manifests could not name
+  an hour the model they feed understands. There is one now, exported as data.
+
+Also: the arrival's look is load-bearing. Making the sun the clock briefly
+changed the default start to a literal dusk, and a light sky the fire has to
+compete with is not this product. Sessions open at `early-night`, which is
+where they always effectively opened.
 
 
 ## What the tools measured

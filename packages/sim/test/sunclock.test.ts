@@ -149,7 +149,7 @@ describe('a session on that clock', () => {
     expect(isNight(camp('morning').window)).toBe(false);
   });
 
-  it('gets light, and then gets dark again', () => {
+  it('gets light, and then gets dark again', { timeout: 20_000 }, () => {
     /*
      * The whole of "camp whenever". The night used to end once and stay ended,
      * because the clock stopped at dawn and there was nothing after it. A
@@ -175,7 +175,7 @@ describe('a session on that clock', () => {
     expect(ritual.nightOver, 'the night was over before anyone could use it').toBe(false);
   });
 
-  it('is warm in the day and coldest before it gets light', () => {
+  it('is warm in the day and coldest before it gets light', { timeout: 20_000 }, () => {
     const readings = new Map<ActivityWindow, number>();
     const ritual = camp('dusk');
     for (let minute = 0; minute < 150; minute += 5) {

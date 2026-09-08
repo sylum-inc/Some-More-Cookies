@@ -110,6 +110,19 @@ export const MELTWATER_CIRQUE: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'white_winged_snowfinch',
+      label: 'Snowfinch',
+      shyness: 0.58,
+      curiosity: 0.7,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['crumbs', 'shelter', 'quiet'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: true,
+      traces: ['prints in the old snow by the pack'],
+      note: 'Comes to the camp the way house sparrows come to a table, at three thousand metres.',
+    },
+    {
       id: 'pika',
       label: 'Pika',
       shyness: 0.5,

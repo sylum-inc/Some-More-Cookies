@@ -112,7 +112,14 @@ const NIGHT: Stop = {
  * as a slightly brighter night. Measured on the forest floor: 66/255 at the
  * old peak, 107 at four times the light.
  *
- * Deliberately not a saturated postcard blue at the top. Ordered dithering at
+ * Twilight is deliberately dark. The first version of this table put the sun
+ * on the horizon against a sky at #6a6076, which measured as an overcast
+ * afternoon rather than as dusk: the campsite's arrival shot stopped being
+ * firelight against dark and became a fire competing with the sky, which is
+ * the one thing this product's look cannot afford. A forest floor at civil
+ * twilight is much darker than the open sky above it.
+ *
+ * The top is deliberately not a saturated postcard blue either. Ordered dithering at
  * 320×240 turns a flat, saturated field into visible banding, and the whole
  * render pipeline is built to flatter darkness — so daylight is desaturated
  * and slightly grey, which is both kinder to the dither and closer to what a
@@ -136,8 +143,8 @@ const STOPS: readonly Stop[] = [
   {
     // Civil twilight. Blue hour proper — the sky is bright and the ground is not.
     at: -6,
-    sky: 0x1e2b45,
-    fog: 0x27334c,
+    sky: 0x18243c,
+    fog: 0x1f2a42,
     ambient: 0x4a5c80,
     ambientIntensity: 1.25,
     sunColor: 0x6b4a52,
@@ -149,28 +156,28 @@ const STOPS: readonly Stop[] = [
   {
     // The sun is on the horizon. Warmest light of the whole cycle.
     at: 0,
-    sky: 0x6a6076,
-    fog: 0x7d6f70,
-    ambient: 0x6b6a80,
-    ambientIntensity: 1.5,
+    sky: 0x3a3850,
+    fog: 0x453f4a,
+    ambient: 0x525068,
+    ambientIntensity: 1.32,
     sunColor: 0xff8a42,
     sunIntensity: 2.2,
     sunShare: 0.75,
     sunDisc: 0.55,
-    surfaceLift: 0.2,
+    surfaceLift: 0.07,
   },
   {
     // Golden. Long shadows, orange on the trunks.
     at: 6,
-    sky: 0x8b93ab,
-    fog: 0xa79c93,
-    ambient: 0x8f9ab4,
-    ambientIntensity: 1.75,
+    sky: 0x6b7590,
+    fog: 0x7d7a78,
+    ambient: 0x74809c,
+    ambientIntensity: 1.6,
     sunColor: 0xffb066,
     sunIntensity: 5,
     sunShare: 1,
     sunDisc: 0.85,
-    surfaceLift: 0.42,
+    surfaceLift: 0.3,
   },
   {
     // Morning. The colour has come out of the light and gone into the sky.

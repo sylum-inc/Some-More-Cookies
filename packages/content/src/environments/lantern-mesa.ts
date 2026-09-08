@@ -98,6 +98,19 @@ export const LANTERN_MESA: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'canyon_wren',
+      label: 'Canyon wren',
+      shyness: 0.68,
+      curiosity: 0.5,
+      window: ['dawn', 'morning', 'afternoon'],
+      attractedBy: ['quiet', 'shelter'],
+      repelledBy: ['voices', 'radio-music'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['nothing at all, which is the point'],
+      note: 'A song that falls down the scale and slows as it goes, off the rock somewhere. The mesa answers it.',
+    },
+    {
       id: 'kangaroo_rat',
       label: 'Kangaroo rat',
       shyness: 0.7,

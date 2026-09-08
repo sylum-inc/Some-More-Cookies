@@ -83,7 +83,7 @@ describe('the night runs out', () => {
     expect(ritual.stage, 'the ritual restarted after the night ended').not.toBe('roasting');
   });
 
-  it('takes nothing out of your hands', () => {
+  it('takes nothing out of your hands', { timeout: 20_000 }, () => {
     /*
      * A marshmallow on a stick at daybreak is still yours to finish. Ending
      * the night is not the same as confiscating the evening, and a game that

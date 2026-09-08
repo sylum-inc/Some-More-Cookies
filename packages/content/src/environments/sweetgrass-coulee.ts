@@ -110,6 +110,19 @@ export const SWEETGRASS_COULEE: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'meadowlark',
+      label: 'Western meadowlark',
+      shyness: 0.6,
+      curiosity: 0.45,
+      window: ['dawn', 'morning', 'afternoon'],
+      attractedBy: ['open-sky', 'quiet'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a flattened patch in the grass, still warm-looking'],
+      note: 'Sits on the fence wire and pours out a whole tune, then does it again from further off.',
+    },
+    {
       id: 'beaver',
       label: 'Beaver',
       shyness: 0.55,

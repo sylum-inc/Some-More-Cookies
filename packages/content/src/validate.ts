@@ -12,7 +12,13 @@
  * environment data (spec §14), and this is the gate that data has to pass.
  */
 
-import { QUIRK_POOL, WOOD_TYPES, type SkyEvent, type WeatherKind } from '@somemore/sim';
+import {
+  ACTIVITY_WINDOWS as SIM_ACTIVITY_WINDOWS,
+  QUIRK_POOL,
+  WOOD_TYPES,
+  type SkyEvent,
+  type WeatherKind,
+} from '@somemore/sim';
 
 import {
   ALL_ENVIRONMENTS,
@@ -113,7 +119,8 @@ const GROUND_MATERIALS = [
 const ELEVATIONS = ['flat', 'gentle', 'rolling', 'terraced', 'basin', 'bench', 'ridge', 'steep'];
 const LANDMARK_KINDS = ['natural', 'built', 'abandoned', 'signage', 'water', 'sky', 'camp'];
 const WATER_FLOWS = ['still', 'slow', 'lapping', 'running', 'rushing', 'tidal', 'seeping'];
-const ACTIVITY_WINDOWS = ['dusk', 'early-night', 'deep-night', 'pre-dawn', 'dawn'];
+/* The simulation's own list, not a copy of it. See `ActivityWindow`. */
+const ACTIVITY_WINDOWS: readonly string[] = SIM_ACTIVITY_WINDOWS;
 const WILDLIFE_CUES = [
   'stillness',
   'quiet',

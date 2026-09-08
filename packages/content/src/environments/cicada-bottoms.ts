@@ -110,6 +110,19 @@ export const CICADA_BOTTOMS: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'prothonotary_warbler',
+      label: 'Prothonotary warbler',
+      shyness: 0.76,
+      curiosity: 0.4,
+      window: ['dawn', 'morning'],
+      attractedBy: ['water-edge', 'quiet', 'shelter'],
+      repelledBy: ['voices'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a scrap of moss pulled loose from the stump'],
+      note: 'A startling wet yellow against all that green-brown, and then it is behind a trunk.',
+    },
+    {
       id: 'firefly',
       label: 'Fireflies',
       shyness: 0.05,

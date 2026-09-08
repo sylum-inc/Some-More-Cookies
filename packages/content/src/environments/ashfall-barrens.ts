@@ -109,6 +109,19 @@ export const ASHFALL_BARRENS: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'horned_lark',
+      label: 'Horned lark',
+      shyness: 0.7,
+      curiosity: 0.4,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['open-sky', 'quiet'],
+      repelledBy: ['footsteps', 'sudden-movement'],
+      canPersist: false,
+      investigatesObjects: false,
+      traces: ['three-toed prints in the ash, already softening'],
+      note: 'Runs rather than flies, and is the colour of the ground it runs on. You find the prints first.',
+    },
+    {
       id: 'arctic_hare',
       label: 'Mountain hare',
       shyness: 0.7,

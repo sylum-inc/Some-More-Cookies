@@ -128,6 +128,19 @@ export const LONGLIGHT_SHORE: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'oystercatcher',
+      label: 'Oystercatcher',
+      shyness: 0.64,
+      curiosity: 0.35,
+      window: ['dawn', 'morning', 'afternoon'],
+      attractedBy: ['water-edge', 'open-sky'],
+      repelledBy: ['footsteps', 'voices'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a broken shell on a flat stone, opened neatly'],
+      note: 'Black and white and orange-billed, and audible long before it is visible. Objects to you at length.',
+    },
+    {
       id: 'sanderling',
       label: 'Sanderlings',
       shyness: 0.55,

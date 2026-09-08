@@ -282,7 +282,19 @@ export interface RitualOptions {
   familiarity?: Familiarity;
   /** What this player already found here, restored from the Passport. */
   knownSecrets?: readonly DiscoveryRecord[];
-  /** Which part of the night the session opens in. */
+/**
+   * Which part of the day the session opens in.
+   *
+   * Defaults to `early-night`, which is where a session has always effectively
+   * opened: the old clock wound back three hours from two in the morning, so a
+   * player arrived at about eleven, into the dark, with the fire already the
+   * brightest thing in the frame. That arrival *is* the product's look, and
+   * `dusk` — which the sun-based clock briefly made the default — replaced it
+   * with a light sky the fire had to compete with.
+   *
+   * Nothing is lost by starting after dusk now that the sky comes round: a
+   * player who wants a whole evening can wait for the next one.
+   */
   startWindow?: ActivityWindow;
   /**
    * Approximate latitude and longitude, for the sky.
@@ -1115,7 +1127,7 @@ export function createRitual(options: RitualOptions): RitualState {
         (options.skyEpochMs ?? 0) > 0 ? (options.skyEpochMs as number) : REFERENCE_NIGHT,
         options.latitudeDeg ?? 44,
         options.longitudeDeg ?? -73,
-        options.startWindow ?? 'dusk',
+        options.startWindow ?? 'early-night',
       ),
       timeScale: SKY_TIME_SCALE,
       latitudeDeg: options.latitudeDeg ?? 44,

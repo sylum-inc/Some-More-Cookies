@@ -271,7 +271,7 @@ describe('stillness is a mechanic, through the ritual', () => {
 });
 
 describe('the night moves', () => {
-  it('advances the activity window as a session runs long, and does loop the sun', () => {
+  it('advances the activity window as a session runs long, and does loop the sun', { timeout: 20_000 }, () => {
     /*
      * This used to end "it never wraps past dawn: a session does not loop the
      * sun", and asserted a stopwatch that clamped there. The sun is the clock

@@ -41,10 +41,19 @@ describe('the shape of a night', () => {
   });
 
   it('the cold reaches the weather, and the fire feels it', () => {
-    const ritual = night();
+    /*
+     * Measured across the dark rather than across the clock.
+     *
+     * Forty-five minutes used to be safely inside one night. On the sun's
+     * clock it runs past dawn and into the morning, where the air is warmer
+     * than the baseline rather than colder — so the old span measured the
+     * night getting *warmer*, which it does, once it stops being the night.
+     */
+    const ritual = night({ startWindow: 'dusk' });
     run(ritual, 90);
     const early = ritual.weather.temperatureC;
-    run(ritual, 45 * 60);
+    run(ritual, 35 * 60);
+    expect(ritual.window, 'the span ran out of night to measure').toBe('deep-night');
     const late = ritual.weather.temperatureC;
     expect(late).toBeLessThan(early - 3);
     // The fire is told, because the fire is what the cold is about.

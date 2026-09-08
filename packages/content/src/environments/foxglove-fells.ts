@@ -111,6 +111,19 @@ export const FOXGLOVE_FELLS: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'meadow_pipit',
+      label: 'Meadow pipit',
+      shyness: 0.66,
+      curiosity: 0.4,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['open-sky', 'quiet'],
+      repelledBy: ['footsteps', 'wind'],
+      canPersist: false,
+      investigatesObjects: false,
+      traces: ['a thin trodden line through the foxgloves'],
+      note: 'Goes up almost vertically, sings on the way down, and lands somewhere you were not watching.',
+    },
+    {
       id: 'curlew',
       label: 'Curlew',
       shyness: 0.85,

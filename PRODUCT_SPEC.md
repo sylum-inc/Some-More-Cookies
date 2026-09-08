@@ -219,12 +219,19 @@ The finished object carries its history:
 
 The core ritual takes **~5–8 minutes**. The campsite is open-ended before and after — arriving early to explore and staying after to sit by the fire are both first-class.
 
-**And the night ends.** Roughly an hour, dusk to dawn, and then the sky goes
-grey and that is it — whatever state things were left in. This is what makes
-everything else cost something: time spent at the water is time the fire spends
-burning down, and wood is a walk away. Tending well buys a better tomorrow,
-never a longer tonight. Nothing is taken out of the player's hands at daybreak;
-what ends is the ability to start the evening over.
+**And the night ends.** About an hour of dark, and then the sky genuinely goes
+grey and the sun comes up. This is what makes everything else cost something:
+time spent at the water is time the fire spends burning down, and wood is a
+walk away. Tending well buys a better tomorrow, never a longer tonight. Nothing
+is taken out of the player's hands at daybreak; what ends is the ability to
+start the evening over.
+
+**And then the day comes round.** The sky turns all the way through — morning,
+midday, afternoon, dusk — and night returns, so a player is never ejected and
+can camp at whatever hour they arrive at. The ritual stays a night thing, which
+is what keeps it an occasion: a wasted evening costs a whole turn of the sky
+rather than the session. A turn is a little over two hours, most of it
+daylight, and its length varies with the season because the astronomy is real.
 
 Campsites are **compact but genuinely explorable**: a walkable area with real corners, not a corridor and not an open world.
 
@@ -321,6 +328,11 @@ Lightweight ecosystem behaviour. Animals respond to sound, fire, food, flashligh
 - Persistent individual animals may recur at a campsite and be recognised by the world (and eventually by the player).
 - **Quiet behaviour reveals rarer wildlife** — stillness is a mechanic.
 - Animals may investigate or steal objects and leave tracks or unusual traces.
+- **A day roster as well as a night one.** Each campsite has one or two
+  daylight species — a camp-robbing grey jay, a canyon wren off the rock, an
+  oystercatcher objecting at length — and they are deliberately sparse. The
+  morning after is meant to be mostly evidence: prints in the ash, a s'more
+  gone, a stripped cone on the table.
 - **A s'more can be left out for them.** Set it on the ground and walk away and
   something may, eventually, come for it — the one thing the ritual's output is
   for besides being eaten. It buys the bond with *that animal* and nothing at

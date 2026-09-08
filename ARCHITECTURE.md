@@ -70,6 +70,7 @@ Pure, deterministic, framework-free. Fixed-timestep, explicitly advanced by the 
 | `weather` | Evolving weather state, transitions, rare events |
 | `astronomy` | Sun/moon/star/meteor state from date + approximate latitude |
 | `significance` | Invisible memory-importance model driving persistence and landmarks |
+| `astronomy` | Real sun, moon, stars and showers for a date and a place. The sun is the clock the rest of the world reads |
 | `hearth` | The pit between visits: what banking keeps, what a gap and the weather take, and how a bed is woken |
 | `familiarity` | What an animal remembers about you, in two layers — a shallow species floor that travels with the player, a deeper individual bond that stays with the campsite |
 | `ritual` | The session state machine binding every stage together, including the night's length and the s'more left on the ground |
@@ -91,23 +92,49 @@ the frame loop — and the frame loop's job is only to keep up with the things
 that change on their own, such as the bearing a walking player holds the stick
 from. See defect #25 in [`IMPLEMENTATION_PLAN.md`](./IMPLEMENTATION_PLAN.md).
 
-### 3.1a The night has a length
+### 3.1a One clock, and it is the sun
 
-`WINDOW_ORDER` walks dusk → early-night → deep-night → pre-dawn → dawn at
-fourteen minutes each, and `windowAt` clamps at dawn. Clamping used to be the
-end of the story, which meant a session left running sat in a permanent
-sunrise: every activity available for ever, and therefore nothing competing
-with anything. `nightIsOver(startWindow, elapsed)` gives the clamp an end —
-the span of the windows plus four minutes of grace past daybreak — so a night
-is roughly an hour whatever it is spent on.
+There used to be two. `windowAt` counted fourteen-minute windows from whichever
+one the session started in and clamped at dawn for ever, while `astronomy`
+advanced a real sun on a completely separate schedule. They disagreed: measured
+before this was fixed, the stopwatch declared the night over with the sun still
+7.6° below the horizon and every star at full brightness, so the world said
+"the sky has gone grey behind the trees" into a pitch-black sky.
 
-Two rules about what that ending may do, and they are opposite on purpose. It
-**is** enforced for starting something new: `beginRoasting` is refused in the
-morning, and it is the only place in the simulation the ending is enforced
-rather than merely described. It is **not** enforced against anything already
-in flight: a marshmallow on a stick at daybreak stays on the stick. Ending the
-night and confiscating the evening are different acts, and only the first one
-belongs to a clock.
+`windowFromSun(altitude, azimuth)` is the whole clock now. Altitude says how
+high; which half of the sky says which way it is going, because altitude alone
+cannot tell morning from afternoon. The cold, the wildlife windows and the
+fishing all read the same number, so they cannot drift apart again.
+
+**The sky goes all the way round.** `ActivityWindow` covers a whole day —
+dawn, morning, midday, afternoon, dusk, early-night, deep-night, pre-dawn — and
+a session that runs long comes back to where it started. `stargazing` advances
+the real sky at a scale chosen from the one thing that is a product decision
+rather than an astronomical one: the dark should last about an hour of play.
+Everything else follows, so a whole turn is a little over two hours and most of
+it is daylight. Night length therefore varies with the season, which is honest:
+a March night at 44° is a longer night than an August one.
+
+**`startWindow` is solved, not tabulated.** It used to wind a stopwatch; now it
+has to place the sun, and mapping a window to a clock hour is wrong because the
+same hour is a different part of the day in a different month — half past eight
+in the evening is dusk in August, full dark in March and broad daylight in
+June. `epochForWindow` walks the real sky in five-minute steps, finds the
+stretch that is the window being asked for, and starts in the middle of it.
+
+Two rules about what the night ending may do, and they are opposite on purpose.
+It **is** enforced for starting something new: `beginRoasting` is refused
+outside the dark, and it is the only place in the simulation the ending is
+enforced rather than merely described. That refusal is also what protects the
+ritual now that a blazing sun over a campfire is physically possible — the sun
+coming up ends the evening instead of shining into it. It is **not** enforced
+against anything already in flight: a marshmallow on a stick at daybreak stays
+on the stick. Ending the night and confiscating the evening are different acts,
+and only the first belongs to a clock.
+
+Because the sky comes round, the ending is a phase rather than a terminus. A
+player who waits out a day gets another night, so a wasted evening costs a turn
+of the sky rather than the session.
 
 ### 3.2 The heat model
 
@@ -158,6 +185,43 @@ almost nothing until they cleared the floor. Every surface the player must be
 able to see at night has to be lit above it, and `e2e/night.spec.ts` asserts
 that the night stays inside a legible band rather than merely above zero.
 
+
+### 4.1a Daylight
+
+`render/daylight.ts` turns one number — how high the sun is — into everything
+the scene needs to look like that hour: the background, the fog, the ambient
+fill, the sun's colour and intensity, how much of the key light is the sun
+rather than the moon, and how far to lift ground albedo.
+
+The **manifest's own night colours anchor the bottom of the ramp** and the
+daylight end is shared. Twelve environments each state a night sky and a night
+fog, and those are what make a pine hollow look like a pine hollow; noon over a
+forest and noon over a salt flat are close to the same blue, and what
+distinguishes them then is the ground and the haze. So no environment has to be
+re-authored for the sun to come up in it.
+
+Three things this pass established, all measured rather than assumed:
+
+- **The scene had never had fog.** `<fog attach="fog">` and `<color
+  attach="background">` were children of `Campsite`'s `<group>`, and `attach`
+  binds to the parent object — so both were set on the group, and `scene.fog`
+  and `scene.background` were null. Every read and write through `fogRef`
+  worked; they were landing on an object nothing renders from. Both are owned
+  outright now and assigned to the scene in the frame loop.
+- **Daylight is not in the moon's numeric range.** The first ramp peaked at a
+  sun intensity of 2.9 against a moon that peaks near 3. The scene is
+  tone-mapped, so the response to light is compressed and a noon numerically
+  equal to a full moon renders as a slightly brighter night.
+- **Every surface was authored to be hit by a campfire from two metres.** The
+  forest floor is the extreme case: a dark dirt texture over a dark brown,
+  correct at night and a hole in the world at noon. Adding light until the
+  ground reads blows out everything that already read, because what is wrong is
+  the albedo — so the ground's palette moves with the hour instead, which is
+  how the hardware this is pretending to be did day and night anyway.
+
+The sky is **eased in the frame loop, not set from a render**: React re-renders
+when the store says something changed, which is not every frame and is on no
+schedule the sun cares about.
 
 ### 4.2 The fidelity bump
 

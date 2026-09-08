@@ -19,7 +19,7 @@
  *    something is not expressible, and the validator rejects any attempt.
  */
 
-import type { SkyEvent, WeatherKind, WeatherProfile } from '@somemore/sim';
+import type { ActivityWindow, SkyEvent, WeatherKind, WeatherProfile } from '@somemore/sim';
 
 /* -------------------------------------------------------------------------- */
 /* Small shared shapes                                                        */
@@ -251,7 +251,17 @@ export interface FuelProfile {
 /* Wildlife (§7)                                                              */
 /* -------------------------------------------------------------------------- */
 
-export type ActivityWindow = 'dusk' | 'early-night' | 'deep-night' | 'pre-dawn' | 'dawn';
+/*
+ * Re-exported rather than declared.
+ *
+ * This was a hand-written copy of the simulation's own union, which is exactly
+ * the drift this file otherwise avoids — it already imports `WeatherKind` and
+ * `SkyEvent` from the same package. The copy went stale the moment the sky
+ * started going all the way round: the sim grew `morning`, `midday` and
+ * `afternoon`, and twelve manifests could not name an hour that the model they
+ * feed understands.
+ */
+export type { ActivityWindow };
 
 export type WildlifeCue =
   | 'stillness'

@@ -152,6 +152,19 @@ export const PINE_HOLLOW: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'grey_jay',
+      label: 'Grey jay',
+      shyness: 0.3,
+      curiosity: 0.95,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['crumbs', 'food-smell', 'quiet'],
+      repelledBy: ['sudden-movement'],
+      canPersist: true,
+      investigatesObjects: true,
+      traces: ['a graham crumb gone from the table', 'a single grey feather by the pit'],
+      note: 'Arrives the moment food is out and leaves the moment it is not. Camp robber, and completely unbothered about it.',
+    },
+    {
       id: 'douglas_squirrel',
       label: 'Pine squirrel',
       shyness: 0.35,

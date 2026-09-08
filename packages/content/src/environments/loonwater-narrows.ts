@@ -112,6 +112,19 @@ export const LOONWATER_NARROWS: EnvironmentManifest = {
   },
   wildlife: [
     {
+      id: 'belted_kingfisher',
+      label: 'Belted kingfisher',
+      shyness: 0.75,
+      curiosity: 0.35,
+      window: ['morning', 'midday', 'afternoon'],
+      attractedBy: ['water-edge', 'quiet'],
+      repelledBy: ['splashing', 'voices'],
+      canPersist: true,
+      investigatesObjects: false,
+      traces: ['a fresh scar on the dead branch over the water'],
+      note: 'Crosses the narrows at head height rattling like a wound-up toy, and is gone before you have turned.',
+    },
+    {
       id: 'loon',
       label: 'Common loon',
       shyness: 0.6,

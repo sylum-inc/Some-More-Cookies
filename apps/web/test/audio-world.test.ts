@@ -201,8 +201,19 @@ describe('bridge — wildlife', () => {
     const appearances = ritual.wildlifeEvents.filter((event) => event.kind === 'appeared');
     if (appearances.length > 0) {
       expect(cues.length).toBeGreaterThan(0);
-      // Again: one line per sighting, never one per frame.
-      expect(cues.length).toBeLessThanOrEqual(appearances.length + 1);
+      /*
+       * One line per thing that happened, never one per frame.
+       *
+       * This used to be bounded by the number of *appearances*, which held
+       * only because the window never changed: the session sat in one part of
+       * the night for its whole length. On the sun's clock eleven minutes of
+       * sitting still crosses two hours of sky, so the roster genuinely turns
+       * over and there is more to say than there were arrivals. What the bound
+       * was protecting is the frame rate, so that is what it says now.
+       */
+      expect(cues.length).toBeLessThanOrEqual(ritual.wildlifeEvents.length);
+      expect(cues.length, 'the bridge was narrating frames').toBeLessThan(30);
+      for (let i = 1; i < cues.length; i += 1) expect(cues[i]).not.toBe(cues[i - 1]);
     }
     await engine.close();
   });

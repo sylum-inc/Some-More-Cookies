@@ -59,16 +59,25 @@ import { horizontalDistance, vec3, type Vec3 } from './types.js';
  * A species that declares no day window is not thereby banned from daylight:
  * `speciesAppearanceRate` treats out-of-window as rare rather than impossible,
  * which is the honest model of an animal keeping its own hours.
+ *
+ * Exported as data as well as a type because the content package validates
+ * manifests at runtime and had its own hand-written copy of this list — a
+ * third one, after the type here and a duplicate union in the content schema.
+ * All three went stale the moment the sky started going round: twelve
+ * manifests could not name an hour the model they feed understands.
  */
-export type ActivityWindow =
-  | 'dawn'
-  | 'morning'
-  | 'midday'
-  | 'afternoon'
-  | 'dusk'
-  | 'early-night'
-  | 'deep-night'
-  | 'pre-dawn';
+export const ACTIVITY_WINDOWS = [
+  'dawn',
+  'morning',
+  'midday',
+  'afternoon',
+  'dusk',
+  'early-night',
+  'deep-night',
+  'pre-dawn',
+] as const;
+
+export type ActivityWindow = (typeof ACTIVITY_WINDOWS)[number];
 
 /** Everything an animal can notice. Mirrors the content schema exactly. */
 export type WildlifeCue =

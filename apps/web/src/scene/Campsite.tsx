@@ -189,7 +189,12 @@ export function Campsite({
   const sunDiscRef = useRef<THREE.Mesh>(null);
   const moonDiscRef = useRef<THREE.Mesh>(null);
   /** Where the colours actually are, as opposed to where they are headed. */
-  const eased = useRef({ sky: new THREE.Color(), fog: new THREE.Color(), started: false });
+  const eased = useRef({
+    sky: new THREE.Color(),
+    horizon: new THREE.Color(),
+    fog: new THREE.Color(),
+    started: false,
+  });
   /*
    * The scene's own fog and background, owned here rather than declared.
    *
@@ -202,6 +207,55 @@ export function Campsite({
    * writes all worked; they were simply landing on an object nothing renders
    * from.
    */
+  /*
+   * The sky, as a gradient rather than as one colour.
+   *
+   * `scene.background` is a single flat colour and always was, which is why an
+   * art review found midday and dusk indistinguishable: a sunset is an orange
+   * band under an indigo one, and a flat field has nowhere to put the band. So
+   * a dome goes over the background, mixing horizon into zenith by the view
+   * direction's own Y.
+   *
+   * Two colours and eight lines of GLSL rather than a texture, because
+   * ADR-0002 says everything is procedural and because a gradient texture at
+   * this resolution would band worse than the shader does. `smoothstep` and a
+   * pinch toward the horizon keep the interesting part — the two or three
+   * degrees above the treeline — from being squeezed into nothing.
+   */
+  const domeMaterial = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: {
+          uHorizon: { value: new THREE.Color(0x0c1119) },
+          uZenith: { value: new THREE.Color(0x070a0f) },
+        },
+        vertexShader: `
+          varying vec3 vDirection;
+          void main() {
+            vDirection = normalize(position);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 uHorizon;
+          uniform vec3 uZenith;
+          varying vec3 vDirection;
+          void main() {
+            // Biased hard toward the bottom: the whole event is the first few
+            // degrees above the treeline, and a linear ramp puts most of the
+            // gradient overhead where nothing is happening.
+            float h = clamp(vDirection.y, 0.0, 1.0);
+            float t = smoothstep(0.0, 0.42, h);
+            gl_FragColor = vec4(mix(uHorizon, uZenith, t), 1.0);
+          }
+        `,
+        side: THREE.BackSide,
+        depthWrite: false,
+        fog: false,
+        toneMapped: false,
+      }),
+    [],
+  );
   const sceneFog = useMemo(() => new THREE.Fog(0x0b1016, 2.5, 30), []);
   const sceneBackground = useMemo(() => new THREE.Color(0x070a0f), []);
   const starsRef = useRef<THREE.Points>(null);
@@ -821,6 +875,9 @@ export function Campsite({
     const k = ease.started ? Math.min(1, delta * 1.6) : 1;
     ease.started = true;
     ease.sky.lerp(TMP_COLOR.setHex(look.sky), k);
+    ease.horizon.lerp(TMP_COLOR.setHex(look.horizon), k);
+    (domeMaterial.uniforms.uHorizon!.value as THREE.Color).copy(ease.horizon);
+    (domeMaterial.uniforms.uZenith!.value as THREE.Color).copy(ease.sky);
     ease.fog.lerp(TMP_COLOR.setHex(look.fog), k);
 
     if (state.scene.background !== sceneBackground) state.scene.background = sceneBackground;
@@ -926,6 +983,15 @@ export function Campsite({
 
   return (
     <group>
+      {/*
+        The dome. Rendered before everything, writes no depth, and is never
+        culled — it is the inside of a sphere with the camera at its centre, so
+        the frustum test has nothing useful to say about it.
+      */}
+      <mesh material={domeMaterial} renderOrder={-1} frustumCulled={false}>
+        <sphereGeometry args={[420, 24, 12]} />
+      </mesh>
+
       {/* Night sky */}
       <points ref={starsRef} geometry={starGeometry} material={starMaterial} frustumCulled={false} />
 
@@ -1210,12 +1276,41 @@ export function Campsite({
         the scene has no key at all. `look.sunIntensity` is zero while the sun
         is below the horizon, so at night this costs one unlit light.
       */}
+      {/*
+        And it casts, which nothing in this scene has ever done.
+
+        `gl.shadowMap.enabled` has been true since the render layer was built
+        and every prop in the campsite sets `castShadow`, but no *light* did —
+        so the shadow map had no caster and the whole thing was inert. It never
+        showed at night, because a campfire's light comes from the point light
+        in the pit and a moon at that intensity casts nothing you would notice.
+        In daylight it is the difference between a picture with a sun in it and
+        a picture that is merely bright: an art review's exact words for the
+        noon frame were "no shadows, no sun angle".
+
+        Sized to the campsite rather than to the draw distance. A 40-metre
+        shadow camera over a 512-pixel map is 8 cm a texel, which on
+        `BasicShadowMap` is a hard crunchy edge — which is the correct look
+        here — and stretching it to the treeline would make it mush.
+      */}
       <directionalLight
         ref={sunRef}
         position={sunPosition}
         intensity={0}
         color={0xfff0d8}
         visible={false}
+        castShadow
+        shadow-mapSize-width={512}
+        shadow-mapSize-height={512}
+        shadow-camera-near={1}
+        shadow-camera-far={90}
+        shadow-camera-left={-20}
+        shadow-camera-right={20}
+        shadow-camera-top={20}
+        shadow-camera-bottom={-20}
+        // Acne on a low-resolution map over a displaced terrain, otherwise.
+        shadow-bias={-0.0016}
+        shadow-normalBias={0.03}
       />
       {/* The sky's own light, from above, so canopies read as canopies. */}
       <hemisphereLight

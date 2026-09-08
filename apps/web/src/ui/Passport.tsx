@@ -86,7 +86,7 @@ export function Passport({
           <div style={{ fontFamily: FONT_STACK.mono, fontSize: px(10), letterSpacing: '0.3em', color: TOKENS.inkSoft }}>
             SOME MORE · CAMPGROUND REGISTRATION
           </div>
-          <h1 style={{ fontFamily: FONT_STACK.serif, fontSize: px(30), margin: `${px(6)} 0 0`, color: TOKENS.ink, letterSpacing: '0.02em' }}>
+          <h1 className="sm-stamp" style={{ fontSize: px(21), margin: `${px(6)} 0 0` }}>
             Campfire Passport
           </h1>
           <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(15), color: TOKENS.inkSoft, marginTop: px(4) }}>

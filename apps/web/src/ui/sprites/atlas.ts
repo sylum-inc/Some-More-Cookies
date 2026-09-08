@@ -7,9 +7,39 @@
 
 export const SPRITE_CELL = 32;
 export const SPRITE_SHEET = 'sprites/atlas.png';
-export const SPRITE_SHEET_SIZE = { width: 256, height: 128 } as const;
+export const SPRITE_SHEET_SIZE = { width: 256, height: 352 } as const;
+
+/** The same bezel again as a contiguous 3x3, for CSS `border-image`. */
+export const SPRITE_FRAME = 'sprites/frame.png';
+export const SPRITE_FRAME_SLICE = 13;
 
 export type SpriteName =
+  | 'bezel-bl'
+  | 'bezel-bottom'
+  | 'bezel-br'
+  | 'bezel-left'
+  | 'bezel-right'
+  | 'bezel-tl'
+  | 'bezel-top'
+  | 'bezel-tr'
+  | 'bite-e'
+  | 'bite-n'
+  | 'bite-ne'
+  | 'bite-nw'
+  | 'bite-s'
+  | 'bite-se'
+  | 'bite-sw'
+  | 'bite-w'
+  | 'life-bird'
+  | 'life-deer'
+  | 'life-fish'
+  | 'life-fox'
+  | 'life-moth'
+  | 'life-mouse'
+  | 'life-owl'
+  | 'life-squirrel'
+  | 'marker-focus'
+  | 'marker-reach'
   | 'obj-binoculars'
   | 'obj-camera'
   | 'obj-chocolate'
@@ -26,6 +56,40 @@ export type SpriteName =
   | 'obj-stone'
   | 'obj-tinder'
   | 'obj-torch'
+  | 'plate-idle'
+  | 'plate-press'
+  | 'plate-round-idle'
+  | 'plate-round-press'
+  | 'state-bite-crumbs'
+  | 'state-bite-half'
+  | 'state-bite-nibbled'
+  | 'state-bite-whole'
+  | 'state-fire-embers'
+  | 'state-fire-good'
+  | 'state-fire-low'
+  | 'state-fire-out'
+  | 'state-roast-browning'
+  | 'state-roast-burning'
+  | 'state-roast-cold'
+  | 'state-roast-scorching'
+  | 'state-roast-toasting'
+  | 'state-roast-warm'
+  | 'state-time-dawn'
+  | 'state-time-day'
+  | 'state-time-dusk'
+  | 'state-time-night'
+  | 'state-weather-clear'
+  | 'state-weather-cloud'
+  | 'state-weather-fog'
+  | 'state-weather-rain'
+  | 'state-weather-snow'
+  | 'state-weather-storm'
+  | 'trace-ash'
+  | 'trace-cone'
+  | 'trace-feather'
+  | 'trace-prints'
+  | 'trace-scat'
+  | 'trace-scratch'
   | 'verb-add-log'
   | 'verb-bank'
   | 'verb-blow'
@@ -40,32 +104,92 @@ export type SpriteName =
   | 'verb-take';
 
 export const SPRITES: Record<SpriteName, { readonly x: number; readonly y: number }> = {
-  'obj-binoculars': { x: 0, y: 0 },
-  'obj-camera': { x: 32, y: 0 },
-  'obj-chocolate': { x: 64, y: 0 },
-  'obj-graham': { x: 96, y: 0 },
-  'obj-kindling': { x: 128, y: 0 },
-  'obj-log': { x: 160, y: 0 },
-  'obj-machine': { x: 192, y: 0 },
-  'obj-marshmallow': { x: 224, y: 0 },
-  'obj-plate': { x: 0, y: 32 },
-  'obj-radio': { x: 32, y: 32 },
-  'obj-rod': { x: 64, y: 32 },
-  'obj-sandwich': { x: 96, y: 32 },
-  'obj-seat': { x: 128, y: 32 },
-  'obj-stone': { x: 160, y: 32 },
-  'obj-tinder': { x: 192, y: 32 },
-  'obj-torch': { x: 224, y: 32 },
-  'verb-add-log': { x: 0, y: 64 },
-  'verb-bank': { x: 32, y: 64 },
-  'verb-blow': { x: 64, y: 64 },
-  'verb-leave-out': { x: 96, y: 64 },
-  'verb-look': { x: 128, y: 64 },
-  'verb-photo': { x: 160, y: 64 },
-  'verb-poke': { x: 192, y: 64 },
-  'verb-rake': { x: 224, y: 64 },
-  'verb-sit': { x: 0, y: 96 },
-  'verb-stand': { x: 32, y: 96 },
-  'verb-strike': { x: 64, y: 96 },
-  'verb-take': { x: 96, y: 96 },
+  'bezel-bl': { x: 0, y: 0 },
+  'bezel-bottom': { x: 32, y: 0 },
+  'bezel-br': { x: 64, y: 0 },
+  'bezel-left': { x: 96, y: 0 },
+  'bezel-right': { x: 128, y: 0 },
+  'bezel-tl': { x: 160, y: 0 },
+  'bezel-top': { x: 192, y: 0 },
+  'bezel-tr': { x: 224, y: 0 },
+  'bite-e': { x: 0, y: 32 },
+  'bite-n': { x: 32, y: 32 },
+  'bite-ne': { x: 64, y: 32 },
+  'bite-nw': { x: 96, y: 32 },
+  'bite-s': { x: 128, y: 32 },
+  'bite-se': { x: 160, y: 32 },
+  'bite-sw': { x: 192, y: 32 },
+  'bite-w': { x: 224, y: 32 },
+  'life-bird': { x: 0, y: 64 },
+  'life-deer': { x: 32, y: 64 },
+  'life-fish': { x: 64, y: 64 },
+  'life-fox': { x: 96, y: 64 },
+  'life-moth': { x: 128, y: 64 },
+  'life-mouse': { x: 160, y: 64 },
+  'life-owl': { x: 192, y: 64 },
+  'life-squirrel': { x: 224, y: 64 },
+  'marker-focus': { x: 0, y: 96 },
+  'marker-reach': { x: 32, y: 96 },
+  'obj-binoculars': { x: 64, y: 96 },
+  'obj-camera': { x: 96, y: 96 },
+  'obj-chocolate': { x: 128, y: 96 },
+  'obj-graham': { x: 160, y: 96 },
+  'obj-kindling': { x: 192, y: 96 },
+  'obj-log': { x: 224, y: 96 },
+  'obj-machine': { x: 0, y: 128 },
+  'obj-marshmallow': { x: 32, y: 128 },
+  'obj-plate': { x: 64, y: 128 },
+  'obj-radio': { x: 96, y: 128 },
+  'obj-rod': { x: 128, y: 128 },
+  'obj-sandwich': { x: 160, y: 128 },
+  'obj-seat': { x: 192, y: 128 },
+  'obj-stone': { x: 224, y: 128 },
+  'obj-tinder': { x: 0, y: 160 },
+  'obj-torch': { x: 32, y: 160 },
+  'plate-idle': { x: 64, y: 160 },
+  'plate-press': { x: 96, y: 160 },
+  'plate-round-idle': { x: 128, y: 160 },
+  'plate-round-press': { x: 160, y: 160 },
+  'state-bite-crumbs': { x: 192, y: 160 },
+  'state-bite-half': { x: 224, y: 160 },
+  'state-bite-nibbled': { x: 0, y: 192 },
+  'state-bite-whole': { x: 32, y: 192 },
+  'state-fire-embers': { x: 64, y: 192 },
+  'state-fire-good': { x: 96, y: 192 },
+  'state-fire-low': { x: 128, y: 192 },
+  'state-fire-out': { x: 160, y: 192 },
+  'state-roast-browning': { x: 192, y: 192 },
+  'state-roast-burning': { x: 224, y: 192 },
+  'state-roast-cold': { x: 0, y: 224 },
+  'state-roast-scorching': { x: 32, y: 224 },
+  'state-roast-toasting': { x: 64, y: 224 },
+  'state-roast-warm': { x: 96, y: 224 },
+  'state-time-dawn': { x: 128, y: 224 },
+  'state-time-day': { x: 160, y: 224 },
+  'state-time-dusk': { x: 192, y: 224 },
+  'state-time-night': { x: 224, y: 224 },
+  'state-weather-clear': { x: 0, y: 256 },
+  'state-weather-cloud': { x: 32, y: 256 },
+  'state-weather-fog': { x: 64, y: 256 },
+  'state-weather-rain': { x: 96, y: 256 },
+  'state-weather-snow': { x: 128, y: 256 },
+  'state-weather-storm': { x: 160, y: 256 },
+  'trace-ash': { x: 192, y: 256 },
+  'trace-cone': { x: 224, y: 256 },
+  'trace-feather': { x: 0, y: 288 },
+  'trace-prints': { x: 32, y: 288 },
+  'trace-scat': { x: 64, y: 288 },
+  'trace-scratch': { x: 96, y: 288 },
+  'verb-add-log': { x: 128, y: 288 },
+  'verb-bank': { x: 160, y: 288 },
+  'verb-blow': { x: 192, y: 288 },
+  'verb-leave-out': { x: 224, y: 288 },
+  'verb-look': { x: 0, y: 320 },
+  'verb-photo': { x: 32, y: 320 },
+  'verb-poke': { x: 64, y: 320 },
+  'verb-rake': { x: 96, y: 320 },
+  'verb-sit': { x: 128, y: 320 },
+  'verb-stand': { x: 160, y: 320 },
+  'verb-strike': { x: 192, y: 320 },
+  'verb-take': { x: 224, y: 320 },
 };

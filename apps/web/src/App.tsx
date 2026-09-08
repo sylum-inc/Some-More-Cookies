@@ -126,6 +126,9 @@ import { CampfirePanel } from './ui/Campfire.js';
 import { PwaNotices } from './pwa/PwaNotices.js';
 import { pwa } from './pwa/register.js';
 import { useViewportSize, useWakeLock } from './pwa/viewport.js';
+import { Frame, MotionVignette } from './ui/Frame.js';
+import { Sprite } from './ui/Sprite.js';
+import { biteSprite } from './ui/iconography.js';
 import { ThumbStick } from './ui/ThumbStick.js';
 
 export interface AppProps {
@@ -2203,6 +2206,19 @@ export function App({ store }: AppProps): React.ReactElement {
         )}
       </Canvas>
 
+      {/*
+        The device, over the world and under the HUD.
+
+        Both are furniture rather than channels: nothing here is a control and
+        nothing here says anything, so they carry no label, take no pointer,
+        and sit between the canvas and the readable layer. The bezel is off
+        under high contrast, where a brushed-steel gradient round the edge is
+        exactly the sort of decoration that eats the contrast budget the
+        setting exists to protect.
+      */}
+      <MotionVignette />
+      <Frame width={viewport.width} enabled={!state.accessibility.highContrast} />
+
       <Hud
         ritual={ritual}
         reach={reach}
@@ -2628,13 +2644,17 @@ function BiteRing({
     return (
       <div
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: `${8 * textScale}px`,
           fontFamily: FONT_STACK.hand,
           fontSize: `${18 * textScale}px`,
           color: 'rgba(232,224,205,0.85)',
           whiteSpace: 'nowrap',
         }}
       >
-        Nothing left but crumbs.
+        <Sprite name="state-bite-crumbs" scale={1} />
+        <span>Nothing left but crumbs.</span>
       </div>
     );
   }
@@ -2686,23 +2706,22 @@ function BiteRing({
             border: 'none',
           }}
         >
-          <span
-            aria-hidden
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: `${26 * textScale}px`,
-              height: `${26 * textScale}px`,
-              borderRadius: '50%',
-              background: 'rgba(8,10,14,0.55)',
-              border: '1px solid rgba(232,224,205,0.3)',
-              color: 'rgba(232,224,205,0.8)',
-              fontSize: `${11 * textScale}px`,
-            }}
-          >
-            {i + 1}
-          </span>
+          {/*
+            A picture of the bite, not a number.
+
+            These were circles containing the numerals 1 to 8. Eight numbered
+            dots in a row across the bottom of the screen is a progress counter
+            however it is meant, and §5.3 forbids a counter reaching a player —
+            it also looked exactly like a debug control, which is what an art
+            review called it. Each target is now the sandwich seen from above
+            with the bite taken out of the side that target actually aims at,
+            so the row says *where* rather than *how many*, and a thumb can
+            find the far side without counting round to it.
+
+            The name is still on the button, where a screen reader and a
+            keyboard player need it and where it costs the picture nothing.
+          */}
+          <Sprite name={biteSprite(i)} scale={1} />
         </button>
       ))}
     </div>

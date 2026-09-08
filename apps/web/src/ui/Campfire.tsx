@@ -84,7 +84,7 @@ export function CampfirePanel({ fire, textScale, highContrast, onClose }: Campfi
           ×
         </button>
 
-        <h2 style={{ fontFamily: FONT_STACK.serif, fontSize: font(19), margin: 0, color: ink, letterSpacing: '0.06em' }}>
+        <h2 className="sm-stamp" style={{ fontSize: font(14), margin: 0 }}>
           At the fire
         </h2>
         <p style={{ fontFamily: FONT_STACK.mono, fontSize: font(10.5), color: soft, margin: `${font(4)}px 0 ${font(12)}px` }}>

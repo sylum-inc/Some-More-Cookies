@@ -30,8 +30,20 @@
  */
 
 export interface SkyLook {
-  /** Scene background, as a hex int. */
+  /** Scene background, as a hex int. The colour overhead. */
   readonly sky: number;
+  /**
+   * The colour at the horizon, which is a different colour from the zenith at
+   * every hour that is worth looking at.
+   *
+   * A single flat background is why an art review found midday and dusk
+   * indistinguishable: a sunset is not an orange *sky*, it is an orange band
+   * under an indigo one, and with one colour for the whole dome there is
+   * nowhere for that band to be. The dome mesh interpolates between this and
+   * `sky`; the scene background stays `sky` so anything the dome does not
+   * cover still agrees with it.
+   */
+  readonly horizon: number;
   /** Fog colour. Tracks the sky, or the horizon reads as a seam. */
   readonly fog: number;
   /** Ambient fill colour and how much of it. */
@@ -74,6 +86,7 @@ interface Stop {
   /** Sun altitude in degrees. */
   readonly at: number;
   readonly sky: number;
+  readonly horizon: number;
   readonly fog: number;
   readonly ambient: number;
   readonly ambientIntensity: number;
@@ -92,6 +105,7 @@ interface Stop {
 const NIGHT: Stop = {
   at: -18,
   sky: 0x070a0f,
+  horizon: 0x0c1119,
   fog: 0x0b1016,
   ambient: 0x33445f,
   ambientIntensity: 1,
@@ -131,6 +145,8 @@ const STOPS: readonly Stop[] = [
     // Nautical twilight: the first hint that the east is not as black as the west.
     at: -12,
     sky: 0x0d1420,
+    // The east is not as black as the west, and this is where that shows.
+    horizon: 0x18202e,
     fog: 0x111a26,
     ambient: 0x3a4a66,
     ambientIntensity: 1.05,
@@ -144,6 +160,8 @@ const STOPS: readonly Stop[] = [
     // Civil twilight. Blue hour proper — the sky is bright and the ground is not.
     at: -6,
     sky: 0x18243c,
+    // Blue hour: the band above the trees is the brightest thing in the sky.
+    horizon: 0x36405e,
     fog: 0x1f2a42,
     ambient: 0x4a5c80,
     ambientIntensity: 1.25,
@@ -157,6 +175,16 @@ const STOPS: readonly Stop[] = [
     // The sun is on the horizon. Warmest light of the whole cycle.
     at: 0,
     sky: 0x3a3850,
+    /*
+     * Sunrise and sunset, and the one saturated colour in the whole ramp.
+     *
+     * Everything else here is deliberately desaturated, because ordered
+     * dithering at 320x240 bands a flat saturated field. A horizon is the
+     * exception and has to be: it is a narrow strip with a hard gradient
+     * across it, which is the one shape dithering flatters rather than
+     * ruins, and without it there is no dusk in the build at all.
+     */
+    horizon: 0xd4703a,
     fog: 0x453f4a,
     ambient: 0x525068,
     ambientIntensity: 1.32,
@@ -170,6 +198,8 @@ const STOPS: readonly Stop[] = [
     // Golden. Long shadows, orange on the trunks.
     at: 6,
     sky: 0x6b7590,
+    // Golden hour: still warm at the bottom, cooling fast overhead.
+    horizon: 0xc99a6e,
     fog: 0x7d7a78,
     ambient: 0x74809c,
     ambientIntensity: 1.6,
@@ -183,6 +213,7 @@ const STOPS: readonly Stop[] = [
     // Morning. The colour has come out of the light and gone into the sky.
     at: 18,
     sky: 0x8ba2c0,
+    horizon: 0xbcc6cf,
     fog: 0xb2bfcc,
     ambient: 0x9fb2cc,
     ambientIntensity: 2.1,
@@ -196,6 +227,8 @@ const STOPS: readonly Stop[] = [
     // Full day.
     at: 45,
     sky: 0x92a9cd,
+    // Noon: pale and hazy at the bottom, which is what distance does.
+    horizon: 0xcdd6de,
     fog: 0xc2ceda,
     ambient: 0xa8bcd6,
     ambientIntensity: 2.4,
@@ -236,6 +269,10 @@ export function skyLook(
   const flat = mix(blended.sky, blended.fog, cloud * 0.55);
   return {
     sky: flat,
+    // Cloud kills a sunset before it kills anything else: an overcast horizon
+    // is the same grey as the zenith, which is exactly why overcast days have
+    // no dusk to speak of.
+    horizon: mix(blended.horizon, flat, cloud * 0.82),
     fog: mix(blended.fog, flat, cloud * 0.35),
     ambient: blended.ambient,
     // A grey lid is a huge diffuse source: less direct light, slightly more fill.
@@ -272,6 +309,7 @@ function sample(stops: readonly Stop[], altitude: number): Stop {
     return {
       at: altitude,
       sky: mix(a.sky, b.sky, t),
+      horizon: mix(a.horizon, b.horizon, t),
       fog: mix(a.fog, b.fog, t),
       ambient: mix(a.ambient, b.ambient, t),
       ambientIntensity: lerp(a.ambientIntensity, b.ambientIntensity, t),

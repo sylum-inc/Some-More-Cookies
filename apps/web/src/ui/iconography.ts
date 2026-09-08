@@ -113,3 +113,67 @@ export function lifeSprite(speciesId: string): SpriteName {
   if (id.includes('fish') || id.includes('trout')) return 'life-fish';
   return 'life-bird';
 }
+
+/**
+ * The marshmallow itself, as one of six pictures.
+ *
+ * The heat readout used to be the word "browning" over an amber bar that
+ * filled — a meter, forbidden by §5.3, and colour doing the work twice while
+ * §12 asks for a channel that is not colour. A picture of the marshmallow is
+ * how a person reads doneness at an actual fire, so it is how they read it
+ * here; the word stays underneath as the channel that survives a colourblind
+ * player and a screen reader alike.
+ *
+ * `burning` overrides the band, because a marshmallow that has caught is not a
+ * hotter marshmallow — it is a different event, and it is the one the player
+ * has about two seconds to act on.
+ */
+export function roastSprite(band: string, burning = false): SpriteName {
+  if (burning) return 'state-roast-burning';
+  switch (band) {
+    case 'warm':
+      return 'state-roast-warm';
+    case 'toasting':
+      return 'state-roast-toasting';
+    case 'browning':
+      return 'state-roast-browning';
+    case 'scorching':
+      return 'state-roast-scorching';
+    case 'burning':
+      return 'state-roast-burning';
+    default:
+      return 'state-roast-cold';
+  }
+}
+
+/**
+ * Which side of the sandwich a bite target is, as a picture of that bite.
+ *
+ * The eight targets used to be circles containing the numerals 1 to 8, which
+ * is a counter on screen and reads as a progress bar broken into pieces. Each
+ * is now the sandwich seen from above with the bite taken out of the direction
+ * the target actually aims at, so the row communicates *where* rather than
+ * *how many* — and a thumb can find the far side without counting to six.
+ */
+const BITE_SIDES: readonly SpriteName[] = [
+  'bite-n',
+  'bite-ne',
+  'bite-e',
+  'bite-se',
+  'bite-s',
+  'bite-sw',
+  'bite-w',
+  'bite-nw',
+];
+
+export function biteSprite(index: number): SpriteName {
+  return BITE_SIDES[((index % BITE_SIDES.length) + BITE_SIDES.length) % BITE_SIDES.length]!;
+}
+
+/** How much of the s'more is left, read off the s'more and not off a count. */
+export function sandwichSprite(bites: number, finished: boolean): SpriteName {
+  if (finished) return 'state-bite-crumbs';
+  if (bites >= 5) return 'state-bite-half';
+  if (bites >= 1) return 'state-bite-nibbled';
+  return 'state-bite-whole';
+}

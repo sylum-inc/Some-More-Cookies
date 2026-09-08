@@ -57,7 +57,7 @@ export function Settings({
           ×
         </button>
 
-        <h1 style={{ fontFamily: FONT_STACK.serif, fontSize: px(24), margin: `0 0 ${px(18)}`, color: TOKENS.ink }}>
+        <h1 className="sm-stamp" style={{ fontSize: px(17), margin: `0 0 ${px(18)}` }}>
           Settings
         </h1>
 

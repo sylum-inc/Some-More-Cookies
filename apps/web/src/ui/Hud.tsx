@@ -8,6 +8,8 @@
  */
 
 import type { RitualStage, RitualState } from '@somemore/sim';
+import { Sprite, type SpriteName } from './Sprite.js';
+import { REACH_SPRITES, fireSprite, roastSprite, timeSprite, weatherSprite } from './iconography.js';
 import {
   describeArmful,
   describeSeat,
@@ -19,7 +21,7 @@ import {
   woodType,
   MAX_ARMFUL,
 } from '@somemore/sim';
-import { TOKENS, FONT_STACK } from './styles.js';
+import { SURFACE, TOKENS, FONT_STACK, machineText, plate } from './styles.js';
 
 export interface HudProps {
   ritual: RitualState;
@@ -76,6 +78,21 @@ export interface HudProps {
   onLeaveSandwich: () => void;
   onPhoto: () => void;
   onOpenTerminal: () => void;
+}
+
+/**
+ * What the fire is doing, in words, for the accessible name on its glyph.
+ *
+ * The picture is for eyes; a screen reader gets the sentence. Deliberately the
+ * same four states the sprite has and no more precision than that — a number
+ * here would be the §5.3 rule broken through the accessibility layer, which is
+ * exactly the sort of back door that gets missed.
+ */
+export function describeFireState(fire: { flame: number; emberMass: number }): string {
+  if (fire.flame > 0.35) return 'burning well';
+  if (fire.flame > 0.08) return 'low';
+  if (fire.emberMass > 0.02) return 'down to embers';
+  return 'out';
 }
 
 /** A quiet, diegetic line. Never an objective, never a checklist. */
@@ -430,11 +447,12 @@ export function Hud(props: HudProps): React.ReactElement {
   // Non-numeric heat reading — heat must be legible without relying on colour
   // alone (spec §12).
   let heatLabel = '';
-  let heatFill = 0;
+  let heatBandName = 'cold';
   if (stage === 'roasting') {
     const sample = sampleHeat(ritual.fire, ritual.marshmallow.position);
     const total = sample.radiant + sample.convective;
     const band = heatBand(total);
+    heatBandName = band;
     heatLabel = {
       cold: 'cold',
       warm: 'warm',
@@ -443,10 +461,7 @@ export function Hud(props: HudProps): React.ReactElement {
       scorching: 'scorching',
       burning: 'burning',
     }[band];
-    heatFill = Math.min(1, total / 34);
   }
-
-  const panelBg = highContrast ? 'rgba(0,0,0,0.85)' : 'rgba(8,10,14,0.55)';
 
   /*
    * What is offered, filtered by the stage.
@@ -485,26 +500,38 @@ export function Hud(props: HudProps): React.ReactElement {
    * while they apply: "Lie back" once you are sitting, the binoculars once
    * you are lying back, the beam only while the torch is in hand.
    */
-  const acts: { label: string; onClick: (() => void) | undefined; testId: string }[] = [];
+  const acts: {
+    label: string;
+    icon: SpriteName;
+    onClick: (() => void) | undefined;
+    testId: string;
+  }[] = [];
   if (props.exploring) {
     const reclined = ritual.stargazing.posture === 'reclined';
-    if (props.seated && !reclined) acts.push({ label: 'Lie back', onClick: props.onLieBack, testId: 'act-lie-back' });
+    if (props.seated && !reclined) acts.push({ label: 'Lie back', icon: 'verb-sit', onClick: props.onLieBack, testId: 'act-lie-back' });
     if (reclined) {
       acts.push({
         label: ritual.stargazing.binoculars ? 'Lower the binoculars' : 'Raise the binoculars',
+        icon: 'obj-binoculars',
         onClick: props.onBinoculars,
         testId: 'act-binoculars',
       });
-      acts.push({ label: 'Sit up', onClick: props.onLieBack, testId: 'act-sit-up' });
+      acts.push({ label: 'Sit up', icon: 'verb-stand', onClick: props.onLieBack, testId: 'act-sit-up' });
     }
     if (ritual.torch.held && ritual.torch.on) {
       acts.push({
         label: ritual.torch.focus > 0.5 ? 'Widen the beam' : 'Narrow the beam',
+        icon: 'obj-torch',
         onClick: props.onTorchFocus,
         testId: 'act-torch-focus',
       });
     }
-    acts.push({ label: props.survey === null ? 'What is around me?' : 'Enough', onClick: props.onSurvey, testId: 'act-survey' });
+    acts.push({
+      label: props.survey === null ? 'What is around me?' : 'Enough',
+      icon: 'verb-look',
+      onClick: props.onSurvey,
+      testId: 'act-survey',
+    });
   }
   const actsRow =
     acts.length > 0 ? (
@@ -518,48 +545,53 @@ export function Hud(props: HudProps): React.ReactElement {
         }}
       >
         {acts.map((act) => (
-          <button
+          <CornerButton
             key={act.testId}
-            className="sm-focus"
-            data-testid={act.testId}
-            onClick={act.onClick}
-            style={{
-              background: 'rgba(8,10,14,0.55)',
-              color: 'rgba(240,232,214,0.9)',
-              border: '1px solid rgba(240,232,214,0.32)',
-              padding: `${6 * textScale}px ${12 * textScale}px`,
-              fontSize: scale(11.5),
-              letterSpacing: '0.08em',
-              borderRadius: 2,
-            }}
-          >
-            {act.label}
-          </button>
+            testId={act.testId}
+            label={act.label}
+            icon={act.icon}
+            onClick={act.onClick ?? (() => {})}
+            textScale={textScale}
+            highContrast={highContrast}
+          />
         ))}
       </div>
     ) : null;
 
+  /*
+   * What is in reach, as the thing itself.
+   *
+   * The largest text on screen used to be this — a whole phrase, "Look closely
+   * at the tin in the creek", in a box under the thumb. It is a picture of the
+   * thing now, on the biggest plate in the frame, with the phrase carried on
+   * `aria-label` so the screen reader and the keyboard hint are unchanged.
+   *
+   * A picture of the *noun* rather than of the verb: an icon of a log is
+   * unambiguous, where an icon of "take" needs a caption to say what is being
+   * taken. The one exception is the fire, whose verb is the interesting part.
+   *
+   * The amber ring is the only place that colour appears in the HUD. It is
+   * what the world wants you to look at, and an accent that shows up anywhere
+   * else points at nothing.
+   */
   const reachButton =
     props.exploring && reach !== null ? (
       <button
         className="sm-focus"
         data-testid="reach"
         onClick={props.onUse}
+        aria-label={reachLabel(reach.id, ritual, props.seated ?? false, props.inspecting ?? null)}
         style={{
-          /*
-           * The one thing on screen that is bigger than everything else,
-           * because it is the only contextual verb and it lives under a
-           * thumb. Taller than the corner buttons rather than wider: the
-           * label can be a whole phrase — "Look closely at the tin in the
-           * creek" — and a button that grows sideways with its own text
-           * walks off a phone.
-           */
-          background: 'rgba(20,13,6,0.82)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: scale(9),
+          background: 'linear-gradient(180deg, rgba(46,32,14,0.88), rgba(16,11,6,0.9))',
           color: 'rgba(248,238,218,0.98)',
           border: `1px solid ${TOKENS.amber}`,
-          boxShadow: '0 2px 10px rgba(0,0,0,0.55)',
-          padding: `${13 * textScale}px ${18 * textScale}px`,
-          fontSize: scale(13.5),
+          boxShadow:
+            'inset 1px 1px 0 rgba(255,210,74,0.22), inset -1px -1px 0 rgba(0,0,0,0.6), 0 2px 12px rgba(0,0,0,0.55)',
+          padding: `${9 * textScale}px ${12 * textScale}px`,
+          fontSize: scale(12.5),
           letterSpacing: '0.08em',
           borderRadius: 3,
           textAlign: 'right',
@@ -567,8 +599,49 @@ export function Hud(props: HudProps): React.ReactElement {
           pointerEvents: 'auto',
         }}
       >
-        {reachLabel(reach.id, ritual, props.seated ?? false, props.inspecting ?? null)}
+        <Sprite name={REACH_SPRITES[reach.id] ?? 'verb-take'} scale={2} />
+        {highContrast ? (
+          <span>{reachLabel(reach.id, ritual, props.seated ?? false, props.inspecting ?? null)}</span>
+        ) : null}
       </button>
+    ) : null;
+
+  /*
+   * What the world is doing, at a glance, in three pictures.
+   *
+   * The fire, the hour and the sky — the three things a person sitting at a
+   * campsite actually keeps half an eye on, and the three the simulation has
+   * always known and never shown. This is the "rich context" a handheld HUD is
+   * for, and it is deliberately *pictures* rather than readouts: §5.3 forbids
+   * anything a player can read as a score, and a bar that empties is a score
+   * however it is drawn. Four states of fire, drawn as a fire looks, read the
+   * way the actual pit reads.
+   *
+   * Hidden during the close work — kneeling at the assembly table, nobody
+   * needs to be told what the weather is doing.
+   */
+  const statusCluster =
+    props.exploring && stage !== 'arriving' ? (
+      <div
+        data-testid="status-cluster"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: scale(2),
+          padding: `${scale(3)} ${scale(5)}`,
+          background: highContrast ? '#000' : 'linear-gradient(180deg, rgba(30,36,44,0.72), rgba(10,13,18,0.78))',
+          border: highContrast ? '2px solid #fff' : '1px solid rgba(166,179,194,0.28)',
+          boxShadow: highContrast
+            ? 'none'
+            : 'inset 1px 1px 0 rgba(200,215,235,0.16), inset -1px -1px 0 rgba(0,0,0,0.5)',
+          borderRadius: 3,
+          pointerEvents: 'none',
+        }}
+      >
+        <Sprite name={fireSprite(ritual.fire)} scale={1} title={`The fire: ${describeFireState(ritual.fire)}`} />
+        <Sprite name={timeSprite(ritual.window)} scale={1} title={`Time: ${ritual.window.replace('-', ' ')}`} />
+        <Sprite name={weatherSprite(ritual.weather.kind)} scale={1} title={`Sky: ${ritual.weather.kind.replace('-', ' ')}`} />
+      </div>
     ) : null;
 
   const noticeBox =
@@ -578,15 +651,7 @@ export function Hud(props: HudProps): React.ReactElement {
         aria-live="polite"
         aria-atomic="true"
         data-testid="notice"
-        style={{
-          background: 'rgba(28,18,10,0.88)',
-          border: `1px solid ${TOKENS.amber}`,
-          color: '#f3e9d8',
-          padding: `${scale(7)} ${scale(14)}`,
-          fontSize: scale(12),
-          borderRadius: 3,
-          textAlign: 'left',
-        }}
+        style={plate(textScale, highContrast)}
       >
         {props.notice}
       </div>
@@ -641,12 +706,19 @@ export function Hud(props: HudProps): React.ReactElement {
             display: 'flex',
             gap: 8,
             padding: 12,
-            justifyContent: 'flex-end',
+            // The status cluster sits opposite the two corner affordances, so
+            // the top band reads left-to-right as "what the world is doing"
+            // then "what you can open".
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
             pointerEvents: 'auto',
           }}
         >
-          <CornerButton label="Passport" onClick={props.onOpenPassport} textScale={textScale} highContrast={highContrast} />
-          <CornerButton label="Settings" onClick={props.onOpenSettings} textScale={textScale} highContrast={highContrast} />
+          {statusCluster ?? <span />}
+          <div style={{ display: 'flex', gap: 8 }}>
+          <CornerButton label="Passport" icon="obj-camera" onClick={props.onOpenPassport} textScale={textScale} highContrast={highContrast} />
+          <CornerButton label="Settings" icon="verb-look" onClick={props.onOpenSettings} textScale={textScale} highContrast={highContrast} />
+          </div>
         </div>
 
         {/*
@@ -674,15 +746,9 @@ export function Hud(props: HudProps): React.ReactElement {
               aria-atomic="true"
               data-testid="survey"
               style={{
+                ...plate(textScale, highContrast),
                 maxWidth: 'min(46ch, 78vw)',
-                background: 'rgba(10,9,8,0.86)',
-                border: `1px solid ${TOKENS.inkSoft}`,
-                borderRadius: 3,
-                padding: `${scale(10)} ${scale(14)}`,
-                fontSize: scale(12),
                 lineHeight: 1.65,
-                color: '#f0e9d8',
-                textAlign: 'left',
                 pointerEvents: 'none',
               }}
             >
@@ -746,14 +812,7 @@ export function Hud(props: HudProps): React.ReactElement {
             aria-live="polite"
             aria-atomic="true"
             data-testid="subtitle"
-            style={{
-              background: 'rgba(0,0,0,0.72)',
-              color: '#fff',
-              padding: `${scale(6)} ${scale(12)}`,
-              fontSize: scale(13),
-              borderRadius: 2,
-              textAlign: 'left',
-            }}
+            style={{ ...plate(textScale, true), fontSize: scale(13) }}
           >
             {props.subtitle}
           </div>
@@ -761,35 +820,31 @@ export function Hud(props: HudProps): React.ReactElement {
         {props.exploring && activityLine(ritual, props.grip) && (
           <div
             style={{
-              background: panelBg,
-              padding: `${scale(7)} ${scale(14)}`,
-              borderRadius: 2,
-              textAlign: 'left',
+              ...plate(textScale, highContrast),
               alignSelf: 'stretch',
+              /*
+               * The throw's charge, as the plate's own stamped rule warming
+               * rather than as a bar filling.
+               *
+               * It used to be a four-pixel track with an amber fill running
+               * across it, which is a meter, and §5.3 does not care how small
+               * a meter is. What a bar was doing here was answering "how hard
+               * am I about to throw this" — and `describeGrip` already answers
+               * that in words, on the line directly above, which is also the
+               * non-colour channel §12 requires. So the colour is free to be
+               * only a colour: the rule runs from stamped red at rest to amber
+               * at full wind-up, and quantifies nothing.
+               */
+              borderLeftColor:
+                ritual.skipping.held && props.grip
+                  ? mixStamp(props.grip.power)
+                  : undefined,
+              borderLeftWidth: ritual.skipping.held && props.grip ? 5 : undefined,
             }}
           >
-            <div style={{ fontSize: scale(11), letterSpacing: '0.1em', opacity: 0.82 }}>
+            <div style={{ ...machineText(textScale), color: SURFACE.ink }}>
               {activityLine(ritual, props.grip)}
             </div>
-            {ritual.skipping.held && props.grip && (
-              <div
-                style={{
-                  height: 4,
-                  background: 'rgba(255,255,255,0.16)',
-                  marginTop: 6,
-                  borderRadius: 2,
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${props.grip.power * 100}%`,
-                    background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
-                  }}
-                />
-              </div>
-            )}
             {ritual.fishing.phase === 'nibble' && (
               <div style={{ fontSize: scale(11), marginTop: 5, color: TOKENS.ember, fontWeight: 600 }}>now</div>
             )}
@@ -814,29 +869,32 @@ export function Hud(props: HudProps): React.ReactElement {
               aria-atomic="true"
               data-testid="heat"
               style={{
-                background: panelBg,
-                padding: `${scale(8)} ${scale(14)}`,
-                borderRadius: 2,
-                textAlign: 'left',
-                minWidth: 160,
+                ...plate(textScale, highContrast),
+                display: 'flex',
+                alignItems: 'center',
+                gap: scale(10),
               }}
             >
-              <div style={{ fontSize: scale(11), letterSpacing: '0.16em', textTransform: 'uppercase', opacity: 0.75 }}>
-                {heatLabel}
+              {/*
+                The marshmallow, and the word for what it is doing.
+
+                This was a fill bar with "BURNING" over it — a meter, which
+                §5.3 forbids outright, and the one piece of state in the game a
+                HUD would most naturally turn into one. The picture is how the
+                player reads doneness at the actual fire: they look at the
+                marshmallow. So they look at the marshmallow here too, and the
+                word underneath is the non-colour channel §12 requires, which
+                the bar never was — an amber fill is colour twice over.
+              */}
+              <Sprite name={roastSprite(heatBandName, ritual.marshmallow.burning)} scale={2} />
+              <div>
+                <div style={machineText(textScale)}>{heatLabel}</div>
+                {ritual.marshmallow.burning && (
+                  <div style={{ fontSize: scale(11), marginTop: 3, color: TOKENS.ember, fontWeight: 600 }}>
+                    on fire
+                  </div>
+                )}
               </div>
-              <div style={{ height: 4, background: 'rgba(255,255,255,0.16)', marginTop: 6, borderRadius: 2, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${heatFill * 100}%`,
-                    background: `linear-gradient(90deg, ${TOKENS.amber}, ${TOKENS.ember})`,
-                    transition: 'width 120ms linear',
-                  }}
-                />
-              </div>
-              {ritual.marshmallow.burning && (
-                <div style={{ fontSize: scale(11), marginTop: 6, color: TOKENS.ember, fontWeight: 600 }}>on fire</div>
-              )}
             </div>
             {/* Kept mounted rather than conditionally rendered on `controls`,
                 because a virtual cursor that never fires a keydown would
@@ -962,14 +1020,14 @@ export function Hud(props: HudProps): React.ReactElement {
             }}
           >
             {(stage === 'eating' || stage === 'after') && ritual.sandwich && (
-              <CornerButton label="Make this real" onClick={props.onOpenTerminal} textScale={textScale} highContrast={highContrast} accent />
+              <CornerButton label="Make this real" icon="obj-sandwich" onClick={props.onOpenTerminal} textScale={textScale} highContrast={highContrast} accent />
             )}
-            <CornerButton label="Photo" onClick={props.onPhoto} textScale={textScale} highContrast={highContrast} />
+            <CornerButton label="Photo" icon="verb-photo" onClick={props.onPhoto} textScale={textScale} highContrast={highContrast} />
           </div>
         )}
         {stage === 'reveal' && ritual.sandwich && (
           <div style={props.controls === 'keyboard' ? { pointerEvents: 'auto' } : SR_ONLY}>
-            <CornerButton label="Take it" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
+            <CornerButton label="Take it" icon="verb-take" onClick={props.onTakeSandwich} textScale={textScale} highContrast={highContrast} accent />
           </div>
         )}
         {/* The other thing it can be for. Offered only with the s'more in hand
@@ -978,7 +1036,7 @@ export function Hud(props: HudProps): React.ReactElement {
             because eating it is still what most people came for. */}
         {stage === 'eating' && ritual.sandwich && ritual.bite.bites === 0 && ritual.offering === null && (
           <div data-testid="leave-control" style={{ pointerEvents: 'auto' }}>
-            <CornerButton label="Leave it out" onClick={props.onLeaveSandwich} textScale={textScale} highContrast={highContrast} />
+            <CornerButton label="Leave it out" icon="verb-leave-out" onClick={props.onLeaveSandwich} textScale={textScale} highContrast={highContrast} />
           </div>
         )}
         {/* What is within reach. The world offers rather than presenting a
@@ -1096,36 +1154,100 @@ function machineInWords(machine: RitualState['machine']): string {
   }
 }
 
+/**
+ * A control on a bevelled plate, showing a picture rather than a word.
+ *
+ * The HUD used to be seven blocks of system-font text stacked over the
+ * campsite — a lot of reading for something done with a thumb, and a look
+ * belonging to no particular game. So the verbs and nouns became sprites, and
+ * `label` stopped being what is drawn and became what the button is *called*.
+ *
+ * It is still called that. The label goes on `aria-label`, so the screen
+ * reader path and the keyboard path are exactly as they were: nothing here
+ * removes information, it changes which sense carries it. And under high
+ * contrast the word comes back on screen underneath the icon, because an
+ * icon-only control is worse for low vision and §12 is not satisfied by a
+ * screen reader alone.
+ *
+ * The plate is CSS rather than a sprite on purpose. It has to stretch to fit
+ * whatever is on it; a 32-pixel nine-slice would either tile visibly or
+ * scale into mush, and a bevel is four lines of box-shadow.
+ */
 function CornerButton({
   label,
+  icon,
   onClick,
   textScale,
   highContrast,
   accent,
+  size = 'normal',
+  testId,
 }: {
   label: string;
+  icon?: SpriteName;
   onClick: () => void;
   textScale: number;
   highContrast: boolean;
   accent?: boolean;
+  size?: 'normal' | 'large';
+  testId?: string;
 }): React.ReactElement {
+  const scale = size === 'large' ? 2 : 1;
+  const pad = (size === 'large' ? 8 : 6) * textScale;
+  const showWord = highContrast || icon === undefined;
   return (
     <button
       className="sm-focus"
       onClick={onClick}
+      aria-label={label}
+      {...(testId ? { 'data-testid': testId } : {})}
       style={{
-        background: accent ? TOKENS.amber : highContrast ? '#000' : 'rgba(8,10,14,0.6)',
-        color: accent ? '#1a1508' : highContrast ? '#fff' : 'rgba(232,224,205,0.92)',
-        border: highContrast ? '2px solid #fff' : '1px solid rgba(232,224,205,0.24)',
-        padding: `${7 * textScale}px ${13 * textScale}px`,
-        fontSize: `${12 * textScale}px`,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 2,
+        background: accent
+          ? 'linear-gradient(180deg, rgba(255,210,74,0.22), rgba(120,74,10,0.34))'
+          : highContrast
+            ? '#000'
+            : 'linear-gradient(180deg, rgba(46,54,66,0.82), rgba(14,18,24,0.86))',
+        color: accent ? TOKENS.amber : highContrast ? '#fff' : 'rgba(232,224,205,0.92)',
+        // The bevel: a light top-left lip and a dark bottom-right one, which is
+        // the whole of how a plate reads as raised.
+        border: highContrast
+          ? '2px solid #fff'
+          : `1px solid ${accent ? 'rgba(255,210,74,0.55)' : 'rgba(166,179,194,0.34)'}`,
+        boxShadow: highContrast
+          ? 'none'
+          : 'inset 1px 1px 0 rgba(200,215,235,0.20), inset -1px -1px 0 rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.5)',
+        padding: `${pad}px ${pad + (showWord ? 6 : 2) * textScale}px`,
+        fontSize: `${11 * textScale}px`,
         letterSpacing: '0.08em',
         textTransform: 'uppercase',
-        borderRadius: 2,
+        borderRadius: 3,
         fontWeight: accent ? 700 : 500,
+        lineHeight: 1.1,
       }}
     >
-      {label}
+      {icon ? <Sprite name={icon} scale={scale} /> : null}
+      {showWord ? <span>{label}</span> : null}
     </button>
   );
+}
+
+
+/**
+ * The stamped rule, warming with a held throw.
+ *
+ * Between the booklet's stamp red and its amber, and nothing else — no third
+ * colour, no brightness beyond the palette, and above all no length. It says
+ * "you are winding up" and refuses to say how far, which is the difference
+ * between a colour and a gauge.
+ */
+function mixStamp(power: number): string {
+  const t = power < 0 ? 0 : power > 1 ? 1 : power;
+  const from = [0x8f, 0x3b, 0x2a];
+  const to = [0xff, 0xa4, 0x2c];
+  const channel = (i: number) => Math.round(from[i]! + (to[i]! - from[i]!) * t);
+  return `rgb(${channel(0)}, ${channel(1)}, ${channel(2)})`;
 }

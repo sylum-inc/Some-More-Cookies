@@ -656,6 +656,8 @@ export function World({
    */
   const motion = useMemo(() => createCameraMotion(), []);
   const lastFacing = useRef(0);
+  const lastPitch = useRef(0);
+  const lastVignette = useRef(-1);
   const lastEye = useRef<{ x: number; z: number } | null>(null);
   const cameraRight = useMemo(() => new THREE.Vector3(), []);
   const cameraForward = useMemo(() => new THREE.Vector3(), []);
@@ -1128,6 +1130,10 @@ export function World({
       while (turnRate > Math.PI) turnRate -= Math.PI * 2;
       while (turnRate < -Math.PI) turnRate += Math.PI * 2;
       lastFacing.current = player.facing;
+      // The same for the vertical, which whips just as fast on a flick of the
+      // pointer and had no weight at all.
+      const pitchRate = delta > 0 ? (player.pitch - lastPitch.current) / delta : 0;
+      lastPitch.current = player.pitch;
       // The camera's own right and forward, from the look direction. Up is
       // world up: a bob that tilts with the pitch feels like a broken neck.
       cameraForward.set(lookScratch.x, 0, lookScratch.z).normalize();
@@ -1171,12 +1177,35 @@ export function World({
         {
           speed: player.speed,
           turnRate: delta > 0 ? turnRate / delta : 0,
+          pitchRate,
           strafe,
           settled: player.seated || ritual.stargazing.posture === 'reclined',
           scale: settings.reducedMotion ? 0 : 1,
         },
         delta,
       );
+
+      /*
+       * The view trailing the head.
+       *
+       * Rebuilt from angles rather than nudged as a vector, because the lag is
+       * an angle and adding it to the direction would shorten it — and a look
+       * vector that changes length changes the framing as well as the aim.
+       * `lookScratch` is already unit length and already carries the recline,
+       * so the angles come back out of it rather than out of the player, which
+       * is what keeps lying back and looking round from fighting each other.
+       */
+      if (sway.yaw !== 0 || sway.pitch !== 0) {
+        const flat = Math.hypot(lookScratch.x, lookScratch.z);
+        const yaw = Math.atan2(lookScratch.z, lookScratch.x) + sway.yaw;
+        // Clamped short of straight up: at the pole the yaw stops meaning
+        // anything and the horizon spins.
+        const pitch = clampPitch(Math.atan2(lookScratch.y, flat) + sway.pitch);
+        const cos = Math.cos(pitch);
+        lookScratch.x = Math.cos(yaw) * cos;
+        lookScratch.y = Math.sin(pitch);
+        lookScratch.z = Math.sin(yaw) * cos;
+      }
 
       camera.position.set(
         eyeScratch.x + cameraRight.x * sway.right + cameraForward.x * sway.forward,
@@ -1219,9 +1248,14 @@ export function World({
         perspective.fov += (fovTarget + sway.fov - perspective.fov) * (1 - Math.exp(-9 * delta));
         perspective.updateProjectionMatrix();
       }
+      publishVignette(lastVignette, sway.vignette);
       if (onFrame && typeof performance !== 'undefined') onFrame(performance.now() - frameStart);
       return;
     }
+
+    // Composed stages have no body under them, so nothing is squeezing the
+    // frame. Released rather than left where the last playable frame put it.
+    publishVignette(lastVignette, 0);
 
     const pose = poseFor(ritual.stage, arrivalRef.current, ritual.marshmallow.position, anchorBearing.current);
     // Reduced motion damps the ease rather than removing it — an instant cut
@@ -1629,3 +1663,25 @@ export function World({
 }
 
 
+
+/** A neck's limit, and far enough from the pole that the horizon cannot spin. */
+function clampPitch(pitch: number): number {
+  return pitch < -1.45 ? -1.45 : pitch > 1.45 ? 1.45 : pitch;
+}
+
+/**
+ * How hard the frame is closing in, handed to CSS rather than to React.
+ *
+ * This changes every frame, and a `useState` that changes every frame re-runs
+ * the whole HUD sixty times a second to move one gradient. A custom property
+ * on the root element is read by the compositor, costs nothing, and is exactly
+ * as testable — so the write is gated on a visible change and otherwise the
+ * DOM is not touched at all.
+ */
+function publishVignette(last: { current: number }, value: number): void {
+  if (typeof document === 'undefined') return;
+  const next = Math.round(value * 100) / 100;
+  if (next === last.current) return;
+  last.current = next;
+  document.documentElement.style.setProperty('--motion-vignette', String(next));
+}

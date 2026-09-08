@@ -81,9 +81,10 @@ export const SPRITES = [
 
       // Toasted underside — a wood dither over the cream, never a fifth cream.
       const cream = ['cream4', 'cream3', 'cream2'];
-      ditherIn(11, 18, 13, 2, 'wood3', 1, cream);
+      ditherIn(11, 16, 13, 3, 'cream2', 1, ['cream3']);
+      ditherIn(11, 17, 13, 3, 'wood3', 1, cream);
       ditherIn(11, 19, 13, 2, 'wood3', 0, cream);
-      for (let y = 20; y <= 23; y++) {
+      for (let y = 21; y <= 23; y++) {
         for (let x = 11; x <= 23; x++) if (cream.includes(pix.get(x, y))) pix.set(x, y, 'wood3');
       }
       ditherIn(11, 20, 13, 4, 'wood2', 0, ['wood3']);
@@ -131,29 +132,32 @@ export const SPRITES = [
   },
 
   {
-    // One cracker, with a bite out of it so it is never mistaken for the bar.
+    // One cracker. Lighter than every other wood in the family, because the
+    // only thing separating a biscuit from a plank here is value and holes.
     name: 'obj-graham',
     draw(pix) {
-      pix.rect(6, 10, 20, 12, 'wood3');
-      pix.rect(6, 22, 20, 2, 'wood2');
+      pix.rect(7, 10, 18, 12, 'wood4');
+      pix.rect(7, 22, 18, 2, 'wood3');
 
-      // Lit edges.
-      pix.line(6, 10, 25, 10, 'wood4');
-      pix.line(6, 10, 6, 21, 'wood4');
-      pix.line(25, 11, 25, 21, 'wood2');
-      ditherIn(18, 12, 8, 10, 'wood2', 0, ['wood3']);
+      // Baked unevenly: darker toward the lower right.
+      ditherIn(15, 15, 10, 7, 'wood3', 0, ['wood4']);
+      ditherIn(19, 18, 6, 4, 'wood2', 1, ['wood3']);
+      pix.line(7, 21, 24, 21, 'wood3');
+      pix.line(24, 11, 24, 21, 'wood3');
+      pix.line(7, 24, 24, 24, 'wood2');
 
       // The score line down the middle, and the docking holes.
-      pix.line(15, 11, 15, 21, 'wood2');
-      pix.line(16, 11, 16, 21, 'wood4');
-      for (const y of [13, 18]) for (const x of [9, 12, 19, 22]) pix.set(x, y, 'wood1');
+      pix.line(15, 11, 15, 20, 'wood3');
+      pix.line(16, 11, 16, 20, 'wood2');
+      for (const y of [13, 18]) {
+        for (const x of [9, 11, 13, 18, 20, 22]) pix.set(x, y, 'wood2');
+      }
 
-      // Softened corners, and a bite: two scallops out of the top right.
-      for (const [x, y] of [[6, 10], [6, 23], [25, 23]]) pix.set(x, y, 'none');
-      pix.disc(25, 9, 3.4, 3.4, 'none');
-      pix.disc(21, 8, 2.6, 2.6, 'none');
-      pix.disc(24, 13, 2.2, 2.2, 'none');
-      for (const [x, y] of [[22, 11], [23, 12], [21, 10], [24, 15], [23, 16]]) pix.set(x, y, 'wood2');
+      // Rounded corners, and a bite out of the right edge.
+      for (const [x, y] of [[7, 10], [24, 10], [7, 23], [24, 23]]) pix.set(x, y, 'none');
+      pix.disc(26, 15, 4.4, 4.4, 'none');
+      pix.disc(23, 10, 2.2, 2.2, 'none');
+      for (const [x, y] of [[22, 11], [21, 13], [21, 17], [22, 19]]) pix.set(x, y, 'wood3');
 
       pix.outline();
     },
@@ -236,8 +240,8 @@ export const SPRITES = [
   },
 
   {
-    // A nest of fine stuff. Spiky edge on purpose: it is the only thing
-    // separating this from the stone at a glance.
+    // A wad of fine dry stuff. The ragged edge is the whole point: it is what
+    // separates this from the stone, which is the same oval in silhouette.
     name: 'obj-tinder',
     draw(pix) {
       pix.disc(16, 18, 8, 5, 'wood2');
@@ -457,60 +461,60 @@ export const SPRITES = [
       // Lever, first: a pump arm off the back right corner with a ball knob.
       // It rises clear of the box, which is what keeps the silhouette from
       // being a plain rectangle.
-      pix.line(20, 13, 26, 8, 'steel2');
-      pix.line(20, 12, 26, 7, 'steel3');
-      pix.line(20, 11, 25, 7, 'steel4');
-      pix.disc(26, 6, 2.4, 2.4, 'steel3');
-      pix.disc(25.6, 5.6, 1.2, 1.2, 'steel4');
-      pix.set(27, 7, 'steel1');
+      pix.line(20, 13, 25, 8, 'steel2');
+      pix.line(20, 12, 25, 7, 'steel3');
+      pix.line(20, 11, 24, 7, 'steel4');
+      pix.disc(25, 6, 2.2, 2.2, 'steel3');
+      pix.disc(24.6, 5.6, 1.1, 1.1, 'steel4');
+      pix.set(26, 7, 'steel1');
 
       // Feet, under everything.
       pix.rect(5, 25, 4, 2, 'steel1');
-      pix.rect(17, 25, 4, 2, 'steel1');
+      pix.rect(18, 25, 4, 2, 'steel1');
 
       // Side face, in shadow.
-      pix.poly([[21, 13], [24, 10], [24, 22], [21, 25]], 'steel1');
-      ditherIn(21, 10, 4, 13, 'steel2', 1, ['steel1']);
+      pix.poly([[22, 13], [25, 10], [25, 22], [22, 25]], 'steel1');
+      ditherIn(22, 10, 4, 13, 'steel2', 1, ['steel1']);
 
       // Lit top face, with cooling slots.
-      pix.poly([[4, 13], [7, 10], [24, 10], [21, 13]], 'steel3');
-      ditherIn(4, 10, 21, 4, 'steel4', 0, ['steel3']);
+      pix.poly([[4, 13], [7, 10], [25, 10], [22, 13]], 'steel3');
+      ditherIn(4, 10, 22, 4, 'steel4', 0, ['steel3']);
       for (const x of [9, 12, 15]) pix.line(x, 12, x + 2, 10, 'steel1');
       // Pivot boss the lever turns in.
-      pix.rect(19, 11, 3, 2, 'steel2');
-      pix.line(19, 11, 21, 11, 'steel4');
+      pix.rect(20, 11, 3, 2, 'steel2');
+      pix.line(20, 11, 22, 11, 'steel4');
 
       // Body face.
-      pix.rect(4, 13, 18, 13, 'steel2');
-      pix.line(4, 13, 21, 13, 'steel4');
+      pix.rect(4, 13, 19, 13, 'steel2');
+      pix.line(4, 13, 22, 13, 'steel4');
       pix.line(4, 13, 4, 25, 'steel3');
-      pix.line(4, 25, 21, 25, 'steel1');
-      pix.line(21, 14, 21, 25, 'steel1');
-      ditherIn(14, 24, 8, 2, 'steel1', 0, ['steel2']);
+      pix.line(4, 25, 22, 25, 'steel1');
+      pix.line(22, 14, 22, 25, 'steel1');
+      ditherIn(15, 24, 8, 2, 'steel1', 0, ['steel2']);
 
-      // The door. The ring has to survive at a glance, so the bezel is the
-      // brightest steel on the icon and the glass is the darkest thing on it.
-      pix.disc(10, 19, 5.8, 5.6, 'steel1');
-      pix.disc(10, 19, 5.2, 5, 'steel3');
-      ditherIn(6, 19, 6, 6, 'steel4', 0, ['steel3']);
-      ditherIn(10, 19, 6, 6, 'steel2', 1, ['steel3']);
-      pix.disc(10, 19, 3.9, 3.7, 'steel1');
-      pix.disc(10, 19, 3.2, 3, 'ink2');
+      // The door. A ring only reads at this size if the band is as wide as the
+      // hole, so: hard ink edge, a fat bright bezel, four bolts, dark glass.
+      pix.disc(11, 19, 5.4, 5.4, 'steel4');
+      ditherIn(11, 19, 7, 7, 'steel3', 1, ['steel4']);
+      ditherIn(12, 21, 6, 5, 'steel2', 0, ['steel3', 'steel4']);
+      for (const [x, y] of [[8, 16], [14, 16], [8, 22], [14, 22]]) pix.set(x, y, 'steel1');
+      pix.disc(11, 19, 3.4, 3.4, 'ink2');
 
-      // Something is going on in there.
-      pix.disc(10, 20, 2.4, 1.9, 'ember1');
-      pix.disc(10, 20.3, 1.7, 1.3, 'ember2');
-      pix.disc(9.6, 20.6, 0.9, 0.6, 'ember3');
-      pix.set(8, 18, 'cream3');
-      pix.set(9, 17, 'cream3');
+      // Something is going on in there. Dark glass above it, so the door
+      // reads as a window with a fire behind it and not as an orange tile.
+      pix.disc(11, 20.4, 2.2, 1.7, 'ember1');
+      pix.disc(11, 20.8, 1.5, 1.2, 'ember2');
+      pix.set(10, 20, 'ember3');
+      pix.set(11, 21, 'ember3');
+      pix.set(10, 18, 'cream3');
 
       // Latch: a handle bar on two brackets, right of the door.
-      pix.rect(16, 14, 5, 11, 'steel1');
-      pix.rect(17, 15, 3, 2, 'steel2');
-      pix.rect(17, 22, 3, 2, 'steel2');
-      pix.rect(17, 15, 2, 9, 'steel3');
-      pix.line(17, 15, 17, 23, 'steel4');
-      pix.line(20, 15, 20, 23, 'steel1');
+      pix.rect(17, 14, 5, 11, 'steel1');
+      pix.rect(18, 15, 3, 2, 'steel2');
+      pix.rect(18, 22, 3, 2, 'steel2');
+      pix.rect(18, 15, 2, 9, 'steel3');
+      pix.line(18, 15, 18, 23, 'steel4');
+      pix.line(21, 15, 21, 23, 'steel1');
 
       pix.outline();
     },
@@ -540,32 +544,68 @@ export const SPRITES = [
     // Folding camp chair: canvas seat and back, crossed steel legs.
     name: 'obj-seat',
     draw(pix) {
-      // Legs: one X, splayed wide, feet flat on the ground.
-      pix.line(5, 26, 20, 17, 'steel2');
-      pix.line(6, 26, 21, 17, 'steel3');
-      pix.line(23, 26, 8, 17, 'steel2');
-      pix.line(24, 26, 9, 17, 'steel3');
-      pix.line(5, 26, 6, 26, 'steel1');
-      pix.line(23, 26, 24, 26, 'steel1');
-      pix.line(10, 23, 20, 23, 'steel2');
+      /*
+       * A felled log with a flat split face, which is what you sit on here.
+       *
+       * The first version of this was a chair — steel legs, a green cushion
+       * and a leaning back rest — which is a perfectly good drawing of an
+       * office chair and has no business in a pine hollow. The campsite's
+       * seat has always been a log: the reach id is `log-seat`, the geometry
+       * in the scene is a cylinder lying on its side, and a player who walks
+       * up to it and is shown a swivel chair has been lied to about what is
+       * in front of them.
+       *
+       * Drawn along its length rather than end-on, because the end-on view of
+       * a log is a circle and a circle at 24 pixels is a stone.
+       */
 
-      // Back rest, leaning away.
-      pix.poly([[18, 18], [22, 18], [26, 7], [22, 7]], 'green3');
-      pix.line(22, 7, 18, 18, 'green4');
-      pix.line(26, 7, 22, 18, 'green2');
-      ditherIn(21, 9, 6, 10, 'green2', 0, ['green3']);
+      // The bark barrel, seen slightly from above so the split face shows.
+      pix.rect(4, 14, 24, 8, 'wood2');
+      pix.rect(4, 13, 24, 2, 'wood3');
+      pix.line(4, 21, 27, 21, 'wood1');
+      pix.line(4, 22, 27, 22, 'wood1');
 
-      // Seat.
-      pix.rect(7, 16, 15, 4, 'green3');
-      pix.line(7, 16, 21, 16, 'green4');
-      pix.line(7, 19, 21, 19, 'green2');
-      ditherIn(15, 17, 7, 3, 'green2', 1, ['green3']);
-      pix.set(6, 17, 'green3');
-      pix.set(6, 18, 'green2');
+      // The split: a pale sawn face along the top, which is the seat itself
+      // and the one thing that says "sit here" rather than "firewood".
+      pix.rect(5, 11, 22, 3, 'cream2');
+      pix.line(5, 11, 26, 11, 'cream3');
+      pix.line(5, 13, 26, 13, 'cream1');
+      // Grain, running the length. Two lines, not a texture — at this size a
+      // third one turns the seat into a griddle.
+      pix.line(8, 12, 15, 12, 'cream1');
+      pix.line(19, 12, 24, 12, 'cream1');
 
-      // Frame poking out at the seat's front lip.
-      pix.line(7, 20, 21, 20, 'steel2');
-      pix.set(7, 20, 'steel3');
+      /*
+       * Round the barrel. Four bands rather than a dither: at eight pixels of
+       * height a checker reads as noise, and what this shape needs is not
+       * texture but curvature — without a value falling off toward the bottom
+       * the log is a crate, which is exactly what the first pass looked like.
+       */
+      pix.line(5, 15, 26, 15, 'wood3');
+      pix.line(5, 16, 26, 16, 'wood2');
+      pix.line(5, 19, 26, 19, 'wood1');
+      pix.line(5, 20, 26, 20, 'wood1');
+      // Bark, only in the lit band, where a texture can be seen at all.
+      ditherIn(7, 17, 18, 2, 'wood1', 0, ['wood2']);
+      // And knock the corners off, so the ends are round rather than square.
+      pix.set(4, 13, 'none');
+      pix.set(27, 13, 'none');
+      pix.set(4, 21, 'none');
+      pix.set(27, 21, 'none');
+      pix.set(27, 14, 'wood2');
+
+      // The cut end, catching the light on the left.
+      pix.poly([[4, 12], [7, 11], [7, 21], [4, 22]], 'wood3');
+      pix.line(4, 12, 4, 22, 'wood2');
+      // Rings on it, because that is the whole charm of a cut log.
+      pix.line(5, 15, 6, 15, 'cream1');
+      pix.line(5, 18, 6, 18, 'wood1');
+
+      // Two chocks so it does not read as floating, and a contact shadow.
+      pix.rect(9, 22, 3, 3, 'wood1');
+      pix.rect(19, 22, 3, 3, 'wood1');
+      // A contact shadow down-right, so the log sits on ground rather than in air.
+      pix.shadow(1, 1, 'ink2');
 
       pix.outline();
     },

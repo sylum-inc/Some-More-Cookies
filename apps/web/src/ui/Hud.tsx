@@ -21,7 +21,7 @@ import {
   woodType,
   MAX_ARMFUL,
 } from '@somemore/sim';
-import { SURFACE, TOKENS, FONT_STACK, machineText, plate } from './styles.js';
+import { SURFACE, TOKENS, FONT_STACK, machineText, paperPanel, plate } from './styles.js';
 
 export interface HudProps {
   ritual: RitualState;
@@ -646,6 +646,34 @@ export function Hud(props: HudProps): React.ReactElement {
       </div>
     ) : null;
 
+  /*
+   * The survey is up, so the ambient channels stand down.
+   *
+   * They are two different registers on the same screen: the survey is a page
+   * the player asked for and is reading, the notice and the guidance line are
+   * the world talking over their shoulder. Rendered together they were three
+   * dark boxes of monospace overlapping down the left of the frame, none of
+   * them readable — and the survey answers the same question the notice was
+   * answering anyway.
+   *
+   * Not merely a z-order fix: putting one over the other still leaves two
+   * things competing for the same corner. They all come back the moment the
+   * player presses the key again.
+   *
+   * Moved to `SR_ONLY` rather than unmounted, which is the important half.
+   * Every one of these is a live region carrying something §12 says must reach
+   * a player who is not looking at it — a captioned sound, a report that
+   * arrives whether or not subtitles are on — and dropping them from the
+   * document to tidy up a picture would silence exactly the person the
+   * regions were written for. Hidden, not removed.
+   *
+   * The roasting readout and its button stay drawn: those are controls, not
+   * prose, and taking a control away from a keyboard player because they asked
+   * a question would be its own §12 defect.
+   */
+  const survey = props.survey !== null && props.survey.length > 0 ? props.survey : null;
+  const surveyOpen = survey !== null;
+
   const noticeBox =
     props.notice !== null ? (
       <div
@@ -653,7 +681,7 @@ export function Hud(props: HudProps): React.ReactElement {
         aria-live="polite"
         aria-atomic="true"
         data-testid="notice"
-        style={plate(textScale, highContrast)}
+        style={surveyOpen ? SR_ONLY : plate(textScale, highContrast)}
       >
         {props.notice}
       </div>
@@ -749,8 +777,23 @@ export function Hud(props: HudProps): React.ReactElement {
           scale on the narrowest phone, a panel wide enough to be worth reading
           and a pair of buttons wide enough to be worth pressing do not both fit
           across one row.
+
+          A bounded page, not a wall of text. This had no height at all: a
+          campsite with a lot to say about itself printed twenty-odd lines of
+          monospace floor to ceiling, overflowing off the top and the bottom of
+          the frame with the notice and the guidance line rendered on top of
+          it — three text channels, mutually illegible, found by opening the
+          screenshot. So it is capped, it scrolls inside itself, and the
+          ambient channels stand down while it is up (below).
+
+          Paper rather than the dark plate every other HUD channel uses, which
+          is the exception `plate()` itself describes: paper is right for a
+          booklet you have stopped to read, and that is exactly what this is.
+          Nothing volunteers it — a player asks, stops, and reads a page about
+          where they are standing. That is the Passport's job in miniature and
+          it belongs in the Passport's material.
         */}
-        {props.survey !== null && props.survey.length > 0 && (
+        {survey !== null && (
           <div style={{ display: 'flex', padding: `${scale(4)} ${scale(12)} 0` }}>
             <div
               role="status"
@@ -758,13 +801,22 @@ export function Hud(props: HudProps): React.ReactElement {
               aria-atomic="true"
               data-testid="survey"
               style={{
-                ...plate(textScale, highContrast),
+                ...paperPanel(textScale),
                 maxWidth: 'min(46ch, 78vw)',
+                // Short enough to leave the world visible under it and the
+                // bottom of the frame free, tall enough that a talkative
+                // campsite is still worth reading in one go.
+                maxHeight: 'min(46vh, 340px)',
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
                 lineHeight: 1.65,
-                pointerEvents: 'none',
+                // Enabled, unlike the rest of the HUD: a region that scrolls
+                // and cannot be scrolled is a region with content nobody can
+                // reach. It is dismissed with the same key that opened it.
+                pointerEvents: 'auto',
               }}
             >
-              {props.survey.map((line) => (
+              {survey.map((line) => (
                 <div key={line}>{line}</div>
               ))}
             </div>
@@ -824,7 +876,7 @@ export function Hud(props: HudProps): React.ReactElement {
             aria-live="polite"
             aria-atomic="true"
             data-testid="subtitle"
-            style={{ ...plate(textScale, true), fontSize: scale(13) }}
+            style={surveyOpen ? SR_ONLY : { ...plate(textScale, true), fontSize: scale(13) }}
           >
             {props.subtitle}
           </div>
@@ -852,6 +904,8 @@ export function Hud(props: HudProps): React.ReactElement {
                   ? mixStamp(props.grip.power)
                   : undefined,
               borderLeftWidth: ritual.skipping.held && props.grip ? 5 : undefined,
+              // Last, so it wins over the plate above it. See `surveyOpen`.
+              ...(surveyOpen ? SR_ONLY : null),
             }}
           >
             <div style={{ ...machineText(textScale), color: SURFACE.ink }}>
@@ -942,6 +996,8 @@ export function Hud(props: HudProps): React.ReactElement {
             borderLeftColor: 'rgba(214,203,177,0.30)',
             fontSize: scale(12),
             overflowWrap: 'break-word',
+            // Last, so it wins over the plate above it. See `surveyOpen`.
+            ...(surveyOpen ? SR_ONLY : null),
           }}
         >
           {guidanceFor(ritual, stage, props.controls, props.withdraw, props.stickHolder ?? null)}

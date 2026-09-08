@@ -90,6 +90,39 @@ export function plate(textScale: number, high = false): React.CSSProperties {
   };
 }
 
+/**
+ * The paper surface, for the one HUD thing that is a page rather than a plate.
+ *
+ * `plate()` above argues — correctly — that a cream card floating over a night
+ * forest is a hole punched in the picture, and that is why every ambient HUD
+ * channel is dark. The distinction it draws is the one that matters here:
+ * *paper is right for a booklet you have stopped to read.* The survey is not
+ * ambient. Nothing volunteers it; a player presses a key, stops, and reads a
+ * description of where they are standing — which is the Passport's job in
+ * miniature and belongs in the Passport's material.
+ *
+ * Same stock as `.sm-panel`: halftone at a 3px pitch over a warm gradient, a
+ * hard ink border, a shadow that falls rather than glows.
+ */
+export function paperPanel(textScale: number): React.CSSProperties {
+  return {
+    background: `
+      repeating-linear-gradient(0deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
+      repeating-linear-gradient(90deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
+      linear-gradient(168deg, #efe8d7 0%, ${TOKENS.paper} 42%, ${TOKENS.paperEdge} 100%)`,
+    color: TOKENS.ink,
+    border: `2px solid ${TOKENS.ink}`,
+    borderRadius: 0,
+    boxShadow: 'inset 0 1px 0 rgba(255,252,244,0.85), 4px 5px 0 rgba(6,8,11,0.55)',
+    textShadow: '0 1px 0 rgba(255,252,244,0.65)',
+    fontFamily: FONT_STACK.mono,
+    fontSize: `${12 * textScale}px`,
+    lineHeight: 1.55,
+    padding: `${9 * textScale}px ${12 * textScale}px`,
+    textAlign: 'left',
+  };
+}
+
 /** Small monospaced capitals, for what a machine or the sky is reporting. */
 export function machineText(textScale: number): React.CSSProperties {
   return {
@@ -153,7 +186,131 @@ export const GLOBAL_CSS = `
        and the one asymmetry in an otherwise rigidly square object. */
     clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
   }
-  .sm-panel::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; background: linear-gradient(to bottom, rgba(0,0,0,0), ${TOKENS.paperEdge}); pointer-events: none; }
+  /*
+    A long panel is capped and scrolls *inside itself*.
+
+    .sm-panel already carried max-height: 88vh; overflow-y: auto and a
+    ::after fade, and neither held: the Passport was cut through the middle
+    of "KEEP THIS PASSPORT" with nothing to say it had been, and Settings ended
+    mid-slider. Two reasons, both worth writing down because they are the two
+    ways this always fails.
+
+      1. The fade was position: sticky; bottom: 0, and a sticky box is
+         clamped to its *containing block* — the panel's content box. The
+         panels put their 26–28px of padding on the scroller itself, so the
+         fade parked a whole pad above the cut and the last line of type was
+         guillotined below it. A padded element cannot be both the scrollport
+         and the thing the fade sticks to.
+      2. The panel was the scroller, so everything absolutely positioned
+         inside it — the close button, most obviously — scrolled away with the
+         content. A dialog you cannot shut once you have read it is worse than
+         one that is a little too tall.
+
+    So the panel becomes a fixed-height *frame* and the scrolling moves to a
+    child. The frame does not scroll, which means ::after can be plain
+    position: absolute against it and is always exactly at the cut, and the
+    close button stays where the player left it.
+
+    .sm-panel-tall rather than applying this to every panel: the arrival
+    card, the terminal and the code entry are short, and turning them into
+    frames would only give them an overflow: hidden they have no scroll
+    region to compensate for. They keep the 88vh cap and their own scrollbar.
+  */
+  .sm-panel-tall { display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+  .sm-panel-tall > .sm-panel-scroll {
+    flex: 0 1 auto;
+    /* Without this a flex item refuses to shrink below its content and the
+       cap silently stops applying — the failure this whole block is about. */
+    min-height: 0;
+    overflow-y: auto;
+    /* The campsite is behind this. Scrolling to the end of a settings panel
+       should not then start moving the world. */
+    overscroll-behavior: contain;
+  }
+  /* The cut, softened to the paper it is cutting. Ends on ${TOKENS.paperEdge}
+     because that is what both panels are by the time they reach their own
+     bottom — the Settings gradient lands there and the Passport's weathering
+     darkens toward it. */
+  .sm-panel-tall::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 34px;
+    background: linear-gradient(to bottom, rgba(214,203,177,0), ${TOKENS.paperEdge});
+    pointer-events: none;
+  }
+  /*
+    The sliders, drawn instead of defaulted.
+
+    A browser range input is a pill track with a round handle and a system
+    accent colour on it, which is the single most out-of-place object in a
+    game whose whole premise is nearest-neighbour upscaling of a 320x240
+    buffer — the same tell as a 3px border radius, at ten times the size.
+
+    Still a real <input type="range">, because the role, the value and the
+    arrow keys are the accessible control and nothing drawn out of divs gets
+    those for free (spec §12). Only the paint changes:
+
+      TRACK  cream stock with ink scoring every 12px, so the eye can read how
+             far along the handle is without a number.
+      FILL   a stain of oxidised red behind the handle rather than a saturated
+             fill, driven by --sm-fill because a repainted track has no
+             progress pseudo-element in WebKit.
+      HANDLE a square oxidised-red block with an ink edge and a lit top — the
+             same letterpress the panel is made of, stood up.
+  */
+  input[type="range"].sm-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+  input[type="range"].sm-slider::-webkit-slider-runnable-track {
+    height: 10px;
+    border: 1px solid ${TOKENS.ink};
+    border-radius: 0;
+    background:
+      repeating-linear-gradient(90deg, rgba(42,38,32,0.30) 0 1px, rgba(0,0,0,0) 1px 12px),
+      linear-gradient(90deg, rgba(143,59,42,0.34) 0 var(--sm-fill, 0%), rgba(0,0,0,0) var(--sm-fill, 0%)),
+      linear-gradient(180deg, #fdfbf4, #e2d9c2);
+    box-shadow: inset 0 1px 0 rgba(42,38,32,0.24);
+  }
+  input[type="range"].sm-slider::-moz-range-track {
+    height: 10px;
+    border: 1px solid ${TOKENS.ink};
+    border-radius: 0;
+    background:
+      repeating-linear-gradient(90deg, rgba(42,38,32,0.30) 0 1px, rgba(0,0,0,0) 1px 12px),
+      linear-gradient(90deg, rgba(143,59,42,0.34) 0 var(--sm-fill, 0%), rgba(0,0,0,0) var(--sm-fill, 0%)),
+      linear-gradient(180deg, #fdfbf4, #e2d9c2);
+    box-shadow: inset 0 1px 0 rgba(42,38,32,0.24);
+  }
+  input[type="range"].sm-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 20px;
+    border-radius: 0;
+    border: 1px solid ${TOKENS.ink};
+    background: linear-gradient(180deg, #b0553d 0%, ${TOKENS.stamp} 46%, #6b291c 100%);
+    box-shadow: inset 0 1px 0 rgba(255,228,208,0.55), 1px 1px 0 rgba(6,8,11,0.45);
+    /* WebKit measures the thumb from the top of the *track*, not the input,
+       so it needs centring by hand: (10px track - 20px block) / 2. Both are
+       border-box by the reset at the top of this sheet, so the 1px edges are
+       already inside those numbers. */
+    margin-top: -5px;
+  }
+  input[type="range"].sm-slider::-moz-range-thumb {
+    width: 12px;
+    height: 20px;
+    border-radius: 0;
+    border: 1px solid ${TOKENS.ink};
+    background: linear-gradient(180deg, #b0553d 0%, ${TOKENS.stamp} 46%, #6b291c 100%);
+    box-shadow: inset 0 1px 0 rgba(255,228,208,0.55), 1px 1px 0 rgba(6,8,11,0.45);
+  }
   /* The stamp. Applied to a heading, it reads as ink hit at an angle — which
      is the campground booklet's own voice and costs one rotated border. */
   .sm-stamp {

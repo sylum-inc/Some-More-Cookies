@@ -44,240 +44,255 @@ export function Settings({
       {...dialog.props}
     >
       <div
-        className="sm-panel"
+        className="sm-panel sm-panel-tall"
         onClick={(event) => event.stopPropagation()}
-        style={{ padding: px(26), width: 'min(680px, 94vw)' }}
+        style={{ width: 'min(680px, 94vw)' }}
       >
+        {/*
+          Outside the scroll region, and first in the document.
+
+          It used to be an absolutely positioned child of the scroller, so it
+          slid off the top the moment anybody read past Comfort — and it is
+          still the first thing in the document, which is what `useDialog`
+          moves focus to when the panel opens.
+        */}
         <button
           className="sm-focus"
           onClick={onClose}
           aria-label="Close settings"
-          style={{ position: 'absolute', top: px(10), right: px(12), background: 'transparent', border: 'none', fontSize: px(22), color: TOKENS.inkSoft }}
+          style={{ position: 'absolute', top: px(10), right: px(12), zIndex: 1, background: 'transparent', border: 'none', fontSize: px(22), color: TOKENS.inkSoft }}
         >
           ×
         </button>
 
-        <h1 className="sm-stamp" style={{ fontSize: px(17), margin: `0 0 ${px(18)}` }}>
-          Settings
-        </h1>
+        {/* The extra bottom padding is the fade's height, so the last slider
+            can scroll clear of the wash rather than ending under it. */}
+        <div className="sm-panel-scroll" style={{ padding: px(26), paddingBottom: px(26 + 34) }}>
+          <h1 className="sm-stamp" style={{ fontSize: px(17), margin: `0 0 ${px(18)}` }}>
+            Settings
+          </h1>
 
-        <Group title="Comfort" scale={scale}>
-          <Toggle
-            label="Reduced motion"
-            hint="Damps camera movement and shake."
-            checked={render.reducedMotion}
-            onChange={(v) => onRender({ reducedMotion: v })}
-            scale={scale}
-          />
-          <Slider
-            label="Flicker"
-            hint="How much the fire and lamps pulse."
-            value={render.flicker}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => onRender({ flicker: v })}
-            scale={scale}
-          />
-          <Slider
-            label="Fire brightness"
-            hint="Tames the fire without removing it."
-            value={render.fireBrightness}
-            min={0.35}
-            max={1.5}
-            step={0.05}
-            onChange={(v) => onRender({ fireBrightness: v })}
-            scale={scale}
-          />
-          <Slider
-            label="Text size"
-            value={accessibility.textScale}
-            min={0.85}
-            max={1.8}
-            step={0.05}
-            onChange={(v) => onAccessibility({ textScale: v })}
-            scale={scale}
-          />
-          <Toggle
-            label="High contrast"
-            checked={accessibility.highContrast}
-            onChange={(v) => onAccessibility({ highContrast: v })}
-            scale={scale}
-          />
-          <Toggle
-            label="Subtitles"
-            hint="Describes sounds that carry information."
-            checked={accessibility.subtitles}
-            onChange={(v) => onAccessibility({ subtitles: v })}
-            scale={scale}
-          />
-        </Group>
-
-        <Group title="Picture" scale={scale}>
-          <Slider
-            label="Dithering"
-            hint="The ordered pattern in the shading."
-            value={render.dither}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => onRender({ dither: v })}
-            scale={scale}
-          />
-          <Slider
-            label="Vertex wobble"
-            hint="The period-accurate shake in the geometry."
-            value={render.jitter}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => onRender({ jitter: v })}
-            scale={scale}
-          />
-          <Slider
-            label="Texture swim"
-            hint="Affine texture instability."
-            value={render.affine}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => onRender({ affine: v })}
-            scale={scale}
-          />
-          <Slider
-            label="Colour depth"
-            hint="Bits per channel. Higher is smoother."
-            value={render.colorDepth}
-            min={3}
-            max={8}
-            step={1}
-            onChange={(v) => onRender({ colorDepth: v })}
-            scale={scale}
-            format={(v) => `${v}-bit`}
-          />
-          <Slider
-            label="Resolution"
-            value={render.resolutionScale}
-            min={0.5}
-            max={2}
-            step={0.1}
-            onChange={(v) => onRender({ resolutionScale: v })}
-            scale={scale}
-            format={(v) => `${Math.round(v * 100)}%`}
-          />
-        </Group>
-
-        <Group title="Assists" scale={scale}>
-          <p style={{ fontSize: px(12), color: TOKENS.inkSoft, margin: `0 0 ${px(10)}`, lineHeight: 1.5 }}>
-            Assists change how much dexterity a thing takes. They never change what you can make.
-          </p>
-          <Slider
-            label="Automatic turning"
-            hint="Turns the marshmallow for you."
-            value={accessibility.autoRotate}
-            min={0}
-            max={2}
-            step={0.1}
-            onChange={(v) => onAccessibility({ autoRotate: v })}
-            scale={scale}
-            format={(v) => (v === 0 ? 'off' : `${v.toFixed(1)} rad/s`)}
-          />
-          <Slider
-            label="Assembly snapping"
-            hint="How strongly pieces settle into place."
-            value={accessibility.assemblyAssist}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => onAccessibility({ assemblyAssist: v })}
-            scale={scale}
-          />
-          <Toggle
-            label="Haptics"
-            checked={accessibility.haptics}
-            onChange={(v) => onAccessibility({ haptics: v })}
-            scale={scale}
-          />
-          {/*
-            Two assists that were implemented, persisted and honoured by the
-            input layer, and had no control here — so the only way to turn them
-            on was to write them into `localStorage` by hand, which is what the
-            offline suite was doing. An assist a player cannot reach is not an
-            assist (spec §12).
-          */}
-          <Toggle
-            label="Simplified gestures"
-            hint="Buttons for tending the fire, instead of reaching for it."
-            checked={accessibility.simplifiedGestures}
-            onChange={(v) => onAccessibility({ simplifiedGestures: v })}
-            scale={scale}
-          />
-          <Toggle
-            label="Walk with a joystick"
-            hint="For a mouse or trackpad — a touchscreen already draws one."
-            checked={accessibility.virtualJoystick}
-            onChange={(v) => onAccessibility({ virtualJoystick: v })}
-            scale={scale}
-          />
-        </Group>
-
-        {/*
-          The keys, written down.
-
-          Every interaction in this world has a keyboard path (spec §12) and
-          none of them was written anywhere a player could read it, which makes
-          an alternate control scheme that exists and cannot be found. It sits
-          under Assists because that is where somebody looking for one would
-          look, and it is a list rather than a rebinding screen because
-          rebinding is a bigger thing than this and nobody has asked for it.
-        */}
-        <Group title="Keys" scale={scale}>
-          <KeyList
-            scale={scale}
-            rows={[
-              ['Walk', 'W A S D'],
-              ['Look around', 'Arrow keys'],
-              ['Reach for what is in front of you', 'E, Enter or Space'],
-              ['Roast: nearer, further, turn', 'Arrow keys'],
-              ['Blow it out', 'B'],
-              ['Assemble: pick up, set down', 'Enter or Space'],
-              ['Assemble: shift the piece, turn it', 'Arrow keys, then [ and ]'],
-              ['SM-01: load, door, latch', 'L, D, X'],
-              ['SM-01: program, confirm, lever', '1 2 3, Enter, P'],
-              ['Torch on and off, and its beam', 'F, then G'],
-              ['Lie back, raise the binoculars', 'C, V'],
-              ['Stone: wind up, spin, throw', 'Arrow keys, [ and ], T'],
-              ['— while a stone is in your hand, the arrows wind it up', ''],
-              ['The rod: cast, strike, put it back', 'R'],
-              ['What is around you', 'Q'],
-              ['Who is at the fire', 'K'],
-              ['Close anything that is open', 'Escape'],
-            ]}
-          />
-        </Group>
-
-        <Group title="Sound" scale={scale}>
-          <Toggle label="Mute everything" checked={audio.muted} onChange={(v) => onAudio({ muted: v })} scale={scale} />
-          <Toggle
-            label="Soften sudden sounds"
-            hint="Tames loud transients like the latch and compressor."
-            checked={audio.reducedIntensity}
-            onChange={(v) => onAudio({ reducedIntensity: v })}
-            scale={scale}
-          />
-          {(['master', 'ambience', 'fire', 'machine', 'foley', 'ui'] as const).map((bus) => (
+          <Group title="Comfort" scale={scale}>
+            <Toggle
+              label="Reduced motion"
+              hint="Damps camera movement and shake."
+              checked={render.reducedMotion}
+              onChange={(v) => onRender({ reducedMotion: v })}
+              scale={scale}
+            />
             <Slider
-              key={bus}
-              label={bus === 'master' ? 'Overall' : bus[0]!.toUpperCase() + bus.slice(1)}
-              value={audio[bus]}
+              label="Flicker"
+              hint="How much the fire and lamps pulse."
+              value={render.flicker}
               min={0}
               max={1}
               step={0.05}
-              onChange={(v) => onAudio({ [bus]: v } as Partial<AudioSettings>)}
+              onChange={(v) => onRender({ flicker: v })}
               scale={scale}
             />
-          ))}
-        </Group>
+            <Slider
+              label="Fire brightness"
+              hint="Tames the fire without removing it."
+              value={render.fireBrightness}
+              min={0.35}
+              max={1.5}
+              step={0.05}
+              onChange={(v) => onRender({ fireBrightness: v })}
+              scale={scale}
+            />
+            <Slider
+              label="Text size"
+              value={accessibility.textScale}
+              min={0.85}
+              max={1.8}
+              step={0.05}
+              onChange={(v) => onAccessibility({ textScale: v })}
+              scale={scale}
+            />
+            <Toggle
+              label="High contrast"
+              checked={accessibility.highContrast}
+              onChange={(v) => onAccessibility({ highContrast: v })}
+              scale={scale}
+            />
+            <Toggle
+              label="Subtitles"
+              hint="Describes sounds that carry information."
+              checked={accessibility.subtitles}
+              onChange={(v) => onAccessibility({ subtitles: v })}
+              scale={scale}
+            />
+          </Group>
+
+          <Group title="Picture" scale={scale}>
+            <Slider
+              label="Dithering"
+              hint="The ordered pattern in the shading."
+              value={render.dither}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => onRender({ dither: v })}
+              scale={scale}
+            />
+            <Slider
+              label="Vertex wobble"
+              hint="The period-accurate shake in the geometry."
+              value={render.jitter}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => onRender({ jitter: v })}
+              scale={scale}
+            />
+            <Slider
+              label="Texture swim"
+              hint="Affine texture instability."
+              value={render.affine}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => onRender({ affine: v })}
+              scale={scale}
+            />
+            <Slider
+              label="Colour depth"
+              hint="Bits per channel. Higher is smoother."
+              value={render.colorDepth}
+              min={3}
+              max={8}
+              step={1}
+              onChange={(v) => onRender({ colorDepth: v })}
+              scale={scale}
+              format={(v) => `${v}-bit`}
+            />
+            {/* No `format` of its own any more: 0.5..2 is a multiplier around 1
+                like text size and fire brightness, and its hand-rolled formatter
+                was the third slider printing a bare "100%" with its handle a
+                third of the way along. The default now covers that shape. */}
+            <Slider
+              label="Resolution"
+              value={render.resolutionScale}
+              min={0.5}
+              max={2}
+              step={0.1}
+              onChange={(v) => onRender({ resolutionScale: v })}
+              scale={scale}
+            />
+          </Group>
+
+          <Group title="Assists" scale={scale}>
+            <p style={{ fontSize: px(12), color: TOKENS.inkSoft, margin: `0 0 ${px(10)}`, lineHeight: 1.5 }}>
+              Assists change how much dexterity a thing takes. They never change what you can make.
+            </p>
+            <Slider
+              label="Automatic turning"
+              hint="Turns the marshmallow for you."
+              value={accessibility.autoRotate}
+              min={0}
+              max={2}
+              step={0.1}
+              onChange={(v) => onAccessibility({ autoRotate: v })}
+              scale={scale}
+              format={(v) => (v === 0 ? 'off' : `${v.toFixed(1)} rad/s`)}
+            />
+            <Slider
+              label="Assembly snapping"
+              hint="How strongly pieces settle into place."
+              value={accessibility.assemblyAssist}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => onAccessibility({ assemblyAssist: v })}
+              scale={scale}
+            />
+            <Toggle
+              label="Haptics"
+              checked={accessibility.haptics}
+              onChange={(v) => onAccessibility({ haptics: v })}
+              scale={scale}
+            />
+            {/*
+              Two assists that were implemented, persisted and honoured by the
+              input layer, and had no control here — so the only way to turn them
+              on was to write them into `localStorage` by hand, which is what the
+              offline suite was doing. An assist a player cannot reach is not an
+              assist (spec §12).
+            */}
+            <Toggle
+              label="Simplified gestures"
+              hint="Buttons for tending the fire, instead of reaching for it."
+              checked={accessibility.simplifiedGestures}
+              onChange={(v) => onAccessibility({ simplifiedGestures: v })}
+              scale={scale}
+            />
+            <Toggle
+              label="Walk with a joystick"
+              hint="For a mouse or trackpad — a touchscreen already draws one."
+              checked={accessibility.virtualJoystick}
+              onChange={(v) => onAccessibility({ virtualJoystick: v })}
+              scale={scale}
+            />
+          </Group>
+
+          {/*
+            The keys, written down.
+
+            Every interaction in this world has a keyboard path (spec §12) and
+            none of them was written anywhere a player could read it, which makes
+            an alternate control scheme that exists and cannot be found. It sits
+            under Assists because that is where somebody looking for one would
+            look, and it is a list rather than a rebinding screen because
+            rebinding is a bigger thing than this and nobody has asked for it.
+          */}
+          <Group title="Keys" scale={scale}>
+            <KeyList
+              scale={scale}
+              rows={[
+                ['Walk', 'W A S D'],
+                ['Look around', 'Arrow keys'],
+                ['Reach for what is in front of you', 'E, Enter or Space'],
+                ['Roast: nearer, further, turn', 'Arrow keys'],
+                ['Blow it out', 'B'],
+                ['Assemble: pick up, set down', 'Enter or Space'],
+                ['Assemble: shift the piece, turn it', 'Arrow keys, then [ and ]'],
+                ['SM-01: load, door, latch', 'L, D, X'],
+                ['SM-01: program, confirm, lever', '1 2 3, Enter, P'],
+                ['Torch on and off, and its beam', 'F, then G'],
+                ['Lie back, raise the binoculars', 'C, V'],
+                ['Stone: wind up, spin, throw', 'Arrow keys, [ and ], T'],
+                ['— while a stone is in your hand, the arrows wind it up', ''],
+                ['The rod: cast, strike, put it back', 'R'],
+                ['What is around you', 'Q'],
+                ['Who is at the fire', 'K'],
+                ['Close anything that is open', 'Escape'],
+              ]}
+            />
+          </Group>
+
+          <Group title="Sound" scale={scale}>
+            <Toggle label="Mute everything" checked={audio.muted} onChange={(v) => onAudio({ muted: v })} scale={scale} />
+            <Toggle
+              label="Soften sudden sounds"
+              hint="Tames loud transients like the latch and compressor."
+              checked={audio.reducedIntensity}
+              onChange={(v) => onAudio({ reducedIntensity: v })}
+              scale={scale}
+            />
+            {(['master', 'ambience', 'fire', 'machine', 'foley', 'ui'] as const).map((bus) => (
+              <Slider
+                key={bus}
+                label={bus === 'master' ? 'Overall' : bus[0]!.toUpperCase() + bus.slice(1)}
+                value={audio[bus]}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => onAudio({ [bus]: v } as Partial<AudioSettings>)}
+                scale={scale}
+              />
+            ))}
+          </Group>
+        </div>
       </div>
     </div>
   );
@@ -341,24 +356,7 @@ function Slider({
   scale: number;
   format?: (value: number) => string;
 }): React.ReactElement {
-  /*
-   * The value, not the position on the track.
-   *
-   * This used to read `(value - min) / (max - min)`, which is where the knob
-   * sits — and for a dial that runs 0..1 that is the same number, so five of
-   * the seven sliders looked right and hid the two that did not. Text size
-   * runs 0.85..1.8, so at its default of 1.0 the panel said **"Text size
-   * 16%"**: a figure that is not a text size, and an alarming one to show
-   * somebody who came to this panel because the type was too small. Fire
-   * brightness runs 0.35..1.5 and read "57%" with the fire at exactly the
-   * brightness its author chose.
-   *
-   * Read as a value, both say 100% at their default, which is what a player
-   * means by "normal", and every 0..1 dial is unchanged. Fixing the default
-   * rather than passing a `format` to the two offenders also means the next
-   * slider with a non-zero minimum does not arrive with the same bug.
-   */
-  const display = format ? format(value) : `${Math.round(value * 100)}%`;
+  const display = sliderReadout(value, min, max, format);
   return (
     <label style={{ display: 'block', marginBottom: `${12 * scale}px`, color: TOKENS.ink }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: `${13 * scale}px` }}>
@@ -367,17 +365,78 @@ function Slider({
       </div>
       {hint && <div style={{ fontSize: `${11 * scale}px`, color: TOKENS.inkSoft, marginTop: 2 }}>{hint}</div>}
       <input
-        className="sm-focus"
+        className="sm-focus sm-slider"
         type="range"
         min={min}
         max={max}
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        style={{ width: '100%', marginTop: `${4 * scale}px`, accentColor: TOKENS.stamp }}
+        // The repainted track has no progress pseudo-element in WebKit, so the
+        // stain behind the handle is driven from here. Same number as the
+        // handle's own position, by construction.
+        style={
+          {
+            width: '100%',
+            marginTop: `${4 * scale}px`,
+            '--sm-fill': `${sliderPosition(value, min, max) * 100}%`,
+          } as React.CSSProperties
+        }
       />
     </label>
   );
+}
+
+/** Where the handle sits on its track, 0 at the left end and 1 at the right. */
+export function sliderPosition(value: number, min: number, max: number): number {
+  if (max === min) return 0;
+  return Math.min(1, Math.max(0, (value - min) / (max - min)));
+}
+
+/**
+ * What one slider says it is set to.
+ *
+ * This has now been wrong in both directions, and the reason is the same both
+ * times: a bare percentage is only meaningful when 0% and 100% are the ends of
+ * the control, and half the knobs on this panel are not built that way.
+ *
+ * It first read `(value - min) / (max - min)` — the handle's position. For a
+ * dial running 0..1 that is also the value, so five of the seven sliders
+ * looked right and hid the two that did not: at its own default the panel said
+ * **"Text size 16%"**, which is not a text size and is an alarming figure to
+ * show somebody who opened this screen because the type was too small.
+ *
+ * It was then changed to read the raw value, and an art grade of the build
+ * caught the other half of it. Text size (0.85..1.8) and fire brightness
+ * (0.35..1.5) are multipliers around a reference of 1, so both said "100%" at
+ * their defaults — sitting at 16% and 57% of their tracks, directly under
+ * Flicker also saying "100%" with its handle hard against the right stop.
+ * Three identical labels over three unrelated handle positions, and no way to
+ * tell from the panel which of them meant "as far as this goes".
+ *
+ * So the notation follows the range instead of being one notation for two
+ * different quantities:
+ *
+ *   0..max   a dial. 0 is off, the top is everything, and the percentage *is*
+ *            the handle position. Unchanged.
+ *   min>0    a multiplier around 1, which cannot reach zero and can exceed
+ *            100%. It still reads in per cent — that is how people talk about
+ *            text size — but it says what it is a percentage *of*, so a
+ *            handle resting in the middle of the track at "100% of normal"
+ *            explains itself, and 150% no longer looks like an impossibility.
+ *
+ * The scored track and the stain behind the handle do the rest: how far along
+ * a control is stays readable without asking the number to mean two things.
+ */
+export function sliderReadout(
+  value: number,
+  min: number,
+  max: number,
+  format?: (value: number) => string,
+): string {
+  if (format) return format(value);
+  if (min === 0) return `${Math.round((value / max) * 100)}%`;
+  return `${Math.round(value * 100)}% of normal`;
 }
 
 function Toggle({

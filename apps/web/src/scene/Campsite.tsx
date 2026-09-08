@@ -40,7 +40,7 @@ import {
   createLogGeometry,
   createRockGeometry,
   createTerrainGeometry,
-  createTreeGeometry,
+  createTreeGeometrySet,
   createUnderstoreyGeometry,
   understoreyFamily,
 } from '../render/geometry.js';
@@ -350,7 +350,19 @@ export function Campsite({
   }, [palette.ground]);
 
   const treeMaterial = useMemo(
-    () => createPs1Material({ settings, map: getTexture('foliage', { size: 64, seed }), color: palette.foliage, roughness: 1 }),
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('foliage', { size: 64, seed }),
+        color: palette.foliage,
+        roughness: 1,
+        // The conifer's three tone bands, which `createTreeGeometry` bakes in
+        // as multipliers rather than as colours — so the manifest's own
+        // foliage colour still decides what a pine hollow's canopy IS, and
+        // this only says which parts of it catch the light. Without the flag
+        // the bands are computed and thrown away.
+        vertexColors: true,
+      }),
     [settings, seed, palette.foliage],
   );
 
@@ -439,16 +451,26 @@ export function Campsite({
         z,
         scale: 0.7 + rng() * 0.8,
         rotation: rng() * Math.PI * 2,
-        geometryIndex: Math.floor(rng() * 4),
+        geometryIndex: Math.floor(rng() * 6),
       });
     }
     return result;
   }, [seed, treeCount, basin, extent]);
 
-  const treeGeometries = useMemo(
-    () => Array.from({ length: 4 }, (_, i) => createTreeGeometry(seed + i * 977, 4.2)),
-    [seed],
-  );
+  /*
+   * Six shapes, dealt from a deck rather than rolled six times.
+   *
+   * Four was a quarter of the wood per shape, and with a dead snag in the set
+   * that reads as a burn scar rather than as a forest — so the snag only
+   * enters the deck at six. `createTreeGeometrySet` takes the same
+   * `seed + i * 977` step the four independent calls used, so a campsite that
+   * already existed keeps the same trees standing in the same places.
+   *
+   * Two more draw calls out of about 120, and about 23k triangles across 240
+   * instances against the 60k budget in ARCHITECTURE §10 — up from 13k, which
+   * is what a silhouette that is not a triangle costs.
+   */
+  const treeGeometries = useMemo(() => createTreeGeometrySet(seed, 4.2, 6), [seed]);
 
   /**
    * The understorey, placed from the manifest's own densities.
@@ -561,9 +583,9 @@ export function Campsite({
     return buckets;
   }, [seed]);
 
-  /** The trees, grouped by which of the four shapes they use. */
+  /** The trees, grouped by which of the six shapes they use. */
   const treeBuckets = useMemo(() => {
-    const buckets: ScatterItem[][] = [[], [], [], []];
+    const buckets: ScatterItem[][] = [[], [], [], [], [], []];
     for (const tree of trees) {
       (buckets[tree.geometryIndex] ?? (buckets[0] as ScatterItem[])).push({
         x: tree.x,

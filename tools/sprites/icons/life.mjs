@@ -20,15 +20,27 @@
  *               are lit and material: duff, bark, ash, cream, chocolate. They
  *               carry the colour the sightings deliberately refuse.
  *
- * `accent` appears in this file in one place only — the eyeshine, two pixels,
- * on each of the eight animals. Nothing else in the family may use it, because
- * the whole point of the sighting cue is that your eye goes to the eyes.
+ * `accent` appears in this file in one place only — the eyeshine, on each of
+ * the eight animals. Nothing else in the family may use it, because the whole
+ * point of the sighting cue is that your eye goes to the eyes.
  *
- * One hard-won rule about the silhouettes: negative space has to be at least
- * three pixels wide. `outline()` floods every transparent pixel within one of
- * the art, so a two-pixel gap between two legs is not a gap, it is a slab —
- * which is why these animals have two clear legs rather than four smeared ones,
- * and why every tail stands well clear of the back it curls over.
+ * Two hard-won rules about the silhouettes.
+ *
+ * First, negative space has to be at least three pixels wide. `outline()`
+ * floods every transparent pixel within one of the art, so a two-pixel gap
+ * between two legs is not a gap, it is a slab — which is why these animals
+ * have two clear legs rather than four smeared ones.
+ *
+ * Second, and it is the opposite mistake: two masses that belong to one animal
+ * must actually overlap. A tail held clear of the back at every point is not a
+ * tail, it is a second object standing next to the first one, and the flat
+ * silhouette has no way to say which. So a squirrel's plume bites into its
+ * haunch and parts from the head exactly once, high up, where a single notch
+ * can be read. One notch in the right place beats an outline of daylight.
+ *
+ * The same rule, inverted, is why `outline()` is not enough on its own: a
+ * feature drawn *inside* a mass — a folded wing, a gnawed flank — produces no
+ * silhouette at all. If it matters, it has to be bitten out of the edge.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -56,6 +68,35 @@ function over(pix, x, y, key, allowed) {
   if (allowed.includes(pix.get(x, y))) pix.set(x, y, key);
 }
 
+/** A line, but only where the material underneath is one we meant to paint. */
+function lineOver(pix, x0, y0, x1, y1, key, allowed) {
+  const steps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+  for (let i = 0; i <= steps; i++) {
+    const t = steps === 0 ? 0 : i / steps;
+    over(pix, Math.round(x0 + (x1 - x0) * t), Math.round(y0 + (y1 - y0) * t), key, allowed);
+  }
+}
+
+/**
+ * A two-pixel-thick polyline.
+ *
+ * A one-pixel curve is not a tail or a claw at this size, it is a hair, and
+ * `outline()` doubles it into a smear anyway. Two pixels of body with the ink
+ * around it is the thinnest thing in this file that still reads as a thing.
+ */
+function stroke2(pix, points, key) {
+  for (let i = 0; i + 1 < points.length; i++) {
+    const [ax, ay] = points[i];
+    const [bx, by] = points[i + 1];
+    const steps = Math.max(Math.abs(bx - ax), Math.abs(by - ay)) * 2 + 1;
+    for (let s = 0; s <= steps; s++) {
+      const x = Math.round(ax + ((bx - ax) * s) / steps);
+      const y = Math.round(ay + ((by - ay) * s) / steps);
+      pix.rect(x, y, 2, 2, key);
+    }
+  }
+}
+
 /**
  * Turns a flat mass into a lit cut-out.
  *
@@ -65,6 +106,10 @@ function over(pix, x, y, key, allowed) {
  * discs and polys without any of the seams showing. The ramp stays inside
  * ink/ink2/ink3, so the result is still a black shape — the rim is a fire
  * catching an edge, not a light source of its own.
+ *
+ * Note what this cannot do: it only sees edges. Anything drawn in the middle
+ * of the mass is invisible, so wings and flanks are cut out of the outline
+ * rather than drawn on top of it.
  */
 function cutout(pix, rim = 'ink3', dark = 'ink') {
   const copy = pix.data.slice();
@@ -78,9 +123,10 @@ function cutout(pix, rim = 'ink3', dark = 'ink') {
   }
 }
 
-/** The one accent in this family: two pixels of firelight in an eye. */
+/** The one accent in this family: firelight in an eye. */
 function eyeshine(pix, x, y, horizontal = true) {
   pix.set(x, y, 'accent');
+  if (horizontal === null) return;
   if (horizontal) pix.set(x + 1, y, 'accent');
   else pix.set(x, y + 1, 'accent');
 }
@@ -105,64 +151,107 @@ function litRim(pix, holeKeys, groundKeys, lit, dirs = [[0, 1], [1, 1]]) {
   }
 }
 
-/** A patch of forest floor: duff, its texture, and a couple of fallen needles. */
-function duff(pix, cx, cy, rx, ry) {
-  pix.disc(cx, cy, rx, ry, 'wood2');
-  pix.disc(cx - rx * 0.4, cy - ry * 0.5, rx * 0.7, ry * 0.6, 'wood3');
-  pix.disc(cx + rx * 0.5, cy + ry * 0.4, rx * 0.5, ry * 0.5, 'wood2');
-  ditherIn(pix, cx - rx, cy - ry, rx * 2 + 2, ry * 2 + 2, 'wood1', 1, ['wood2']);
-  ditherIn(pix, cx - rx, cy - ry, rx * 2 + 2, ry * 2 + 2, 'wood2', 0, ['wood3']);
-  pix.line(cx - rx + 2, cy + ry - 3, cx - rx + 6, cy + ry - 5, 'green2');
-  pix.line(cx + 1, cy - ry + 1, cx + 5, cy - ry + 2, 'green3');
+/**
+ * Chews the edge of a patch.
+ *
+ * A ground patch drawn out of discs is a disc, and a brown disc with dark
+ * marks in it is a biscuit. Removing the first drawn pixel on selected rows
+ * and columns turns the rim into something ragged that nothing in a kitchen
+ * has.
+ */
+function ragged(pix, x0, y0, x1, y1, step, phase = 0) {
+  for (let y = y0; y <= y1; y++) {
+    if ((y + phase) % step !== 0) continue;
+    for (let x = x0; x <= x1; x++) {
+      if (pix.get(x, y) === 'none') continue;
+      pix.set(x, y, 'none');
+      if (pix.get(x + 1, y) !== 'none' && (y + phase) % (step * 2) === 0) pix.set(x + 1, y, 'none');
+      break;
+    }
+    for (let x = x1; x >= x0; x--) {
+      if (pix.get(x, y) === 'none') continue;
+      pix.set(x, y, 'none');
+      if (pix.get(x - 1, y) !== 'none' && (y + phase) % (step * 2) === 1) pix.set(x - 1, y, 'none');
+      break;
+    }
+  }
 }
 
-/** One paw print: a heel pad and four toes, pressed pointing up. */
+/** A patch of forest floor: duff, its texture, and a couple of fallen needles. */
+function duff(pix) {
+  // Lobed and lopsided, never round. A brown disc with dark marks in it is a
+  // biscuit, and this family cannot afford that joke by accident.
+  pix.disc(13, 13, 9.4, 8, 'wood2');
+  pix.disc(20, 21, 7.5, 6, 'wood2');
+  pix.disc(9, 21, 5.4, 5, 'wood2');
+  pix.disc(20, 12, 6, 5, 'wood2');
+  pix.disc(11, 10, 6, 4.5, 'wood3');
+  pix.disc(21, 19, 4, 3, 'wood3');
+  ditherIn(pix, 3, 4, 26, 24, 'wood1', 1, ['wood2']);
+  ditherIn(pix, 3, 4, 26, 24, 'wood2', 0, ['wood3']);
+  ragged(pix, 3, 4, 28, 27, 4, 0);
+  ragged(pix, 3, 4, 28, 27, 6, 3);
+  pix.line(5, 24, 9, 22, 'green2');
+  pix.line(20, 6, 24, 8, 'green3');
+  pix.set(26, 17, 'green2');
+}
+
+/**
+ * One paw print: a heel pad and four toes, pressed pointing up.
+ *
+ * The toes are an arc rather than a row and the pad hangs four clear pixels
+ * below them. That gap is the paw — close it and the print is a crater — and
+ * needing it at this size is the reason there is one big print here rather
+ * than the two small ones that used to merge into a pair of blobs.
+ */
 function pawprint(pix, cx, cy, s, key) {
-  pix.disc(cx, cy + 3.4 * s, 3.4 * s, 2.6 * s, key);
-  pix.disc(cx - 3.6 * s, cy - 1.4 * s, 1.5 * s, 1.7 * s, key);
-  pix.disc(cx - 1.2 * s, cy - 3.4 * s, 1.5 * s, 1.7 * s, key);
-  pix.disc(cx + 1.4 * s, cy - 3.4 * s, 1.5 * s, 1.7 * s, key);
-  pix.disc(cx + 3.6 * s, cy - 1.4 * s, 1.5 * s, 1.7 * s, key);
+  pix.disc(cx, cy + 8 * s, 4.2 * s, 2.8 * s, key);
+  pix.disc(cx - 6.6 * s, cy - 1.4 * s, 2.0 * s, 2.3 * s, key);
+  pix.disc(cx - 2.3 * s, cy - 4.2 * s, 2.0 * s, 2.3 * s, key);
+  pix.disc(cx + 2.3 * s, cy - 4.2 * s, 2.0 * s, 2.3 * s, key);
+  pix.disc(cx + 6.6 * s, cy - 1.4 * s, 2.0 * s, 2.3 * s, key);
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sightings — flat cut-outs, side-on, two pixels of eyeshine                  */
+/* Sightings — flat cut-outs, seen side-on, lit only in the eye                */
 /* -------------------------------------------------------------------------- */
 
 export const SPRITES = [
   {
-    // Fox. Read in order: the brush, which is a third of the animal and is held
-    // out low behind with the tip flicked up, then the two straight ears, then
-    // the long wedge of muzzle. The body is deliberately shallow — a fox that
-    // stands as tall as it is long is a dog.
+    // Fox. Read in order: the brush, which is a third of the animal, then the
+    // long wedge of muzzle leaving the skull at eye level, then the wide-based
+    // triangular ears. Ears half the height of the skull and a snout on the
+    // same line as the eye — tall ears over a small round head is a cat, and
+    // that is the misread this drawing exists to avoid.
     name: 'life-fox',
     draw(pix) {
-      // Brush. Drawn first so the haunch overlaps its root. It leaves the rump
-      // level and only lifts at the tip — a tail held straight up is a cat.
-      pix.disc(21.5, 19, 3.2, 3.2, 'ink2');
-      pix.disc(24, 16.5, 3, 3, 'ink2');
-      pix.disc(25, 13, 2.4, 2.6, 'ink2');
-      pix.disc(24, 10, 2, 2.2, 'ink2');
+      // Brush. Drawn first so the haunch overlaps its root: the tail has to be
+      // part of the same mass as the animal or it is a separate object.
+      pix.disc(21, 21.5, 3.4, 3.4, 'ink2');
+      pix.disc(24.5, 21, 3.2, 3.2, 'ink2');
+      pix.disc(25.5, 17.5, 2.4, 2.4, 'ink2');
 
-      // Two legs, well apart. Four would be one black slab at this size.
-      pix.rect(12, 20, 3, 6, 'ink2');
-      pix.rect(18, 20, 3, 6, 'ink2');
-      pix.rect(11, 25, 4, 1, 'ink2');
+      // Two legs, four pixels apart, and short: a fox stands low and long, and
+      // long legs under a deep chest is a dog.
+      pix.rect(11, 21, 3, 5, 'ink2');
+      pix.rect(17, 21, 3, 5, 'ink2');
+      pix.rect(10, 25, 4, 1, 'ink2');
       pix.rect(17, 25, 4, 1, 'ink2');
 
-      // Body: level back, deep chest, heavy haunch.
-      pix.poly([[11, 15], [21, 14], [22, 20], [12, 21]], 'ink2');
-      pix.disc(20, 18, 3.6, 3.6, 'ink2');
-      pix.disc(13, 17, 3, 3.2, 'ink2');
+      // Body: level back, deep chest, heavy haunch, shallow overall.
+      pix.poly([[10, 16], [19, 15], [20, 21], [11, 22]], 'ink2');
+      pix.disc(18, 19, 3.4, 3.4, 'ink2');
+      pix.disc(12, 19, 3.2, 3.2, 'ink2');
 
-      // Head and muzzle, carried low.
-      pix.disc(12, 13, 3.6, 3.2, 'ink2');
-      pix.poly([[4, 16], [11, 11], [12, 18]], 'ink2');
-      pix.rect(4, 15, 3, 2, 'ink2');
+      // Head, and the muzzle leaving it along the eye line — long, thin and
+      // level, which is the line a dog does not have.
+      pix.disc(10, 13, 3.4, 3.2, 'ink2');
+      pix.poly([[4, 15], [10, 11], [11, 16]], 'ink2');
+      pix.set(5, 14, 'ink2');
 
-      // Ears: tall, straight-sided, a clear notch between them.
-      pix.poly([[8, 12], [8, 4], [12, 12]], 'ink2');
-      pix.poly([[13, 12], [17, 5], [17, 13]], 'ink2');
+      // Ears: wide at the base, short, with a V of daylight between them.
+      pix.poly([[6, 13], [8, 6], [10, 13]], 'ink2');
+      pix.poly([[11, 13], [13, 6], [15, 13]], 'ink2');
 
       cutout(pix);
       eyeshine(pix, 9, 12);
@@ -171,116 +260,112 @@ export const SPRITES = [
   },
 
   {
-    // Owl. The only animal here seen head-on, because an owl is a face: two ear
-    // tufts, a barrel with no neck, and both eyes at once.
     name: 'life-owl',
     draw(pix) {
-      // Branch stub under the feet.
-      pix.rect(8, 25, 16, 2, 'ink2');
+      // Tail, hanging below the branch line so the bottom of the bird is not
+      // just where the rectangle stopped.
+      pix.poly([[14, 24], [19, 24], [18, 28], [15, 28]], 'ink2');
 
-      // Body: a barrel, wide at the shoulders, tail below the perch line. Built
-      // out of discs rather than a box, or an owl reads as a cabinet.
-      pix.poly([[11, 12], [21, 12], [22, 22], [10, 22]], 'ink2');
-      pix.disc(16, 18, 6.6, 6.6, 'ink2');
-      pix.disc(16, 20, 5.6, 5, 'ink2');
-      pix.poly([[13, 22], [19, 22], [18, 26], [14, 26]], 'ink2');
+      // Barrel: wide at the shoulders, tapering to the vent.
+      pix.disc(16, 14, 6.6, 5.2, 'ink2');
+      pix.poly([[10, 11], [22, 11], [21, 19], [11, 19]], 'ink2');
 
-      // Head, merged straight into the shoulders — an owl has no neck.
-      pix.disc(16, 11, 6.5, 5.5, 'ink2');
+      // Skull, clearly narrower than the chest — the step at the shoulder is
+      // most of what says owl rather than cabinet.
+      pix.disc(16, 9, 4.6, 4.4, 'ink2');
 
       // Ear tufts, asymmetric so it does not read as a cat.
-      pix.poly([[10, 8], [9, 4], [14, 8]], 'ink2');
-      pix.poly([[18, 8], [23, 4], [22, 9]], 'ink2');
+      pix.poly([[11, 7], [10, 4], [15, 8]], 'ink2');
+      pix.poly([[17, 8], [22, 4], [21, 8]], 'ink2');
 
-      // Wing edges, folded down the sides.
-      pix.poly([[10, 15], [12, 15], [13, 23], [10, 21]], 'ink2');
-      pix.poly([[20, 15], [22, 15], [22, 21], [19, 23]], 'ink2');
+      // Folded wing tips, bitten out of each flank. A wing painted on top of
+      // the body is invisible in a cut-out: cutout() only rims what has night
+      // next to it, so the wing has to be an edge or it is nothing.
+      pix.poly([[6, 13], [12, 17], [6, 21]], 'none');
+      pix.poly([[26, 13], [20, 17], [26, 21]], 'none');
 
-      // Toes gripping the branch.
-      pix.rect(12, 24, 1, 3, 'ink2');
-      pix.rect(14, 24, 1, 3, 'ink2');
-      pix.rect(18, 24, 1, 3, 'ink2');
-      pix.rect(20, 24, 1, 3, 'ink2');
+      // Feet, five pixels apart, so a real window of night survives between
+      // them and the bird is standing on something.
+      pix.rect(11, 18, 3, 7, 'ink2');
+      pix.rect(19, 18, 3, 7, 'ink2');
+      // The branch, over the root of the tail.
+      pix.rect(6, 25, 20, 2, 'ink2');
 
       cutout(pix);
 
       // A shallow notch of rim between the eyes reads as the beak.
+      pix.set(16, 11, 'ink3');
       pix.set(16, 12, 'ink3');
-      pix.set(16, 13, 'ink3');
 
-      eyeshine(pix, 12, 11, false);
-      eyeshine(pix, 19, 11, false);
+      eyeshine(pix, 12, 9, false);
+      eyeshine(pix, 19, 9, false);
       pix.outline();
     },
   },
 
   {
-    // Deer. Antlers and leg length carry this one, so the body is small and
-    // high off the ground and everything else gets out of their way.
     name: 'life-deer',
     draw(pix) {
       // Legs: a foreleg and a hind leg, the hind one broken at the hock, which
       // is the joint that says deer and not dog.
-      pix.rect(11, 17, 2, 9, 'ink2');
-      pix.line(21, 17, 20, 21, 'ink2');
-      pix.line(22, 17, 21, 21, 'ink2');
-      pix.rect(20, 21, 2, 5, 'ink2');
-      pix.rect(10, 25, 3, 1, 'ink2');
-      pix.rect(19, 25, 3, 1, 'ink2');
+      pix.rect(12, 19, 2, 8, 'ink2');
+      pix.line(21, 19, 20, 22, 'ink2');
+      pix.line(22, 19, 21, 22, 'ink2');
+      pix.rect(20, 22, 2, 5, 'ink2');
+      pix.rect(11, 26, 3, 1, 'ink2');
+      pix.rect(19, 26, 3, 1, 'ink2');
 
-      // Barrel body, short and set high.
-      pix.poly([[10, 13], [22, 13], [23, 18], [11, 19]], 'ink2');
-      pix.disc(21, 16, 3.4, 3.2, 'ink2');
+      // Barrel body, short and set high on the legs.
+      pix.poly([[11, 15], [22, 14], [23, 20], [12, 21]], 'ink2');
+      pix.disc(21, 17, 3.4, 3.2, 'ink2');
 
-      // Tail, cocked up.
-      pix.poly([[23, 13], [25, 11], [25, 14]], 'ink2');
+      // Tail: a stub that actually leaves the rump, or it is invisible ink.
+      pix.poly([[22, 15], [26, 13], [25, 17]], 'ink2');
 
-      // Neck, rising steeply forward.
-      pix.poly([[9, 8], [13, 9], [13, 16], [10, 16]], 'ink2');
+      // Neck, rising steeply forward out of the shoulder.
+      pix.poly([[9, 10], [13, 11], [14, 17], [10, 16]], 'ink2');
 
-      // Head: a small wedge with an ear cupped behind it.
-      pix.poly([[4, 10], [11, 7], [11, 11], [5, 12]], 'ink2');
-      pix.poly([[10, 8], [14, 6], [13, 10]], 'ink2');
+      // Head: a small wedge, muzzle low and forward, ear cupped behind.
+      pix.poly([[4, 14], [10, 9], [12, 14], [6, 15]], 'ink2');
+      pix.poly([[11, 11], [15, 10], [12, 15]], 'ink2');
 
-      // Antlers: two beams off the brow, each with two tines, the far one
-      // shorter so the pair does not read as one flat comb.
-      pix.line(9, 7, 8, 4, 'ink2');
-      pix.line(8, 4, 5, 4, 'ink2');
-      pix.line(8, 6, 6, 7, 'ink2');
-      pix.set(9, 6, 'ink2');
-      pix.line(11, 6, 13, 4, 'ink2');
-      pix.line(13, 4, 16, 4, 'ink2');
-      pix.line(13, 6, 15, 7, 'ink2');
+      // Antler: root on the brow, fork at (13,8), one arm forward and up and
+      // one sweeping back over the shoulder. The hole between the arms is the
+      // whole point — a solid Y is a horn.
+      pix.line(11, 11, 13, 8, 'ink2');
+      pix.line(12, 11, 13, 8, 'ink2');
+      pix.line(13, 8, 11, 4, 'ink2');
+      pix.line(13, 8, 18, 5, 'ink2');
+      pix.set(19, 4, 'ink2');
+      pix.set(11, 5, 'ink2');
 
       cutout(pix);
-      eyeshine(pix, 8, 9);
+      eyeshine(pix, 7, 12);
       pix.outline();
     },
   },
 
   {
-    // Mouse. One ear the size of the skull, a snout that comes to a point, and
-    // a bare tail longer than the body, held clear of the back so it reads.
+    // Mouse. The ear is the entire read, so it is a disc the size of the skull
+    // sitting on a one-pixel neck with daylight all around it. Bridge that gap
+    // and the ear becomes a bump, the bump becomes the head, and the snout
+    // becomes a beak: the animal turns into a duck.
     name: 'life-mouse',
     draw(pix) {
-      // Tail, whipping up and back.
-      pix.line(21, 20, 25, 18, 'ink2');
-      pix.line(25, 18, 26, 14, 'ink2');
-      pix.line(26, 14, 24, 11, 'ink2');
-      pix.set(25, 17, 'ink2');
-      pix.set(26, 15, 'ink2');
+      // Tail: one continuous two-pixel curve, leaving the rump from inside the
+      // silhouette and clearing the back by three.
+      stroke2(pix, [[20, 21], [23, 22], [25, 20], [26, 17], [25, 14]], 'ink2');
 
-      // Body, low and rounded.
-      pix.disc(16, 19, 6, 4.6, 'ink2');
-      pix.poly([[10, 17], [21, 15], [22, 21], [10, 22]], 'ink2');
+      // Body, low and rounded, back humped over the hips.
+      pix.disc(15, 19, 6, 4.4, 'ink2');
+      pix.poly([[10, 17], [21, 16], [22, 22], [10, 22]], 'ink2');
 
-      // Head running straight into a pointed snout.
+      // Head running into a short blunt snout — long and thin would be a bill.
       pix.disc(10, 18, 3.6, 3.4, 'ink2');
-      pix.poly([[4, 21], [10, 15], [11, 22]], 'ink2');
+      pix.poly([[4, 20], [10, 16], [11, 21]], 'ink2');
 
-      // The ear. Oversized on purpose — it is the whole read.
-      pix.disc(12, 11, 4, 4, 'ink2');
-      pix.rect(11, 13, 3, 3, 'ink2');
+      // The ear. Oversized on purpose, and standing clear.
+      pix.disc(12, 11, 3.2, 3.2, 'ink2');
 
       // Feet.
       pix.rect(11, 22, 3, 2, 'ink2');
@@ -293,53 +378,51 @@ export const SPRITES = [
   },
 
   {
-    // Squirrel. Sitting up with the tail plumed over the back in a question
-    // mark. The tail is a chain of discs so it keeps an even, fat width, and it
-    // is held four pixels clear of the spine so the two masses stay separate.
+    // Squirrel. Sitting up, which is a comma: narrow head and chest opening
+    // into a heavy haunch. The plume overlaps the back rather than standing
+    // beside it — the lower discs bite into the haunch so animal and tail are
+    // one mass — and parts from the head exactly once, at the top, where three
+    // pixels of night are enough to say tail.
     name: 'life-squirrel',
     draw(pix) {
-      // The plume: thin where it leaves the rump, fattest at shoulder height,
-      // and wider than the animal is. If the tail is not the biggest thing in
-      // the cell it is not a squirrel.
+      // The plume: it leaves the rump low, climbs the whole right side and
+      // hooks forward at the top. If the tail is not the biggest thing in the
+      // cell it is not a squirrel. The lowest disc bites deep into the haunch
+      // on purpose — tail and animal are one mass, joined at the hip and
+      // parted exactly once, up where a notch has room to be seen.
       for (const [x, y, r] of [
-        [18, 24, 3],
-        [22, 23.5, 3.4],
-        [24, 20, 3.5],
-        [24, 15, 3.5],
-        [22, 11, 3.2],
-        [20, 8, 2.6],
+        [16, 24, 3.6],
+        [20, 20, 4.0],
+        [22, 15, 4.0],
+        [21, 10, 3.6],
+        [18, 7, 3.0],
       ]) {
         pix.disc(x, y, r, r, 'ink2');
       }
 
-      // Haunch and back, sitting upright, kept narrow and well to the left so
-      // the plume never closes on it — a tail that touches the spine turns the
-      // whole animal into one doughnut.
-      pix.disc(11, 20, 4.5, 5, 'ink2');
-      pix.poly([[8, 12], [14, 12], [15, 21], [8, 22]], 'ink2');
+      // Haunch and chest: a comma. Narrow at the shoulder, heavy at the hip,
+      // sitting back on its heels.
+      pix.disc(12, 21, 4.4, 4.4, 'ink2');
+      pix.poly([[8, 15], [13, 14], [15, 21], [9, 22]], 'ink2');
 
-      // Chest, and the forepaws held together in front of it.
-      pix.rect(5, 14, 4, 4, 'ink2');
+      // Forepaws held together against the chest.
+      pix.poly([[5, 16], [8, 15], [9, 19], [5, 19]], 'ink2');
 
-      // Head, carried clear of the shoulders, with a blunt nose and a tufted
-      // ear. The notch behind the jaw is what makes it a head and not a lump.
-      pix.disc(11, 9, 3.4, 3.2, 'ink2');
-      pix.poly([[5, 11], [11, 7], [11, 12], [7, 13]], 'ink2');
-      pix.poly([[11, 7], [12, 4], [14, 8]], 'ink2');
+      // Head, carried well forward of the plume, with a small tufted ear.
+      pix.disc(8, 13, 3.2, 3, 'ink2');
+      pix.poly([[4, 15], [8, 11], [9, 16]], 'ink2');
+      pix.poly([[8, 11], [9, 8], [11, 12]], 'ink2');
 
       // Feet.
-      pix.rect(8, 24, 7, 2, 'ink2');
+      pix.rect(8, 25, 7, 2, 'ink2');
 
       cutout(pix);
-      eyeshine(pix, 8, 9);
+      eyeshine(pix, 7, 12);
       pix.outline();
     },
   },
 
   {
-    // Bird. A perched songbird: round front, a beak, and a long tail cocked
-    // down and back, clear of the twig — that overhang is the difference
-    // between a bird and a lump.
     name: 'life-bird',
     draw(pix) {
       // Twig.
@@ -373,68 +456,78 @@ export const SPRITES = [
 
   {
     // Moth. Head-on, because a moth at the lantern is a shape pressed flat.
-    // Drawn as a left half and mirrored — the only symmetric animal here. The
-    // straight swept leading edge and the fat abdomen below the hindwings are
-    // what keep it from being a butterfly.
+    // Drawn as a left half and mirrored — the only symmetric animal here.
+    //
+    // Everything here is aimed at one misread. Two glowing eyes over a wide
+    // flat wing bar, with a pair of curled antennae above them, is a bat. So
+    // the wings are one swept triangle wider than it is tall with a real point
+    // at the leading tip, the abdomen runs out below the trailing edge where a
+    // bat has nothing at all, and the eyeshine is a single pixel a side.
     name: 'life-moth',
     draw(pix) {
-      // Forewing: a long straight leading edge to a pointed tip, and a trailing
-      // edge swept back to the waist.
-      pix.poly([[15, 11], [4, 7], [5, 14], [15, 17]], 'ink2');
-      // Hindwing: smaller, rounder, tucked under.
-      pix.poly([[15, 16], [8, 19], [11, 24], [15, 22]], 'ink2');
+      // One wing pair, drawn as a left half and mirrored. The forewing has a
+      // straight leading edge out to a real point; the hindwing hangs below
+      // and behind it, and the step between the two is bitten into the
+      // trailing edge rather than drawn inside the mass.
+      pix.poly([[15, 9], [4, 13], [10, 18], [15, 15]], 'ink2');
+      pix.poly([[14, 14], [8, 18], [12, 22], [15, 20]], 'ink2');
+      pix.poly([[4, 16], [10, 18], [5, 20]], 'none');
 
-      // Furry thorax over a tapering abdomen that clears the wings.
-      pix.poly([[13, 9], [16, 9], [16, 26], [14, 26]], 'ink2');
-      pix.disc(15, 10, 2.6, 2.4, 'ink2');
+      // Furry thorax, small head, and an abdomen that runs out well below the
+      // wings — a bat has nothing at all down there, and that is the whole
+      // argument this sprite is making.
+      pix.poly([[14, 10], [17, 10], [16, 26], [15, 26]], 'ink2');
+      pix.disc(15, 11, 2.4, 2.4, 'ink2');
+      pix.disc(15, 8, 1.6, 1.4, 'ink2');
 
-      // Antenna: one curved hair with a clubbed tip. It was drawn feathered
-      // first, and a feathered antenna at this size is a bare twig — two of
-      // them made the whole insect read as a bat with ears.
-      pix.line(14, 8, 11, 5, 'ink2');
-      pix.line(11, 5, 8, 4, 'ink2');
-      pix.set(7, 4, 'ink2');
+      // Antennae: long, thin, swept out and forward almost to the wing tips.
+      // Two short stubs above the head are ears, and ears over a wingspan is
+      // the bat this drawing keeps being mistaken for.
+      pix.line(14, 7, 10, 5, 'ink2');
+      pix.line(10, 5, 7, 6, 'ink2');
 
       pix.mirrorX();
 
       cutout(pix);
-      // Two wing bars, in the rim value, inboard of every edge.
-      pix.line(12, 12, 7, 10, 'ink3');
-      pix.line(19, 12, 24, 10, 'ink3');
-      pix.line(13, 19, 10, 20, 'ink3');
-      pix.line(18, 19, 21, 20, 'ink3');
+      // Wing bars, in the rim value, following the sweep of the leading edge.
+      pix.line(12, 14, 7, 14, 'ink3');
+      pix.line(19, 14, 24, 14, 'ink3');
+      pix.line(12, 19, 10, 20, 'ink3');
+      pix.line(19, 19, 21, 20, 'ink3');
 
-      eyeshine(pix, 13, 10, false);
-      eyeshine(pix, 18, 10, false);
+      // One pixel of eyeshine a side. Four is a face, and a face here is a bat.
+      eyeshine(pix, 14, 8, null);
+      eyeshine(pix, 17, 8, null);
       pix.outline();
     },
   },
 
   {
-    // Fish. A deep body, a tail with a real fork bitten out of it, and one fin
-    // above and one below so it can never be read upside down.
     name: 'life-fish',
     draw(pix) {
-      // Tail, then the notch that makes it a fork.
-      pix.poly([[20, 17], [27, 10], [27, 24]], 'ink2');
-      pix.poly([[28, 14], [22, 17], [28, 20]], 'none');
+      // Tail, then the notch that makes it a fork rather than two quills. The
+      // bite stops short of the peduncle, so rows 16-18 stay joined.
+      pix.poly([[20, 17], [27, 11], [27, 23]], 'ink2');
+      pix.poly([[28, 15], [24, 17], [28, 19]], 'none');
 
       // Body.
-      pix.disc(15, 17, 7.4, 5.6, 'ink2');
-      pix.poly([[6, 16], [7, 19], [13, 22], [13, 12]], 'ink2');
+      pix.disc(15, 17, 7, 5, 'ink2');
+      pix.poly([[7, 16], [8, 20], [14, 22], [14, 12]], 'ink2');
 
       // Dorsal fin up, anal fin down, pectoral tucked behind the gill.
-      pix.poly([[12, 12], [16, 6], [20, 13]], 'ink2');
-      pix.poly([[13, 21], [16, 25], [19, 22]], 'ink2');
-      pix.poly([[11, 18], [15, 22], [10, 22]], 'ink2');
+      pix.poly([[12, 13], [15, 9], [19, 13]], 'ink2');
+      pix.poly([[14, 21], [16, 24], [18, 21]], 'ink2');
+      pix.poly([[11, 19], [15, 22], [11, 22]], 'ink2');
 
-      // Mouth: a slit bitten out of the snout.
-      pix.set(6, 17, 'none');
-      pix.set(7, 17, 'none');
+      // Mouth: bitten out of the snout from the outside, so it opens to the
+      // night and outline() draws a lip instead of filling it in.
+      pix.poly([[5, 18], [10, 19], [5, 21]], 'none');
 
       cutout(pix);
-      // Gill plate.
-      pix.line(11, 14, 10, 20, 'ink3');
+      // Gill plate and the line of the jaw.
+      pix.line(12, 14, 11, 20, 'ink3');
+      pix.set(8, 17, 'ink3');
+      pix.set(9, 17, 'ink3');
 
       eyeshine(pix, 9, 15);
       pix.outline();
@@ -446,277 +539,289 @@ export const SPRITES = [
   /* ------------------------------------------------------------------------ */
 
   {
-    // Prints in duff. One paw large and one behind it, offset the way a walking
-    // animal lands. The ink is the hole, the strip of duff left between the
-    // toes and the heel pad is what makes it a paw rather than a crater, and
-    // the wood4 crescent below each is the far wall catching the fire.
+    // Prints in duff. The ground is a lobed, chewed patch rather than a disc,
+    // because a round brown thing with dark spots in it is a cookie and this
+    // game is not going to make that joke by accident. One deep print and one
+    // smaller one behind it, the way a walking animal lands, with three clear
+    // pixels of duff between the toes and the heel pad and the wood4 crescent
+    // below each print doing the work of a far wall catching the fire.
+    // A print in duff. The ground is a lobed, chewed patch rather than a
+    // disc, because a round brown thing with dark spots in it is a cookie and
+    // this game is not going to make that joke by accident. One print, big
+    // enough that the strip of duff between the toes and the heel pad is
+    // three pixels wide and the paw reads as a paw — two smaller prints put
+    // that gap at one pixel and both of them came out as blobs. The wood4
+    // crescent below is the far wall of the dent catching the fire.
     name: 'trace-prints',
     draw(pix) {
-      duff(pix, 16, 16, 11, 10);
-      pawprint(pix, 12, 12, 1, 'ink');
-      pawprint(pix, 20, 20, 0.8, 'ink');
+      duff(pix);
+      pawprint(pix, 15, 14, 0.9, 'ink');
       litRim(pix, ['ink'], ['wood1', 'wood2', 'wood3'], 'wood4');
       pix.outline();
     },
   },
 
   {
-    // A dropped feather, stood almost upright. Built rib by rib out from the
-    // shaft, with the barbs parted in three places on each side — that split
-    // vane is the whole difference between a feather and a leaf.
     name: 'trace-feather',
     draw(pix) {
-      const shaftAt = (y) => 15 + Math.round((y - 6) * 0.22);
-      // Half-width of the vane at each row: nothing at the tip, full through
-      // the middle, closing again above the bare quill.
+      // A dropped feather, leaning hard. Built rib by rib out from the shaft,
+      // with the barbs parted five times — and a parting has to break the
+      // outline, not sit inside it. A split that closes again before it
+      // reaches the edge is a hole punched in a leaf, which is exactly the
+      // thing this drawing must not be.
+      const shaftAt = (y) => 9 + (y - 4) * 0.55;
+      // Half-width of the vane at each row: a point at the tip, full through
+      // the middle, closing again above the bare quill. The trailing vane is
+      // the wider one — a feather is not symmetric about its shaft.
       const halfAt = (y) => {
-        if (y < 6) return -1;
-        if (y < 12) return Math.round((y - 5) * 0.9);
-        if (y <= 19) return 6;
-        if (y <= 23) return 6 - (y - 19) * 1.5;
-        return -1;
+        if (y <= 9) return (y - 3) * 0.75;
+        if (y <= 18) return 4.5;
+        return 4.5 - (y - 18) * 1.1;
       };
-      const splitLeft = [10, 15, 20];
-      const splitRight = [12, 17, 21];
+      // Where the vane is parted, and how deep each parting cuts.
+      const splitLeft = { 8: 3, 9: 4, 14: 4, 15: 5, 20: 3 };
+      const splitRight = { 11: 4, 12: 5, 17: 4, 18: 3, 22: 2 };
 
-      for (let y = 6; y <= 23; y++) {
-        const cx = shaftAt(y);
-        const half = Math.round(halfAt(y));
-        for (let j = -half; j <= half; j++) {
-          // A barb parting: the outer two-thirds of that rib is missing.
-          if (j < 0 && splitLeft.includes(y) && j < -half + 4) continue;
-          if (j > 0 && splitRight.includes(y) && j > half - 4) continue;
+      for (let y = 4; y <= 23; y++) {
+        const cx = Math.round(shaftAt(y));
+        const half = Math.max(0, Math.round(halfAt(y)));
+        const left = half - (splitLeft[y] || 0);
+        const right = Math.round(half * 1.25) - (splitRight[y] || 0);
+        for (let j = -left; j <= right; j++) {
           pix.set(cx + j, y, j < 0 ? 'cream3' : 'cream2');
         }
-        if (half >= 2) {
-          pix.set(cx - half, y, 'cream4');
-          pix.set(cx + half, y, 'cream1');
-        }
-        // The rachis.
-        pix.set(cx, y, y < 9 ? 'cream3' : 'cream1');
+        // Edge shading, but only on a row that still reaches its own edge —
+        // written unconditionally it paints every parting shut again.
+        if (left >= 2 && !splitLeft[y]) pix.set(cx - left, y, 'cream4');
+        if (right >= 2 && !splitRight[y]) pix.set(cx + right, y, 'cream1');
+        // The rachis, dark the whole way down so the vane reads as two vanes.
+        pix.set(cx, y, y < 7 ? 'cream3' : 'cream1');
       }
 
       // Bare quill below the vane, and a little down clinging to it.
-      pix.line(20, 24, 21, 27, 'cream2');
+      pix.line(20, 24, 22, 27, 'cream2');
       pix.set(20, 24, 'cream3');
-      pix.set(21, 27, 'cream1');
-      pix.set(18, 23, 'cream3');
-      pix.set(22, 23, 'cream2');
+      pix.set(22, 27, 'cream1');
+      pix.set(17, 23, 'cream3');
+      pix.set(23, 22, 'cream2');
 
       pix.outline();
     },
   },
 
   {
-    // Scat. Three tapered pellets, dropped on moss rather than on duff — the
-    // chocolate ramp and the wood ramp sit at almost the same value, so brown
-    // on brown was one mound, and the green is what makes them three objects.
     name: 'trace-scat',
     draw(pix) {
       // Moss cushion.
-      pix.disc(16, 19, 11, 8, 'green2');
-      pix.disc(12, 16, 6, 4, 'green3');
-      pix.disc(21, 21, 5, 3.5, 'green2');
-      ditherIn(pix, 5, 11, 23, 17, 'green3', 0, ['green2']);
-      ditherIn(pix, 5, 19, 23, 9, 'green1', 1, ['green2']);
-      ditherIn(pix, 6, 12, 12, 8, 'green4', 0, ['green3']);
-      pix.line(7, 22, 10, 20, 'green1');
-      pix.line(23, 15, 25, 17, 'green1');
+      pix.disc(16, 18, 11, 8.5, 'green2');
+      pix.disc(12, 15, 6, 4, 'green3');
+      pix.disc(21, 20, 5, 3.5, 'green2');
+      ditherIn(pix, 5, 9, 23, 18, 'green3', 0, ['green2']);
+      ditherIn(pix, 5, 18, 23, 10, 'green1', 1, ['green2']);
+      ditherIn(pix, 6, 11, 12, 8, 'green4', 0, ['green3']);
+      pix.line(6, 23, 9, 21, 'green1');
+      pix.line(24, 13, 26, 15, 'green1');
 
       /**
-       * One pellet: a lozenge with a point at each end. The taper is the whole
-       * job — an oval this size is a berry and a circle is a stone.
+       * One pellet: a short lozenge with a point at each end. The taper is the
+       * whole job — an oval this size is a berry and a circle is a stone — and
+       * the pellets are kept short so three of them fit with three pixels of
+       * moss at every closest approach. Two that touch are one brown lump, and
+       * one brown lump in a game called Some More Cookies is a biscuit.
        */
       const pellet = (cx, cy, tilt) => {
         const pts = [
-          [cx - 5, cy - tilt],
-          [cx - 2, cy - 2],
-          [cx + 2, cy - 2 + tilt],
-          [cx + 5, cy + tilt],
-          [cx + 2, cy + 2 + tilt],
-          [cx - 2, cy + 2],
+          [cx - 4.5, cy - tilt],
+          [cx - 1.5, cy - 1.7],
+          [cx + 1.5, cy - 1.7 + tilt],
+          [cx + 4.5, cy + tilt],
+          [cx + 1.5, cy + 1.7 + tilt],
+          [cx - 1.5, cy + 1.7],
         ];
-        // Bedded in: a hard shadow directly under it and nowhere else, so the
-        // pellets stay three objects instead of one mound.
-        pix.poly(pts.map(([x, y]) => [x, y + 2]), 'ink');
+        // Bedded in: a hard shadow down and to the right, agreeing with every
+        // other shadow in the set, and nowhere else.
+        pix.poly(pts.map(([x, y]) => [x + 1, y + 2]), 'ink');
         pix.poly(pts, 'choc2');
-        pix.line(cx - 2, cy - 2, cx + 1, cy - 2, 'choc3');
-        pix.set(cx - 3, cy - 1, 'choc3');
-        pix.line(cx - 1, cy + 2, cx + 2, cy + 2, 'choc1');
-        pix.set(cx + 4, cy + tilt, 'choc1');
+        pix.set(cx - 2, cy - 1, 'choc3');
+        pix.set(cx - 1, cy - 1, 'choc3');
+        pix.line(cx - 1, cy + 1, cx + 2, cy + 1 + tilt, 'choc1');
+        pix.set(cx + 3, cy + tilt, 'choc1');
+        // A fibre or a needle end poking out of the taper. Nothing edible has
+        // this, and it is the cheapest way to say what this is.
+        pix.set(cx - 5, cy - tilt, 'wood3');
+        pix.set(cx + 5, cy + tilt, 'wood3');
       };
 
-      pellet(10, 21, 0);
-      pellet(21, 22, 0);
-      pellet(16, 15, 1);
+      pellet(9, 19, 0);
+      pellet(21, 20, 0);
+      pellet(16, 11, 1);
 
       pix.outline();
     },
   },
 
   {
-    // A cone a squirrel has been at. Cone first: a teardrop, heavy at the base
-    // and pointed at the top, in courses of overlapping scales. Then the story:
-    // one flank gnawed back to the bare core, a short stripped tip, and the
-    // cuttings dropped in a ring where it sat.
     name: 'trace-cone',
     draw(pix) {
-      // Egg-shaped body, and a short stem at the BOTTOM — the one detail that
-      // stops a cone from reading as a bottle.
-      pix.disc(16, 16, 6, 8.6, 'wood2');
-      pix.rect(15, 24, 2, 3, 'wood1');
+      // A fat teardrop: a rounded body with a real point on top and a short
+      // stem at the BOTTOM, which is the one detail that stops a cone reading
+      // as a bottle. An unpointed ellipse is an egg, and an egg with bands
+      // around it is a beehive.
+      pix.disc(16, 19, 6.8, 6, 'wood2');
+      pix.disc(16, 13, 5, 4.6, 'wood2');
+      pix.poly([[16, 6], [19, 13], [13, 13]], 'wood2');
 
-      // Courses of scales: a dark seam, a lit lip below it, and vertical splits
-      // offset row to row so they overlap the way real scales do.
-      const scaled = ['wood2', 'wood3'];
-      const seams = [
-        [9, 0],
-        [12, 1],
-        [15, 0],
-        [18, 1],
-        [21, 0],
-      ];
-      for (const [ry, phase] of seams) {
-        for (let x = 9; x <= 23; x++) {
-          over(pix, x, ry, 'wood1', scaled);
-          over(pix, x, ry + 1, 'wood3', ['wood2']);
-        }
-        for (let x = 10 + phase * 2; x <= 23; x += 4) {
-          for (let d = 1; d <= 2; d++) over(pix, x, ry + d, 'wood1', scaled);
+      // Courses of scales, three rows each: a lit lip along the top of every
+      // scale, the body of it, and the recess in shadow directly beneath the
+      // overhang. That is what an overlapping scale does under a light from
+      // the upper left — the old drawing had the pair the other way up and lit
+      // the whole cone from below.
+      const scaled = ['wood2', 'wood3', 'wood4'];
+      for (let y = 8; y <= 26; y++) {
+        const band = (y - 8) % 3;
+        for (let x = 8; x <= 24; x++) {
+          if (band === 0) over(pix, x, y, 'wood3', scaled);
+          else if (band === 2) over(pix, x, y, 'wood1', scaled);
         }
       }
-      ditherIn(pix, 17, 17, 6, 9, 'wood1', 1, ['wood2', 'wood3']);
-      ditherIn(pix, 10, 9, 6, 8, 'wood4', 0, ['wood3']);
-
-      // Scallop the outline: bite the corner out of the silhouette at every
-      // seam, so the edge of the cone is a stack of scale tips and not an egg.
-      for (const [ry] of seams) {
-        for (const dy of [0, -1]) {
-          for (let x = 8; x <= 23; x++) {
-            if (pix.get(x, ry + dy) === 'none') continue;
-            pix.set(x, ry + dy, 'none');
-            break;
-          }
-          for (let x = 23; x >= 8; x--) {
-            if (pix.get(x, ry + dy) === 'none') continue;
-            pix.set(x, ry + dy, 'none');
-            break;
-          }
+      // The splits between scales in a course, staggered course to course so
+      // the scales overlap the way they do on the real thing.
+      for (let y = 8; y <= 26; y += 3) {
+        const phase = ((y - 8) / 3) % 2 ? 2 : 0;
+        for (let x = 10 + phase; x <= 24; x += 4) {
+          over(pix, x, y, 'wood1', scaled);
+          over(pix, x, y + 1, 'wood1', scaled);
         }
       }
+      ditherIn(pix, 11, 9, 6, 8, 'wood4', 0, ['wood3']);
+      ditherIn(pix, 18, 18, 5, 8, 'wood1', 1, ['wood2']);
 
-      // Gnawed flank: the scales taken off the lower left, down to bare core.
-      pix.poly([[12, 18], [16, 20], [15, 26], [12, 25]], 'wood2');
-      pix.line(12, 18, 15, 20, 'wood1');
+      // Scallop the profile a pixel at every lip row, so the edge is a stack
+      // of scale tips rather than a smooth wobble — one pixel a course, since
+      // chewing every row on both sides whittles the cone down to a spike.
+      for (let y = 10; y <= 25; y += 3) {
+        for (let x = 8; x <= 24; x++) {
+          if (pix.get(x, y) === 'none') continue;
+          pix.set(x, y, 'none');
+          break;
+        }
+        for (let x = 24; x >= 8; x--) {
+          if (pix.get(x, y) === 'none') continue;
+          pix.set(x, y, 'none');
+          break;
+        }
+      }
+      pix.rect(15, 25, 2, 3, 'wood1');
+
+      // The gnawed flank, taken out of the profile itself: the scales are gone
+      // from the lower left and what is left is the bare core, narrower than
+      // the cone and lit down its one exposed edge. Drawn inside the shape it
+      // would be a smudge; bitten out of the edge it is a chewed cone.
+      pix.poly([[8, 18], [13, 20], [12, 27], [8, 26]], 'none');
+      pix.poly([[12, 19], [15, 21], [14, 26], [12, 25]], 'wood2');
       pix.line(12, 19, 12, 25, 'wood3');
-      ditherIn(pix, 13, 21, 4, 5, 'wood1', 0, ['wood2']);
+      ditherIn(pix, 13, 21, 3, 5, 'wood1', 0, ['wood2']);
 
-      // Cuttings, dropped in a ring where it sat.
-      pix.rect(5, 23, 3, 2, 'wood3');
-      pix.set(5, 23, 'wood4');
-      pix.rect(24, 21, 3, 2, 'wood3');
-      pix.set(24, 21, 'wood4');
-      pix.rect(7, 19, 2, 2, 'wood3');
-      pix.rect(23, 25, 2, 2, 'wood3');
-      pix.rect(9, 26, 2, 2, 'wood3');
+      // Cuttings, dropped where it sat.
+      pix.rect(4, 21, 3, 2, 'wood3');
+      pix.set(4, 21, 'wood4');
+      pix.rect(25, 19, 3, 2, 'wood3');
+      pix.set(25, 19, 'wood4');
+      pix.rect(5, 17, 2, 2, 'wood3');
+      pix.rect(23, 24, 2, 2, 'wood3');
+      pix.rect(7, 26, 2, 2, 'wood3');
 
       pix.outline();
     },
   },
 
   {
-    // Claw scratches on bark. Four gouges, fanned the way a paw fans, cutting
-    // through the grain to the pale wood underneath. The bark is kept dark and
-    // low-contrast on purpose: it is a backdrop, and the four bright cuts are
-    // the only thing here that is supposed to be seen.
     name: 'trace-scratch',
     draw(pix) {
-      // Slab of bark with a broken edge top and bottom.
-      pix.rect(7, 6, 17, 20, 'wood1');
-      pix.disc(15, 6, 8.5, 1.6, 'wood1');
-      pix.disc(15, 25, 8.5, 1.6, 'wood1');
-      // Break the edges up — a bark slab with four clean corners is a biscuit.
-      for (const [x, y] of [
-        [7, 6], [23, 6], [7, 25], [23, 25],
-        [8, 5], [7, 7], [22, 5], [24, 8],
-        [7, 24], [9, 26], [24, 23], [22, 26],
-      ]) {
+      // A shard of bark off a trunk: torn at the top and bottom, no two edges
+      // parallel, and nothing like the four clean corners that made this a
+      // biscuit with grill marks.
+      pix.poly([[9, 5], [19, 6], [23, 13], [22, 24], [13, 27], [7, 17]], 'wood1');
+      for (const [x, y] of [[9, 5], [18, 6], [23, 13], [22, 24], [13, 27], [7, 17], [12, 5], [21, 25]]) {
         pix.set(x, y, 'none');
       }
-      pix.set(6, 12, 'wood1');
-      pix.set(6, 13, 'wood1');
-      pix.set(24, 18, 'wood1');
-      pix.set(24, 19, 'wood1');
+      pix.set(15, 4, 'wood1');
+      pix.set(8, 20, 'wood1');
+      pix.set(23, 18, 'wood1');
 
-      // Grain: raised ridges lit down their left edge, with the grooves between
-      // them left dark. Crisp columns rather than a dither, because a dithered
-      // slab is a texture and vertical ridges are bark.
-      for (let x = 8; x <= 22; x += 4) {
+      // Grain: ridges lit down their left edge, the grooves between them left
+      // dark. Kept low-contrast on purpose — the bark is a backdrop and the
+      // four cuts are the only thing here meant to be seen.
+      for (let x = 8; x <= 22; x += 5) {
         for (let y = 3; y <= 28; y++) {
-          over(pix, x, y, 'wood3', ['wood1']);
+          over(pix, x, y, 'wood2', ['wood1']);
           over(pix, x + 1, y, 'wood2', ['wood1']);
           over(pix, x + 2, y, 'wood2', ['wood1']);
         }
       }
-      // Nicks and cracks across the grain.
-      for (const [x, y] of [[9, 9], [13, 20], [17, 11], [21, 23], [10, 24], [18, 7]]) {
-        over(pix, x, y, 'wood1', ['wood2', 'wood3']);
-        over(pix, x + 1, y, 'wood1', ['wood2', 'wood3']);
+      for (const [x, y] of [[10, 12], [15, 20], [20, 10], [10, 22]]) {
+        over(pix, x, y, 'wood1', ['wood2']);
+        over(pix, x, y + 1, 'wood1', ['wood2']);
       }
 
-      // The gouges. Dark lip on the upper-left, open wood below it.
+      // The gouges: one swipe, four claws, raked up and across the vertical
+      // grain. Cuts running the same way as the grain compete with it; cuts
+      // that cross it are the only thing you see.
       const claws = [
-        [8, 10, 13, 22],
-        [11, 8, 17, 21],
-        [14, 7, 20, 19],
-        [17, 7, 22, 16],
+        [7, 14, 20, 6],
+        [7, 19, 22, 10],
+        [8, 24, 22, 15],
+        [12, 27, 22, 21],
       ];
+      const bark = ['wood1', 'wood2', 'wood3'];
       for (const [x0, y0, x1, y1] of claws) {
-        pix.line(x0 - 1, y0, x1 - 1, y1, 'ink2');
-        pix.line(x0, y0, x1, y1, 'cream3');
-        pix.line(x0 + 1, y0, x1 + 1, y1, 'wood4');
+        // A dark trough one pixel wide, clipped to the bark — a cut that runs
+        // off the shard is not a cut, it is a speck floating in the night...
+        lineOver(pix, x0, y0, x1, y1, 'ink2', bark);
+        // ...with only its far wall lifted into the light. The floor stays
+        // dark: a bright floor is a raised stripe, not a cut.
+        lineOver(pix, x0, y0 + 1, x1, y1 + 1, 'wood4', bark);
       }
-      // Splintered ends where the claw left the bark.
-      for (const [, , x1, y1] of claws) {
-        over(pix, x1 + 2, y1 + 1, 'wood3', ['wood1', 'wood2']);
-      }
+      // Three splinters where the claws left the bark, and nowhere else —
+      // cream is the brightest value in this icon and it is not a floor.
+      over(pix, 20, 6, 'cream3', bark);
+      over(pix, 21, 10, 'cream3', bark);
+      over(pix, 21, 15, 'cream3', bark);
 
       pix.outline();
     },
   },
 
   {
-    // A hand pressed into cold ash. The ash is the pale field and the hand is
-    // the absence of it, which is why this one is inverted from every other
-    // trace and is the only trace built out of ink.
     name: 'trace-ash',
     draw(pix) {
       // Drift of ash, lobed rather than round so it reads as a spill.
-      pix.disc(16, 17, 11, 10, 'stone3');
-      pix.disc(11, 12, 6, 5, 'stone3');
-      pix.disc(22, 22, 5, 4, 'stone3');
-      ditherIn(pix, 4, 4, 24, 24, 'stone4', 0, ['stone3']);
-      ditherIn(pix, 4, 17, 24, 11, 'stone2', 1, ['stone3']);
-      ditherIn(pix, 5, 5, 10, 10, 'stone4', 1, ['stone4', 'stone3']);
+      pix.disc(16, 17, 10.5, 9.5, 'stone3');
+      pix.disc(10, 12, 6, 5, 'stone3');
+      pix.disc(22, 22, 4.6, 4, 'stone3');
+      ragged(pix, 4, 4, 28, 28, 4, 1);
+      // Light from the upper left across the drift: stone4 only in the top
+      // corner, stone2 through the lower right, stone3 doing the body of the
+      // work. Dither everything and the field is static.
+      ditherIn(pix, 4, 4, 14, 13, 'stone4', 0, ['stone3']);
+      ditherIn(pix, 4, 18, 24, 11, 'stone2', 1, ['stone3']);
+      ditherIn(pix, 17, 12, 12, 10, 'stone2', 0, ['stone3']);
 
-      // Palm.
-      pix.disc(16, 20, 4.6, 4, 'ink2');
-      pix.rect(12, 17, 9, 5, 'ink2');
+      // Three toes splayed off one hub, and the hallux behind. Two pixels
+      // thick on four-pixel centres at the hub, opening to six at the tips.
+      stroke2(pix, [[15, 17], [8, 10]], 'ink2');
+      stroke2(pix, [[15, 17], [15, 7]], 'ink2');
+      stroke2(pix, [[15, 17], [23, 11]], 'ink2');
+      stroke2(pix, [[15, 18], [17, 24]], 'ink2');
+      pix.disc(15.5, 17.5, 2, 2, 'ink2');
+      // Claw tips, one pixel past the end of each toe.
+      pix.set(7, 9, 'ink3');
+      pix.set(15, 6, 'ink3');
+      pix.set(24, 10, 'ink3');
+      pix.set(18, 25, 'ink3');
 
-      // Four fingers, splayed, and a thumb swung out to the left.
-      pix.rect(12, 12, 2, 6, 'ink2');
-      pix.rect(15, 10, 2, 8, 'ink2');
-      pix.rect(18, 11, 2, 7, 'ink2');
-      pix.rect(21, 14, 2, 5, 'ink2');
-      pix.poly([[12, 18], [9, 14], [7, 16], [11, 21]], 'ink2');
-      // Round the fingertips off.
-      pix.set(12, 12, 'ink3');
-      pix.set(15, 10, 'ink3');
-      pix.set(18, 11, 'ink3');
-      pix.set(21, 14, 'ink3');
-      pix.set(7, 15, 'none');
-
-      // Ash pushed up on the far side of the print.
+      // Ash pushed up on the far side of the print — the brightest thing in
+      // the icon, and the only place stone4 appears outside the top corner.
       litRim(pix, ['ink2', 'ink3'], ['stone2', 'stone3'], 'stone4');
       pix.outline();
     },

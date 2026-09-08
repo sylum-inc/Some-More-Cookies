@@ -7,7 +7,7 @@
  */
 
 import { provenanceLines, type SandwichRecord } from '@somemore/sim';
-import { FONT_STACK, TOKENS } from './styles.js';
+import { CUT_MARK_PX, FONT_STACK, TOKENS, px as uiPx, typePx, useScrollCut } from './styles.js';
 import type { PassportState } from '../state/store.js';
 import { useDialog } from './useDialog.js';
 
@@ -38,7 +38,11 @@ export function Passport({
 }: PassportProps): React.ReactElement {
   // Focus into the panel, trapped inside it, and back where it came from.
   const dialog = useDialog();
-  const px = (n: number) => `${n * textScale}px`;
+  // Whether anything is below the cut. "Keep this passport" was the line this
+  // booklet was being sliced through, with nothing on the page to say so.
+  const cut = useScrollCut<HTMLDivElement>();
+  const px = (n: number) => uiPx(n, textScale);
+  const tp = (n: number) => typePx(n, textScale);
   const here = campsiteSeed === undefined ? undefined : passport.campsites[campsiteSeed];
 
   return (
@@ -51,10 +55,20 @@ export function Passport({
     >
       <div
         className="sm-panel sm-panel-tall"
+        data-more={cut.more}
         onClick={(event) => event.stopPropagation()}
         style={{
-          // Weathered paper, not a card surface.
+          /*
+            Weathered paper, not a card surface — and *screened* paper, which
+            it had stopped being. This override replaced `.sm-panel`'s whole
+            background, halftone included, so the one panel a player is meant
+            to sit and read was the one flat cream field in the interface. The
+            two crossed 3px gradients come first now and the weathering sits
+            under them.
+          */
           background: `
+            repeating-linear-gradient(0deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
+            repeating-linear-gradient(90deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
             radial-gradient(ellipse at 20% 10%, rgba(255,252,240,0.9), transparent 60%),
             radial-gradient(ellipse at 85% 80%, rgba(198,182,150,0.5), transparent 55%),
             ${TOKENS.paper}`,
@@ -66,38 +80,36 @@ export function Passport({
           Outside the scroll region. A booklet this long is read to the end,
           and the way to shut it used to scroll off the top with the cover.
         */}
+        {/* No glyph inside it: the X is two 2px bars drawn by `.sm-close`. */}
         <button
-          className="sm-focus"
+          className="sm-focus sm-close"
           onClick={onClose}
           aria-label="Close passport"
           style={{
             position: 'absolute',
             top: px(10),
             right: px(12),
-            zIndex: 1,
-            background: 'transparent',
-            border: 'none',
-            fontSize: px(22),
+            zIndex: 3,
+            width: px(22),
+            height: px(22),
             color: TOKENS.inkSoft,
-            lineHeight: 1,
           }}
-        >
-          ×
-        </button>
+        />
 
-        {/* The extra bottom padding is the fade's height: the last line of the
-            last section has to be able to scroll clear of it, or "Keep this
-            passport" is the one thing on the page nobody can read cleanly. */}
-        <div className="sm-panel-scroll" style={{ padding: px(28), paddingBottom: px(28 + 34) }}>
+        {/* The extra bottom padding is the cut mark's twenty fixed pixels: the
+            last line of the last section has to be able to scroll clear of it,
+            or "Keep this passport" is the one thing on the page nobody can read
+            cleanly. */}
+        <div ref={cut.ref} className="sm-panel-scroll" style={{ padding: px(28), paddingBottom: `${Math.round(28 * textScale) + CUT_MARK_PX}px` }}>
           {/* Cover block, like a registration booklet */}
           <header style={{ borderBottom: `2px solid ${TOKENS.ink}`, paddingBottom: px(12), marginBottom: px(16) }}>
-            <div style={{ fontFamily: FONT_STACK.mono, fontSize: px(10), letterSpacing: '0.3em', color: TOKENS.inkSoft }}>
+            <div style={{ fontFamily: FONT_STACK.mono, fontSize: tp(10), letterSpacing: '0.3em', color: TOKENS.inkSoft }}>
               SOME MORE · CAMPGROUND REGISTRATION
             </div>
-            <h1 className="sm-stamp" style={{ fontSize: px(21), margin: `${px(6)} 0 0` }}>
+            <h1 className="sm-stamp" style={{ fontSize: tp(21), margin: `${px(6)} 0 0` }}>
               Campfire Passport
             </h1>
-            <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(15), color: TOKENS.inkSoft, marginTop: px(4) }}>
+            <div style={{ fontFamily: FONT_STACK.hand, fontSize: tp(15), color: TOKENS.inkSoft, marginTop: px(4) }}>
               {passport.displayName} · issued {new Date(passport.createdAt).toLocaleDateString()}
             </div>
           </header>
@@ -110,28 +122,7 @@ export function Passport({
             ) : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: px(10), marginTop: px(8) }}>
                 {passport.stamps.map((stamp) => (
-                  <div
-                    key={stamp}
-                    style={{
-                      border: `2px solid ${TOKENS.stamp}`,
-                      color: TOKENS.stamp,
-                      borderRadius: '50%',
-                      width: px(76),
-                      height: px(76),
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      textAlign: 'center',
-                      fontFamily: FONT_STACK.mono,
-                      fontSize: px(10),
-                      letterSpacing: '0.08em',
-                      textTransform: 'uppercase',
-                      transform: `rotate(${(hash(stamp) % 16) - 8}deg)`,
-                      opacity: 0.82,
-                    }}
-                  >
-                    {stamp.replace('stamp-', '')}
-                  </div>
+                  <Stamp key={stamp} id={stamp} textScale={textScale} />
                 ))}
               </div>
             )}
@@ -170,7 +161,7 @@ export function Passport({
                     <figcaption
                       style={{
                         fontFamily: FONT_STACK.hand,
-                        fontSize: px(12),
+                        fontSize: tp(12),
                         color: TOKENS.ink,
                         marginTop: px(7),
                         lineHeight: 1.25,
@@ -205,15 +196,15 @@ export function Passport({
                     data-testid="passport-stub"
                     style={{
                       background: 'rgba(255,253,246,0.72)',
-                      borderLeft: `3px solid ${TOKENS.stamp}`,
+                      borderLeft: `4px solid ${TOKENS.stamp}`,
                       padding: px(10),
                       fontFamily: FONT_STACK.mono,
-                      fontSize: px(11),
+                      fontSize: tp(11),
                       color: TOKENS.ink,
                       lineHeight: 1.6,
                     }}
                   >
-                    <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(14) }}>{stub.awarded}</div>
+                    <div style={{ fontFamily: FONT_STACK.hand, fontSize: tp(14) }}>{stub.awarded}</div>
                     <div style={{ color: TOKENS.inkSoft }}>
                       {new Date(stub.redeemedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
                     </div>
@@ -229,12 +220,12 @@ export function Passport({
                 style={{
                   marginTop: px(10),
                   background: 'transparent',
-                  border: `1px solid ${TOKENS.ink}`,
+                  border: `2px solid ${TOKENS.ink}`,
                   color: TOKENS.ink,
                   padding: `${px(7)} ${px(13)}`,
-                  fontSize: px(12),
+                  fontSize: tp(12),
                   letterSpacing: '0.06em',
-                  borderRadius: 2,
+                  borderRadius: 0,
                 }}
               >
                 Add a code from a wrapper
@@ -270,12 +261,12 @@ export function Passport({
           {here && here.visits > 1 && (
             <section style={{ marginBottom: px(20) }}>
               <SectionLabel textScale={textScale}>This campsite</SectionLabel>
-              <p style={{ fontSize: px(13), color: TOKENS.ink, margin: `${px(8)} 0 0`, lineHeight: 1.6 }}>
+              <p style={{ fontSize: tp(13), color: TOKENS.ink, margin: `${px(8)} 0 0`, lineHeight: 1.6 }}>
                 {visitLine(here.visits)}
               </p>
 
               {here.sightings.length > 0 && (
-                <p style={{ fontSize: px(13), color: TOKENS.inkSoft, margin: `${px(8)} 0 0`, lineHeight: 1.6 }}>
+                <p style={{ fontSize: tp(13), color: TOKENS.inkSoft, margin: `${px(8)} 0 0`, lineHeight: 1.6 }}>
                   Seen here: {here.sightings.slice(0, 6).join(', ')}.
                 </p>
               )}
@@ -287,7 +278,7 @@ export function Passport({
                       key={record.secretId}
                       style={{
                         fontFamily: FONT_STACK.hand,
-                        fontSize: px(14),
+                        fontSize: tp(14),
                         color: TOKENS.ink,
                         margin: `${px(4)} 0`,
                         lineHeight: 1.5,
@@ -300,7 +291,7 @@ export function Passport({
               )}
 
               {here.traces.filter((trace) => trace.disposition === 'landmark').length > 0 && (
-                <p style={{ fontSize: px(12), color: TOKENS.inkSoft, margin: `${px(10)} 0 0`, fontStyle: 'italic' }}>
+                <p style={{ fontSize: tp(12), color: TOKENS.inkSoft, margin: `${px(10)} 0 0`, fontStyle: 'italic' }}>
                   Some of it is still out there.
                 </p>
               )}
@@ -308,11 +299,11 @@ export function Passport({
           )}
 
           {/* Account linking, offered without pressure */}
-          <section style={{ borderTop: `1px dashed ${TOKENS.inkSoft}`, paddingTop: px(14) }}>
+          <section style={{ borderTop: `2px dashed ${TOKENS.inkSoft}`, paddingTop: px(14) }}>
             <SectionLabel textScale={textScale}>Keep this passport</SectionLabel>
             {passport.linkedProvider === 'none' ? (
               <>
-                <p style={{ fontSize: px(13), color: TOKENS.inkSoft, margin: `${px(6)} 0 ${px(10)}`, lineHeight: 1.5 }}>
+                <p style={{ fontSize: tp(13), color: TOKENS.inkSoft, margin: `${px(6)} 0 ${px(10)}`, lineHeight: 1.5 }}>
                   This passport lives on this device. Linking an account keeps everything in it — nothing is lost, and
                   nothing changes about how you play.
                 </p>
@@ -324,13 +315,13 @@ export function Passport({
                       onClick={() => onLink(provider)}
                       style={{
                         background: 'transparent',
-                        border: `1px solid ${TOKENS.ink}`,
+                        border: `2px solid ${TOKENS.ink}`,
                         color: TOKENS.ink,
                         padding: `${px(7)} ${px(13)}`,
-                        fontSize: px(12),
+                        fontSize: tp(12),
                         letterSpacing: '0.06em',
                         textTransform: 'capitalize',
-                        borderRadius: 2,
+                        borderRadius: 0,
                       }}
                     >
                       {provider}
@@ -339,13 +330,109 @@ export function Passport({
                 </div>
               </>
             ) : (
-              <p style={{ fontSize: px(13), color: TOKENS.inkSoft }}>
+              <p style={{ fontSize: tp(13), color: TOKENS.inkSoft }}>
                 Linked with {passport.linkedProvider}.
               </p>
             )}
           </section>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One inked mark in the booklet.
+ *
+ * It was a `border-radius: 50%` on a div, and an art grade said so in exactly
+ * those words: "as drawn it is a border-radius". It was right — a perfect
+ * two-pixel circle at a degree and a half of rotation is a CSS shape, not
+ * something a rubber die pressed onto paper. Three things separate the two,
+ * and none of them is an image file (ADR-0002):
+ *
+ *   ROTATED   four to seven degrees, and never less. The old formula was
+ *             `(hash % 16) - 8`, which produces zero and one as readily as
+ *             seven, so most stamps landed square and read as a mistake. The
+ *             sign comes from the hash too, so a page of them tilts both ways
+ *             like a booklet stamped by hand on different days.
+ *   BROKEN    the ring is an SVG circle with a dash pattern derived from the
+ *             stamp's own name, so the die lifted in four places. A closed
+ *             ring is a border however it is drawn.
+ *   MOTTLED   the whole mark is masked by a 2px checker at 0.68 alpha — the
+ *             same printed screen the panels and the sliders use — with one
+ *             hashed patch of heavier loss over it, which is where the ink
+ *             did not take.
+ *
+ * Everything variable about it is a hash of the stamp id, so the same stamp is
+ * the same mark every time the booklet is opened. Presentation may use a wall
+ * clock and `Math.random` (ADR-0001); a mark that moved every render would be
+ * a page that will not sit still.
+ */
+function Stamp({ id, textScale }: { id: string; textScale: number }): React.ReactElement {
+  const seed = hash(id);
+  const size = Math.round(76 * textScale);
+  // Four to seven degrees, either way. `% 4` gives 0..3, so +4 gives 4..7.
+  const tilt = (((seed >>> 3) % 4) + 4) * (seed % 2 === 0 ? 1 : -1);
+  const r = size / 2 - 5;
+  const circumference = 2 * Math.PI * r;
+  // Four gaps round the ring. The dash array alternates ink and air; the
+  // offset rotates the whole pattern so two stamps never break in the same
+  // places.
+  const gap = circumference / 26;
+  const run = circumference / 4 - gap;
+  const wear = `radial-gradient(ellipse at ${20 + (seed % 40)}% ${15 + ((seed >>> 5) % 50)}%, rgba(0,0,0,0.3) 0 8%, #000 34%)`;
+  const screen = 'repeating-conic-gradient(#000 0% 25%, rgba(0,0,0,0.68) 0% 50%)';
+  return (
+    <div
+      data-testid="passport-stamp"
+      style={{
+        position: 'relative',
+        width: size,
+        height: size,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textAlign: 'center',
+        color: TOKENS.stamp,
+        fontFamily: FONT_STACK.mono,
+        fontSize: typePx(10, textScale),
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        transform: `rotate(${tilt}deg)`,
+        opacity: 0.86,
+        WebkitMaskImage: `${wear}, ${screen}`,
+        maskImage: `${wear}, ${screen}`,
+        WebkitMaskSize: '100% 100%, 4px 4px',
+        maskSize: '100% 100%, 4px 4px',
+        WebkitMaskComposite: 'source-in',
+        maskComposite: 'intersect',
+      }}
+    >
+      {/* Two rings a few pixels apart, because a die has an outer edge and an
+          inner one and a single stroke reads as a hoop. */}
+      <svg aria-hidden width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ position: 'absolute', inset: 0 }}>
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={TOKENS.stamp}
+          strokeWidth={3}
+          strokeDasharray={`${run.toFixed(2)} ${gap.toFixed(2)}`}
+          strokeDashoffset={(seed % Math.max(1, Math.round(circumference))).toFixed(2)}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r - 4}
+          fill="none"
+          stroke={TOKENS.stamp}
+          strokeWidth={2}
+          strokeDasharray={`${(run * 0.7).toFixed(2)} ${(gap * 1.7).toFixed(2)}`}
+          strokeDashoffset={((seed >>> 7) % Math.max(1, Math.round(circumference))).toFixed(2)}
+        />
+      </svg>
+      <span style={{ position: 'relative', padding: `0 ${uiPx(8, textScale)}` }}>{id.replace('stamp-', '')}</span>
     </div>
   );
 }
@@ -359,15 +446,16 @@ function SandwichReceipt({
   savedAt: number;
   textScale: number;
 }): React.ReactElement {
-  const px = (n: number) => `${n * textScale}px`;
+  const px = (n: number) => uiPx(n, textScale);
+  const tp = (n: number) => typePx(n, textScale);
   return (
     <article
       style={{
         background: 'rgba(255,253,246,0.72)',
-        borderLeft: `3px solid ${TOKENS.stamp}`,
+        borderLeft: `4px solid ${TOKENS.stamp}`,
         padding: px(12),
         fontFamily: FONT_STACK.mono,
-        fontSize: px(11),
+        fontSize: tp(11),
         color: TOKENS.ink,
         lineHeight: 1.6,
       }}
@@ -378,7 +466,7 @@ function SandwichReceipt({
           {new Date(savedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
         </span>
       </div>
-      <div style={{ fontFamily: FONT_STACK.hand, fontSize: px(14), margin: `${px(4)} 0 ${px(6)}` }}>
+      <div style={{ fontFamily: FONT_STACK.hand, fontSize: tp(14), margin: `${px(4)} 0 ${px(6)}` }}>
         {sandwich.caption}
       </div>
       {provenanceLines(sandwich).map((line) => (
@@ -410,7 +498,7 @@ function SectionLabel({ children, textScale }: { children: React.ReactNode; text
     <h2
       style={{
         fontFamily: FONT_STACK.mono,
-        fontSize: `${10 * textScale}px`,
+        fontSize: typePx(10, textScale),
         letterSpacing: '0.26em',
         textTransform: 'uppercase',
         color: TOKENS.inkSoft,
@@ -424,7 +512,7 @@ function SectionLabel({ children, textScale }: { children: React.ReactNode; text
 
 function Empty({ children, textScale }: { children: React.ReactNode; textScale: number }): React.ReactElement {
   return (
-    <p style={{ fontFamily: FONT_STACK.hand, fontSize: `${14 * textScale}px`, color: TOKENS.inkSoft, margin: `${6 * textScale}px 0 0` }}>
+    <p style={{ fontFamily: FONT_STACK.hand, fontSize: typePx(14, textScale), color: TOKENS.inkSoft, margin: `${uiPx(6, textScale)} 0 0` }}>
       {children}
     </p>
   );

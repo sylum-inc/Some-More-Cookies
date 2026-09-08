@@ -18,6 +18,7 @@ export type TextureKey =
   | 'chocolate'
   | 'marshmallow'
   | 'bark'
+  | 'charCracks'
   | 'foliage'
   | 'dirt'
   | 'gravel'
@@ -162,6 +163,57 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
       ctx.fillRect(x, 0, w, size);
     }
     speckle(ctx, size, rng, ['#2f241b', '#65503c'], 0.25);
+  },
+
+  /**
+   * The seams a burning log glows through, as an emissive map.
+   *
+   * A log on this fire used to take a flat red wash across its whole surface,
+   * scaled by how alight it was, which at a distance reads as a mustard slab
+   * with the brightness turned up — an art review's words for the most
+   * looked-at object in the game were "a flat #b8a44a rounded rectangle. No
+   * grain, no char, no glow."
+   *
+   * Wood does not glow evenly. It splits along the grain and the fire gets
+   * into the splits, so what you see is a dark charred surface with a few
+   * bright seams running through it and the odd hot pocket where two meet.
+   * Black almost everywhere on purpose: this multiplies the emissive, so
+   * black is "this part of the log is just charcoal" and the bright parts are
+   * the only places light comes out. A uniform map would put us back where we
+   * started.
+   */
+  charCracks: (ctx, size, rng) => {
+    fill(ctx, size, '#000000');
+    // Long seams along the grain, which for a log lying on its side runs
+    // across the texture rather than up it.
+    const seams = Math.max(3, Math.round(size / 14));
+    for (let i = 0; i < seams; i++) {
+      let y = rng.range(0, size);
+      const drift = rng.range(-0.22, 0.22);
+      const heat = rng.range(0.45, 1);
+      ctx.strokeStyle = `rgba(255,${Math.round(90 + heat * 90)},${Math.round(20 + heat * 30)},${heat.toFixed(2)})`;
+      ctx.lineWidth = rng.range(1, Math.max(1.5, size / 32));
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= size; x += Math.max(2, size / 12)) {
+        y += drift * (size / 12) + rng.range(-1.2, 1.2);
+        ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    // Hot pockets: where the seams have opened into each other and the coal
+    // underneath is showing. Brighter than the seams and much rarer.
+    for (let i = 0; i < Math.max(2, size / 22); i++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(size / 40, size / 16);
+      const glow = ctx.createRadialGradient(x, y, 0, x, y, r);
+      glow.addColorStop(0, 'rgba(255,214,150,0.95)');
+      glow.addColorStop(0.5, 'rgba(255,120,40,0.55)');
+      glow.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    }
   },
 
   foliage: (ctx, size, rng) => {

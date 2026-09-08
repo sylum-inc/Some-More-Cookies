@@ -6,7 +6,7 @@
  * dithering" is both.
  */
 
-import { FONT_STACK, TOKENS } from './styles.js';
+import { CUT_MARK_PX, FONT_STACK, SR_ONLY, TOKENS, px as uiPx, typePx, useScrollCut } from './styles.js';
 import type { AccessibilitySettings, AudioSettings } from '../state/store.js';
 import type { RenderSettings } from '../render/ps1.js';
 import { useDialog } from './useDialog.js';
@@ -31,9 +31,13 @@ export function Settings({
   onClose,
 }: SettingsProps): React.ReactElement {
   const scale = accessibility.textScale;
-  const px = (n: number) => `${n * scale}px`;
+  const px = (n: number) => uiPx(n, scale);
+  const tp = (n: number) => typePx(n, scale);
   // Focus into the panel, trapped inside it, and back where it came from.
   const dialog = useDialog();
+  // Whether anything is below the cut, so the mark at the bottom of the frame
+  // is drawn only when it is telling the truth.
+  const cut = useScrollCut<HTMLDivElement>();
 
   return (
     <div
@@ -45,6 +49,7 @@ export function Settings({
     >
       <div
         className="sm-panel sm-panel-tall"
+        data-more={cut.more}
         onClick={(event) => event.stopPropagation()}
         style={{ width: 'min(680px, 94vw)' }}
       >
@@ -56,19 +61,19 @@ export function Settings({
           still the first thing in the document, which is what `useDialog`
           moves focus to when the panel opens.
         */}
+        {/* No glyph inside it: the X is two 2px bars drawn by `.sm-close`. */}
         <button
-          className="sm-focus"
+          className="sm-focus sm-close"
           onClick={onClose}
           aria-label="Close settings"
-          style={{ position: 'absolute', top: px(10), right: px(12), zIndex: 1, background: 'transparent', border: 'none', fontSize: px(22), color: TOKENS.inkSoft }}
-        >
-          ×
-        </button>
+          style={{ position: 'absolute', top: px(10), right: px(12), zIndex: 3, width: px(22), height: px(22), color: TOKENS.inkSoft }}
+        />
 
-        {/* The extra bottom padding is the fade's height, so the last slider
-            can scroll clear of the wash rather than ending under it. */}
-        <div className="sm-panel-scroll" style={{ padding: px(26), paddingBottom: px(26 + 34) }}>
-          <h1 className="sm-stamp" style={{ fontSize: px(17), margin: `0 0 ${px(18)}` }}>
+        {/* The extra bottom padding is the cut mark's twenty fixed pixels, so
+            the last slider can scroll clear of the dither rather than ending
+            under it. Fixed, because the mark does not scale with the type. */}
+        <div ref={cut.ref} className="sm-panel-scroll" style={{ padding: px(26), paddingBottom: `${Math.round(26 * scale) + CUT_MARK_PX}px` }}>
+          <h1 className="sm-stamp" style={{ fontSize: tp(17), margin: `0 0 ${px(18)}` }}>
             Settings
           </h1>
 
@@ -182,7 +187,7 @@ export function Settings({
           </Group>
 
           <Group title="Assists" scale={scale}>
-            <p style={{ fontSize: px(12), color: TOKENS.inkSoft, margin: `0 0 ${px(10)}`, lineHeight: 1.5 }}>
+            <p style={{ fontSize: tp(12), color: TOKENS.inkSoft, margin: `0 0 ${px(10)}`, lineHeight: 1.5 }}>
               Assists change how much dexterity a thing takes. They never change what you can make.
             </p>
             <Slider
@@ -300,9 +305,9 @@ export function Settings({
 
 function KeyList({ rows, scale }: { rows: readonly (readonly [string, string])[]; scale: number }): React.ReactElement {
   return (
-    <dl style={{ margin: 0, fontSize: `${12 * scale}px`, color: TOKENS.ink, lineHeight: 1.7 }}>
+    <dl style={{ margin: 0, fontSize: typePx(12, scale), color: TOKENS.ink, lineHeight: 1.7 }}>
       {rows.map(([what, keys]) => (
-        <div key={what} style={{ display: 'flex', justifyContent: 'space-between', gap: `${12 * scale}px` }}>
+        <div key={what} style={{ display: 'flex', justifyContent: 'space-between', gap: uiPx(12, scale) }}>
           <dt style={{ margin: 0 }}>{what}</dt>
           <dd style={{ margin: 0, fontFamily: FONT_STACK.mono, color: TOKENS.inkSoft, textAlign: 'right' }}>
             {keys}
@@ -315,17 +320,17 @@ function KeyList({ rows, scale }: { rows: readonly (readonly [string, string])[]
 
 function Group({ title, children, scale }: { title: string; children: React.ReactNode; scale: number }): React.ReactElement {
   return (
-    <section style={{ marginBottom: `${22 * scale}px` }}>
+    <section style={{ marginBottom: uiPx(22, scale) }}>
       <h2
         style={{
           fontFamily: FONT_STACK.mono,
-          fontSize: `${10 * scale}px`,
+          fontSize: typePx(10, scale),
           letterSpacing: '0.26em',
           textTransform: 'uppercase',
           color: TOKENS.inkSoft,
-          margin: `0 0 ${10 * scale}px`,
-          borderBottom: `1px solid ${TOKENS.paperEdge}`,
-          paddingBottom: `${6 * scale}px`,
+          margin: `0 0 ${uiPx(10, scale)}`,
+          borderBottom: `2px solid ${TOKENS.paperEdge}`,
+          paddingBottom: uiPx(6, scale),
         }}
       >
         {title}
@@ -357,13 +362,33 @@ function Slider({
   format?: (value: number) => string;
 }): React.ReactElement {
   const display = sliderReadout(value, min, max, format);
+  const spoken = sliderSpoken(value, min, max, format);
   return (
-    <label style={{ display: 'block', marginBottom: `${12 * scale}px`, color: TOKENS.ink }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: `${13 * scale}px` }}>
+    <label style={{ display: 'block', marginBottom: uiPx(12, scale), color: TOKENS.ink }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: uiPx(10, scale), fontSize: typePx(13, scale) }}>
         <span>{label}</span>
-        <span style={{ fontFamily: FONT_STACK.mono, color: TOKENS.inkSoft }}>{display}</span>
+        {/*
+          Two channels for one number, when the two need different words.
+
+          "×1.00" is the right mark on a page: it is short, it is unambiguous,
+          and it cannot be mistaken for the handle's position. It is not a
+          thing a screen reader says — "times one point zero zero" is not how
+          anybody describes a text size — so the glyph is hidden from the
+          accessibility tree and the sentence is hidden from the page. Both are
+          the same fact and neither is decoration.
+        */}
+        <span style={{ fontFamily: FONT_STACK.mono, color: TOKENS.inkSoft }}>
+          {spoken === display ? (
+            display
+          ) : (
+            <>
+              <span aria-hidden="true">{display}</span>
+              <span style={SR_ONLY}>{spoken}</span>
+            </>
+          )}
+        </span>
       </div>
-      {hint && <div style={{ fontSize: `${11 * scale}px`, color: TOKENS.inkSoft, marginTop: 2 }}>{hint}</div>}
+      {hint && <div style={{ fontSize: typePx(11, scale), color: TOKENS.inkSoft, marginTop: 2 }}>{hint}</div>}
       <input
         className="sm-focus sm-slider"
         type="range"
@@ -378,7 +403,7 @@ function Slider({
         style={
           {
             width: '100%',
-            marginTop: `${4 * scale}px`,
+            marginTop: uiPx(4, scale),
             '--sm-fill': `${sliderPosition(value, min, max) * 100}%`,
           } as React.CSSProperties
         }
@@ -396,9 +421,9 @@ export function sliderPosition(value: number, min: number, max: number): number 
 /**
  * What one slider says it is set to.
  *
- * This has now been wrong in both directions, and the reason is the same both
- * times: a bare percentage is only meaningful when 0% and 100% are the ends of
- * the control, and half the knobs on this panel are not built that way.
+ * This has now been wrong in three ways, and the cause is the same every
+ * time: a percentage is only meaningful when 0% and 100% are the ends of the
+ * control, and half the knobs on this panel are not built that way.
  *
  * It first read `(value - min) / (max - min)` — the handle's position. For a
  * dial running 0..1 that is also the value, so five of the seven sliders
@@ -406,27 +431,26 @@ export function sliderPosition(value: number, min: number, max: number): number 
  * **"Text size 16%"**, which is not a text size and is an alarming figure to
  * show somebody who opened this screen because the type was too small.
  *
- * It was then changed to read the raw value, and an art grade of the build
- * caught the other half of it. Text size (0.85..1.8) and fire brightness
- * (0.35..1.5) are multipliers around a reference of 1, so both said "100%" at
- * their defaults — sitting at 16% and 57% of their tracks, directly under
- * Flicker also saying "100%" with its handle hard against the right stop.
- * Three identical labels over three unrelated handle positions, and no way to
- * tell from the panel which of them meant "as far as this goes".
+ * It was then changed to read the raw value as "N% of normal". That is
+ * *literally true* — fire brightness runs 0.35 to 1.5, its default is 1.0, and
+ * 1.0 is a hundred per cent of normal — and it still failed, because a reader
+ * seeing "100%" beside a handle sitting 56% of the way along its track has to
+ * work out which of the two is lying before they can trust either. A setting
+ * that needs working out is a broken setting however defensible its arithmetic
+ * is.
  *
- * So the notation follows the range instead of being one notation for two
- * different quantities:
+ * So the notation follows the shape of the range, and the two shapes now use
+ * two different *kinds* of mark rather than the same mark with a qualifier:
  *
  *   0..max   a dial. 0 is off, the top is everything, and the percentage *is*
- *            the handle position. Unchanged.
- *   min>0    a multiplier around 1, which cannot reach zero and can exceed
- *            100%. It still reads in per cent — that is how people talk about
- *            text size — but it says what it is a percentage *of*, so a
- *            handle resting in the middle of the track at "100% of normal"
- *            explains itself, and 150% no longer looks like an impossibility.
+ *            the handle position, so a percentage is exactly right.
+ *   min>0    a multiplier around a reference of 1. It reads "×1.00" — a
+ *            number that never resembles a position on a track, cannot be
+ *            compared against one, and is what the value actually is: the
+ *            factor the type or the firelight is multiplied by.
  *
- * The scored track and the stain behind the handle do the rest: how far along
- * a control is stays readable without asking the number to mean two things.
+ * `sliderSpoken` carries the long form for anybody listening rather than
+ * looking; see the note at the readout in `Slider`.
  */
 export function sliderReadout(
   value: number,
@@ -436,6 +460,29 @@ export function sliderReadout(
 ): string {
   if (format) return format(value);
   if (min === 0) return `${Math.round((value / max) * 100)}%`;
+  // Two decimals because the step on both multiplier sliders is 0.05, and
+  // "×1.1" for 1.15 is a readout that stops moving when the handle does not.
+  return `×${value.toFixed(2)}`;
+}
+
+/**
+ * The same setting, in words, for a screen reader.
+ *
+ * "×1.00" is a mark, not a phrase — read aloud it is "times one point zero
+ * zero", which is not how anybody describes how large their text is. The
+ * spoken form keeps the per-cent-of-normal wording, which was always the right
+ * *sentence* and only ever the wrong *glyph*.
+ *
+ * Identical to `sliderReadout` for every other shape of slider, and `Slider`
+ * renders one span rather than two when they agree.
+ */
+export function sliderSpoken(
+  value: number,
+  min: number,
+  max: number,
+  format?: (value: number) => string,
+): string {
+  if (format || min === 0) return sliderReadout(value, min, max, format);
   return `${Math.round(value * 100)}% of normal`;
 }
 
@@ -457,8 +504,8 @@ function Toggle({
       style={{
         display: 'flex',
         alignItems: 'flex-start',
-        gap: `${10 * scale}px`,
-        marginBottom: `${12 * scale}px`,
+        gap: uiPx(10, scale),
+        marginBottom: uiPx(12, scale),
         color: TOKENS.ink,
         cursor: 'pointer',
       }}
@@ -468,11 +515,11 @@ function Toggle({
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        style={{ marginTop: 3, accentColor: TOKENS.stamp, width: `${16 * scale}px`, height: `${16 * scale}px` }}
+        style={{ marginTop: 3, accentColor: TOKENS.stamp, width: uiPx(16, scale), height: uiPx(16, scale) }}
       />
       <span>
-        <span style={{ fontSize: `${13 * scale}px` }}>{label}</span>
-        {hint && <div style={{ fontSize: `${11 * scale}px`, color: TOKENS.inkSoft }}>{hint}</div>}
+        <span style={{ fontSize: typePx(13, scale) }}>{label}</span>
+        {hint && <div style={{ fontSize: typePx(11, scale), color: TOKENS.inkSoft }}>{hint}</div>}
       </span>
     </label>
   );

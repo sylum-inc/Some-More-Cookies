@@ -373,6 +373,17 @@ export interface TreeOptions {
   /** Snow load on the upper faces, 0..1. Default 0. */
   snow?: number;
   /**
+   * Where on the per-tree hue drift this tree sits, 0..1.
+   *
+   * Omit and the seed picks, which is right for a tree built on its own.
+   * `createTreeGeometrySet` supplies it, because a wood of four independent
+   * rolls lands on four *similar* greens about one campsite in four — the
+   * same "four coin flips are not a deck" problem the form order solves, and
+   * measured on the built meshes at a warm-to-cool spread of 1.08 across a
+   * whole wood where a dealt set never drops below 1.4.
+   */
+  hue?: number;
+  /**
    * The material colour these vertex tints will be multiplied against.
    *
    * Only needed for snow: a multiplicative tint on a dark green material makes
@@ -387,32 +398,150 @@ export interface TreeOptions {
  * The three tone bands from the art direction, as multipliers rather than
  * colours.
  *
- * The direction names sunward `#4a5a3e`, mid `#33402c` and shade `#1c241a`.
- * They cannot be written into the mesh as absolutes: the canopy colour is
- * per-campsite (`palette.foliage`, from the manifest) and the hour moves it,
- * so a baked hex would flatten every wood in the catalogue to the same green
- * and would stop the night from arriving. Dividing each band by the mid band
- * keeps the *relationship* the director graded — a crown 1.4× its own mid and
- * a shade a little over half it — and leaves identity and hour where they
- * belong. Same reasoning as `groundTint`, which is centred on 1 for the same
- * reason.
+ * The direction names a top face `#4a6b4a`, a mid `#33513a` and an underside
+ * `#1e3328`. They cannot be written into the mesh as absolutes: the canopy
+ * colour is per-campsite (`palette.foliage`, from the manifest) and the hour
+ * moves it, so a baked hex would flatten every wood in the catalogue to the
+ * same green and would stop the night from arriving. Keeping the *ratio* the
+ * director graded leaves identity and hour where they belong.
+ *
+ * **The ratio has to be taken in linear light, and the first version took it
+ * in sRGB bytes.** A vertex colour is multiplied into the albedo in the
+ * renderer's working space, which is linear; `74 / 51` is a ratio of two
+ * gamma-encoded numbers and means nothing there. Measured against the twelve
+ * catalogue foliage colours, the sRGB-byte ratios separated the top face from
+ * the underside by about 20/255 in green where the director's own two hexes
+ * separate by 56 — the bands were computed, applied, and then squashed by the
+ * transfer curve into something a screenshot reads as flat. Dividing in
+ * linear puts that separation back at 31-37/255 over the same dark canopies:
+ * two thirds more band, for the same three hexes.
  */
-const TONE_SUNWARD: readonly [number, number, number] = [74 / 51, 90 / 64, 62 / 44];
-const TONE_MID: readonly [number, number, number] = [1, 1, 1];
-const TONE_SHADE: readonly [number, number, number] = [28 / 51, 36 / 64, 26 / 44];
+function bandRatio(top: number, bottom: number): Tone {
+  // `THREE.Color` decodes an sRGB hex into the linear working space, which is
+  // the whole point of doing it here rather than with byte arithmetic.
+  const a = new THREE.Color(top);
+  const b = new THREE.Color(bottom);
+  return [a.r / b.r, a.g / b.g, a.b / b.b];
+}
+
+const TONE_SUNWARD: Tone = bandRatio(0x4a6b4a, 0x33513a);
+const TONE_MID: Tone = [1, 1, 1];
+const TONE_SHADE: Tone = bandRatio(0x1e3328, 0x33513a);
 
 /**
- * Bark, warm and dark.
+ * Per-tree hue, so a treeline is not one wall of the same green.
+ *
+ * The direction asks for a drift across `#3f5f42`, `#4e6340` and `#2f4a38`.
+ * Same problem as the bands: those are absolutes and the canopy colour is the
+ * campsite's, so what is kept is the drift, normalised against the mean of
+ * the three. Centred on 1, exactly like `groundTint`, so a wood's *average*
+ * canopy is still precisely the colour the manifest asked for and none of the
+ * twelve environments loses its identity.
+ *
+ * The luminance half of the drift is damped and the chroma half is not. Taken
+ * whole, the darkest of the three anchors is 1.93x darker than the brightest,
+ * and a wood where one tree in three is half the albedo of its neighbour
+ * reads as two species rather than as one wood in uneven light. Damping
+ * brightness to 0.45 brings that to 1.35x while leaving the full hue swing —
+ * red spans 0.71 to 1.31 across the drift — which is the part that actually
+ * separates one crown from the next at 320x240.
+ */
+const HUE_ANCHORS = [0x3f5f42, 0x4e6340, 0x2f4a38] as const;
+const LUMINANCE_DAMPING = 0.45;
+
+const HUE_DRIFT: readonly Tone[] = (() => {
+  const linear = HUE_ANCHORS.map((hex) => {
+    const c = new THREE.Color(hex);
+    return [c.r, c.g, c.b] as const;
+  });
+  const mean = [0, 1, 2].map((i) => linear.reduce((sum, v) => sum + (v[i] as number), 0) / linear.length);
+  // Rec.709 luma, which is what "brighter tree" means to an eye.
+  const luma = (v: readonly number[]): number =>
+    0.2126 * (v[0] as number) + 0.7152 * (v[1] as number) + 0.0722 * (v[2] as number);
+  return linear.map((v) => {
+    const ratio = v.map((c, i) => c / (mean[i] as number));
+    const level = luma(ratio);
+    const damped = 1 + LUMINANCE_DAMPING * (level - 1);
+    return ratio.map((c) => (c / level) * damped) as unknown as Tone;
+  });
+})();
+
+/**
+ * Where on the drift one tree sits.
+ *
+ * A continuous walk along the anchors rather than a pick of three, so a wood
+ * of forty trees has forty greens in it and not three.
+ */
+function hueTint(roll: number): Tone {
+  const span = HUE_DRIFT.length - 1;
+  const t = Math.min(0.999999, Math.max(0, roll)) * span;
+  const i = Math.floor(t);
+  return mixTone(HUE_DRIFT[i] as Tone, HUE_DRIFT[Math.min(span, i + 1)] as Tone, t - i);
+}
+
+/**
+ * Bark: `#2a211a` against the mid band, in linear, same as the tone bands.
  *
  * The trunk shares the canopy's material — the whole wood is a few draw calls
  * and splitting bark out would double them — so the only thing that can make
- * it read as wood rather than as more foliage is a tint. Warm and dark against
- * a green base lands on the olive-brown a fir trunk is in this light.
+ * it read as wood rather than as more foliage is a tint. This one is dark and
+ * decisively warm: over the catalogue's dark greens it lands on roughly
+ * 24,14,12 where the canopy is 30,42,32, so red beats green on the trunk and
+ * green beats red on the boughs. That inversion is what makes a trunk read as
+ * a trunk at a resolution where it is three pixels wide.
+ *
+ * It used to be `[1.12, 0.74, 0.52]`, which put the trunk at 32,35,21 —
+ * *brighter* than the canopy's own mid band and only just warmer. Graded as
+ * "a fat pale cylinder ... reads as a mushroom stalk", and the pale half of
+ * that was this number.
  */
-const TONE_BARK: readonly [number, number, number] = [1.12, 0.74, 0.52];
+const TONE_BARK: Tone = bandRatio(0x2a211a, 0x33513a);
 
-/** Snow, if we were told nothing about what it is being multiplied against. */
-const SNOW_FALLBACK: readonly [number, number, number] = [2.3, 1.85, 2.7];
+/**
+ * How high the lowest skirt is allowed to hang, as a fraction of the tree.
+ *
+ * The direction: "drop the lowest skirt to within 15% of ground so no
+ * daylight gap opens under it".
+ */
+const LOWEST_SKIRT_FRACTION = 0.15;
+
+/**
+ * How much brighter the crown of a tree is than the boughs down inside it.
+ *
+ * Small on purpose. Before, this ramp *was* the shading — a skirt's whole
+ * upper face took one value off it — and the result graded as flat. Now the
+ * three bands do the shading within each skirt and this only says which end
+ * of the tree the light is coming from.
+ */
+const CROWN_LIFT = 1.14;
+
+/**
+ * Snow, if we were told nothing about what it is being multiplied against.
+ *
+ * Derived from the foliage bands rather than written as three numbers,
+ * because three numbers drift. It was `[2.3, 1.85, 2.7]`, tuned when the
+ * sunward band was 1.45; the moment the bands were recomputed in linear light
+ * the crown of an *unsnowed* tree came out brighter than the snow on a snowed
+ * one, and the only reason that was caught is that a test had pinned the
+ * ratio. So the ratio is now the definition: whatever the bands and the hue
+ * drift are, the fallback snow is 1.6x the brightest tint any tree can
+ * produce, pushed cold — green down, blue up, which is what desaturating a
+ * green towards a blue-grey amounts to.
+ */
+const SNOW_COOL: Tone = [1, 0.83, 1.21];
+const SNOW_LIFT = 1.6;
+const SNOW_FALLBACK: Tone = (() => {
+  const peak = Math.max(
+    ...[0, 1, 2].map(
+      (c) =>
+        (TONE_SUNWARD[c] as number) *
+        CROWN_LIFT *
+        Math.max(...HUE_DRIFT.map((tint) => tint[c] as number)),
+    ),
+  );
+  const cool = mulTone(TONE_SUNWARD, SNOW_COOL);
+  return scaleTone(cool, (peak * SNOW_LIFT) / Math.max(...cool));
+})();
 
 /** Lying snow in this palette: not white — a cold, slightly blue grey. */
 const SNOW_TARGET = 0xcdd6d8;
@@ -442,6 +571,11 @@ export function createTreeGeometry(
   const form = options.form ?? pickForm(rng());
   const snow = Math.max(0, Math.min(1, options.snow ?? 0));
   const snowTone = snowTint(options.baseColor);
+  // Drawn before anything else so the roll is stable: adding a shape later
+  // must not repaint the whole wood. Drawn even when the caller supplies a
+  // hue, or opting in would shift every position in the tree.
+  const hueRoll = rng();
+  const tint = hueTint(options.hue ?? hueRoll);
 
   const surfaces: Surfaces = { positions: [], normals: [], uvs: [], colors: [] };
 
@@ -464,11 +598,27 @@ export function createTreeGeometry(
   const trunkTop = form === 'broken' ? height * (0.68 + rng() * 0.16) : height;
   const trunkHeight = form === 'snag' ? trunkTop : trunkTop * (bareFraction + 0.55);
 
+  /*
+   * Trunk width, cut to about a third of what it was.
+   *
+   * The old `0.028 + rng() * 0.016` is a trunk 22-35 cm across on a 4 m tree.
+   * At the world camera's 62 degree field over a 240-line buffer that is 222
+   * pixels per radian, so at six metres the trunk was eight pixels wide — a
+   * post, and graded as one. A third of it is 8-11 cm, which is what a fir
+   * that height actually measures, and still 3-4 pixels at the same distance:
+   * thin enough to see the wood through, wide enough not to alias away.
+   *
+   * A snag is the exception and keeps half again, because a dead tree has no
+   * canopy and is read entirely by its trunk. That is the whole reason it is
+   * in the deck.
+   */
+  const trunkWidth = height * (0.0095 + rng() * 0.0055) * (form === 'snag' ? 1.6 : 1);
   addTrunk(surfaces, {
     height: trunkHeight,
-    radius: height * (0.028 + rng() * 0.016),
+    radius: trunkWidth,
     segments: detail === 'far' ? 4 : 5,
     broken: form === 'broken' || form === 'snag',
+    tint,
     rng,
   });
 
@@ -485,10 +635,26 @@ export function createTreeGeometry(
         length: height * (0.08 + rng() * 0.12),
         radius: height * 0.016,
         droop: -0.15 - rng() * 0.5,
+        tint,
       });
     }
   } else {
-    const canopyBase = trunkTop * bareFraction;
+    /*
+     * How much bare trunk shows under the lowest skirt.
+     *
+     * `bareFraction` still decides the *shape* — a broad old fir carries its
+     * canopy higher and is a different tree from a spire — but the visible gap
+     * is capped at 15% of the tree's height, which is what the direction
+     * asked for after grading the old broad fir's bare third as "a wide
+     * daylight gap under the bottom skirt".
+     *
+     * The thing the bare third was there for was seeing *through* a wood
+     * rather than at it. That now comes from the trunk being a third of the
+     * width and a good deal darker than the canopy, which buys the same
+     * see-through at a fifth of the pixels — and without the gap that made
+     * every broad fir read as a stalk with a hat on.
+     */
+    const canopyBase = Math.min(trunkTop * bareFraction, height * LOWEST_SKIRT_FRACTION);
     const canopyTop = form === 'broken' ? trunkTop * 0.92 : trunkTop;
     const skirtCount =
       detail === 'far'
@@ -545,7 +711,11 @@ export function createTreeGeometry(
         // topmost apex overshoots the height the caller asked for by most of
         // a step and every tree in the wood is a sixth taller than it says.
         yTip: Math.min(canopyTop, yBase + step * (1.5 + rng() * 0.6)),
-        yUnder: yBase - step * (0.35 + rng() * 0.25),
+        // Floored at the ground: with the canopy dropped to 15% of the
+        // height, the lowest skirt's underside apex reaches below zero at the
+        // `far` detail level, where three skirts have to cover the whole
+        // canopy and each step is a third of the tree.
+        yUnder: Math.max(height * 0.005, yBase - step * (0.35 + rng() * 0.25)),
         radius,
         segments,
         phase,
@@ -561,6 +731,7 @@ export function createTreeGeometry(
         // half-snowed and reads as bright green rather than as snow.
         snow: snow * Math.min(1, Math.max(0, (t - 0.3) / 0.45)),
         snowTone,
+        tint,
         fringe: detail === 'near',
       });
       phase += segmentAngle * (0.34 + rng() * 0.3);
@@ -576,6 +747,7 @@ export function createTreeGeometry(
           length: height * (0.03 + rng() * 0.06),
           radius: height * 0.012,
           droop: 0.8 + rng() * 0.6,
+          tint,
         });
       }
     }
@@ -633,12 +805,24 @@ export function createTreeGeometrySet(
    * for it to be the exception it is meant to be.
    */
   const order: TreeForm[] = ['spire', 'broad', 'broken', 'spire', 'snag', 'broad'];
+  /*
+   * And the hue is dealt for the same reason the form is.
+   *
+   * Every bucket takes an even slice of the drift, so a wood always spans it
+   * — but the whole set is rotated by a per-campsite phase, so two campsites
+   * that both draw four trees do not both start on the same green. Without
+   * the deal, four independent rolls gave a warm-to-cool spread of only 1.08
+   * at seed 99991 against 1.37 at seed 60013: one wood in four came out as
+   * the flat wall this was supposed to break up.
+   */
+  const phase = mulberry(seed ^ 0x9e37)();
   return Array.from({ length: count }, (_, i) =>
     // The same `seed + i * 977` the campsite already used, so a campsite that
     // switches to this keeps the trees it had in the places it had them.
     createTreeGeometry(seed + i * 977, height, {
       ...options,
       form: order[i % order.length] as TreeForm,
+      hue: ((i + 0.5) / count + phase) % 1,
     }),
   );
 }
@@ -691,12 +875,15 @@ interface TrunkSpec {
   radius: number;
   segments: number;
   broken: boolean;
+  /** This tree's place on the hue drift. */
+  tint: Tone;
   rng: () => number;
 }
 
 /** A tapered trunk, open at both ends — the skirts and the ground cap it. */
 function addTrunk(surfaces: Surfaces, spec: TrunkSpec): void {
-  const { height, radius, segments, rng } = spec;
+  const { height, radius, segments, rng, tint } = spec;
+  const bark = mulTone(TONE_BARK, tint);
   const topRadius = radius * (spec.broken ? 0.72 : 0.42);
   for (let i = 0; i < segments; i++) {
     const a0 = (i / segments) * Math.PI * 2;
@@ -718,7 +905,7 @@ function addTrunk(surfaces: Surfaces, spec: TrunkSpec): void {
     // Sunward and shade alternate around the trunk so it has a lit side and a
     // dark side whichever way the instance is turned.
     const lit = 0.7 + 0.3 * Math.cos(a0 * 1.5);
-    const tone = scaleTone(TONE_BARK, 0.75 + lit * 0.4);
+    const tone = scaleTone(bark, 0.75 + lit * 0.4);
     pushTriangle(surfaces, x0, 0, z0, x1, 0, z1, tx1, height, tz1, u0, 0, u1, 0, u1, 1, tone, tone, tone);
     pushTriangle(surfaces, x0, 0, z0, tx1, height, tz1, tx0, height, tz0, u0, 0, u1, 1, u0, 1, tone, tone, tone);
   }
@@ -731,18 +918,20 @@ interface StubSpec {
   radius: number;
   /** Positive points the stub up, negative down. */
   droop: number;
+  tint: Tone;
 }
 
 /** A dead branch stub: three tapered faces, which is enough of a stick. */
 function addStub(surfaces: Surfaces, spec: StubSpec): void {
-  const { y, angle, length, radius, droop } = spec;
+  const { y, angle, length, radius, droop, tint } = spec;
+  const bark = mulTone(TONE_BARK, tint);
   const dx = Math.cos(angle);
   const dz = Math.sin(angle);
   const tipX = dx * length;
   const tipY = y + length * droop;
   const tipZ = dz * length;
-  const tone = scaleTone(TONE_BARK, 0.9);
-  const shade = scaleTone(TONE_BARK, 0.55);
+  const tone = scaleTone(bark, 0.9);
+  const shade = scaleTone(bark, 0.55);
   for (let i = 0; i < 3; i++) {
     const a0 = (i / 3) * Math.PI * 2;
     const a1 = ((i + 1) / 3) * Math.PI * 2;
@@ -783,6 +972,8 @@ interface SkirtSpec {
   lit: number;
   snow: number;
   snowTone: Tone;
+  /** This tree's place on the hue drift. */
+  tint: Tone;
   fringe: boolean;
 }
 
@@ -800,7 +991,7 @@ interface SkirtSpec {
  * — under about 15% the profile still measures as a straight edge.
  */
 function addSkirt(surfaces: Surfaces, spec: SkirtSpec): void {
-  const { yBase, yTip, yUnder, radius, segments, phase, rng, snow, snowTone, fringe } = spec;
+  const { yBase, yTip, yUnder, radius, segments, phase, rng, snow, snowTone, tint, fringe } = spec;
 
   const rimX: number[] = [];
   const rimY: number[] = [];
@@ -819,8 +1010,36 @@ function addSkirt(surfaces: Surfaces, spec: SkirtSpec): void {
     rimY.push(yBase - radius * (rng() * 0.22));
   }
 
-  const litTone = mixTone(TONE_MID, TONE_SUNWARD, Math.min(1, spec.lit * 1.2));
-  const tipTone = snow > 0 ? mixTone(litTone, snowTone, snow) : litTone;
+  /*
+   * Three bands **per skirt**, which is the whole of the fix.
+   *
+   * They used to be three bands per *tree*: the upper face of a skirt was one
+   * tone lerped from `lit`, its rim was 8% of that, and the underside was the
+   * shade band. Within any one skirt that is two values eight per cent apart,
+   * so every skirt was a flat lit shape over a flat dark shape and the stack
+   * graded as "stacked paper cutouts, not volumes". Measured on the built
+   * mesh, a single skirt's upper faces spanned 1.09x top to bottom, which is
+   * below what an ordered dither at 320x240 can even resolve into a step.
+   *
+   * Now the top band sits at the apex — the inner part of the bough, up
+   * against the trunk — the mid band at the rim, and the underside band under
+   * the whole thing. Every skirt therefore carries the full 2.07 -> 1.0 ->
+   * 0.39 range on its own, the underside of each self-shadows the top of the
+   * one below, and the stack reads as depth rather than as a stack.
+   *
+   * `lit` survives as a lift of the *whole* skirt, not as its only shading:
+   * the crown is a little brighter than the boughs down in the tree, which is
+   * true, but it is no longer the difference between having bands and not.
+   */
+  const crown = Math.min(1, spec.lit * 1.2);
+  const topTone = mulTone(scaleTone(TONE_SUNWARD, 1 + (CROWN_LIFT - 1) * crown), tint);
+  const rimTone = mulTone(scaleTone(TONE_MID, 1 + (CROWN_LIFT - 1) * crown), tint);
+  const underTone = mulTone(TONE_SHADE, tint);
+  // Snow lies on the inner part of the upper face, which is where the apex
+  // vertex is — so tinting the apex alone is the "top 40% of the upper face"
+  // the direction asked for, for free. The tree's hue drift is deliberately
+  // not applied to it: snow is snow at every campsite.
+  const tipTone = snow > 0 ? mixTone(topTone, snowTone, snow) : topTone;
 
   for (let i = 0; i < segments; i++) {
     const j = (i + 1) % segments;
@@ -843,21 +1062,21 @@ function addSkirt(surfaces: Surfaces, spec: SkirtSpec): void {
       rimX[i] as number, rimY[i] as number, rimZ[i] as number,
       0.5, 1, u1, 0, u0, 0,
       scaleTone(tipTone, faceLift),
-      scaleTone(litTone, faceLift * 0.92),
-      scaleTone(litTone, faceLift * 0.92),
+      scaleTone(rimTone, faceLift),
+      scaleTone(rimTone, faceLift),
     );
 
     // Under face, wound the other way. This is the shade band and it is what
     // stops the canopy being see-through from below with a single-sided
     // material.
-    const shade = scaleTone(TONE_SHADE, 0.88 + rng() * 0.2);
+    const shade = scaleTone(underTone, 0.88 + rng() * 0.2);
     pushTriangle(
       surfaces,
       0, yUnder, 0,
       rimX[i] as number, rimY[i] as number, rimZ[i] as number,
       rimX[j] as number, rimY[j] as number, rimZ[j] as number,
       0.5, 0, u0, 0.4, u1, 0.4,
-      scaleTone(TONE_SHADE, 0.7),
+      scaleTone(underTone, 0.7),
       shade,
       shade,
     );
@@ -888,11 +1107,11 @@ function addSkirt(surfaces: Surfaces, spec: SkirtSpec): void {
       const cx = rimX[j] as number;
       const cy = rimY[j] as number;
       const cz = rimZ[j] as number;
-      const spine = scaleTone(TONE_SHADE, 1.1);
+      const spine = scaleTone(underTone, 1.1);
       pushTriangle(surfaces, ax, ay, az, bx, by, bz, cx, cy, cz,
-        u0, 0, u0, 0.2, u1, 0, litTone, spine, litTone);
+        u0, 0, u0, 0.2, u1, 0, rimTone, spine, rimTone);
       pushTriangle(surfaces, ax, ay, az, cx, cy, cz, bx, by, bz,
-        u0, 0, u1, 0, u0, 0.2, litTone, litTone, spine);
+        u0, 0, u1, 0, u0, 0.2, rimTone, rimTone, spine);
     }
   }
 }
@@ -914,6 +1133,11 @@ function applyLean(surfaces: Surfaces, angle: number, amount: number, height: nu
 
 function scaleTone(tone: Tone, factor: number): Tone {
   return [tone[0] * factor, tone[1] * factor, tone[2] * factor];
+}
+
+/** Two multipliers stacked: a band, and the tree's own hue. */
+function mulTone(a: Tone, b: Tone): Tone {
+  return [a[0] * b[0], a[1] * b[1], a[2] * b[2]];
 }
 
 function mixTone(from: Tone, to: Tone, t: number): Tone {

@@ -15,6 +15,7 @@
 
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { ENVIRONMENTS } from '@somemore/content';
 import {
   createTreeGeometry,
   createTreeGeometrySet,
@@ -217,11 +218,12 @@ describe('tone bands', () => {
 
   it('carries three separated values, not one flat colour', () => {
     const values = tints(createTreeGeometry(11, HEIGHT, { form: 'spire' }));
-    // The direction's #4a5a3e / #33402c / #1c241a, as ratios against the mid
-    // band: about 1.4 and about 0.56. Multipliers rather than colours, so the
-    // per-campsite canopy colour and the hour still own the hue.
-    expect(Math.max(...values)).toBeGreaterThan(1.25);
-    expect(Math.min(...values)).toBeLessThan(0.7);
+    // The direction's #4a6b4a / #33513a / #1e3328, as ratios against the mid
+    // band **taken in linear light**: about 2.07 and about 0.39. Multipliers
+    // rather than colours, so the per-campsite canopy colour and the hour
+    // still own the hue.
+    expect(Math.max(...values)).toBeGreaterThan(1.9);
+    expect(Math.min(...values)).toBeLessThan(0.5);
     const spread = new Set(values.map((v) => Math.round(v * 10)));
     expect(spread.size, 'distinct tone steps').toBeGreaterThanOrEqual(6);
   });
@@ -376,5 +378,292 @@ describe('merging', () => {
       new THREE.BoxGeometry(2, 1, 1).toNonIndexed(),
     ]);
     expect(merged.getAttribute('color')).toBeUndefined();
+  });
+});
+
+/**
+ * Colour, measured rather than looked at.
+ *
+ * The review that produced these tests said "there is not one green pixel in
+ * the canopy" and "within a single skirt the shading is dead flat". The
+ * second half of that was true and the first half was a symptom: the tone
+ * bands were being computed as ratios of *sRGB bytes* and then applied as
+ * multipliers in the renderer's *linear* working space, where they mean
+ * something much smaller. Everything below turns "does the wood have colour
+ * in it" into numbers, because a screenshot could not tell the difference
+ * between that bug and a deliberately flat art direction.
+ */
+describe('colour in the wood', () => {
+  const LUMA = (r: number, g: number, b: number): number => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+  /** Linear channel back to an sRGB byte, which is what a player's eye gets. */
+  const toByte = (linear: number): number =>
+    255 * (linear <= 0.0031308 ? linear * 12.92 : 1.055 * Math.pow(linear, 1 / 2.4) - 0.055);
+
+  /**
+   * The upper faces of one skirt, grouped.
+   *
+   * Every upper face of a skirt is a triangle of the fan around that skirt's
+   * apex, so they all share vertex 0 exactly — which makes the apex position
+   * a free grouping key and means this measures a *skirt*, not a height band.
+   * Height bands do not work here: the skirts deliberately overlap.
+   */
+  const skirtFans = (g: THREE.BufferGeometry): { apex: number[]; rim: number[]; low: number }[] => {
+    const p = g.getAttribute('position') as THREE.BufferAttribute;
+    const c = g.getAttribute('color') as THREE.BufferAttribute;
+    const n = g.getAttribute('normal') as THREE.BufferAttribute;
+    const fans = new Map<string, { apex: number[]; rim: number[]; low: number }>();
+    for (let t = 0; t < p.count; t += 3) {
+      if (n.getY(t) <= 0.05) continue;
+      const key = `${p.getX(t).toFixed(5)},${p.getY(t).toFixed(5)},${p.getZ(t).toFixed(5)}`;
+      const fan = fans.get(key) ?? { apex: [], rim: [], low: Infinity };
+      fan.apex.push(LUMA(c.getX(t), c.getY(t), c.getZ(t)));
+      for (const i of [1, 2]) {
+        fan.rim.push(LUMA(c.getX(t + i), c.getY(t + i), c.getZ(t + i)));
+        fan.low = Math.min(fan.low, p.getY(t + i));
+      }
+      fans.set(key, fan);
+    }
+    // Four triangles or more: the needle fringe also shares a vertex, in pairs.
+    return [...fans.values()].filter((f) => f.apex.length >= 4);
+  };
+
+  const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  it('shades every skirt on its own, rather than shading the tree', () => {
+    /*
+     * The number this replaces: 1.09.
+     *
+     * The old skirt put one tone on its whole upper face and 92% of it on the
+     * rim, so apex-to-rim was 1.087 and the only thing moving inside a skirt
+     * was the ±12% random face lift — noise, not a gradient. Three bands per
+     * skirt puts the top band at the apex and the mid band at the rim, which
+     * is 2.07 / 1.0 before jitter, and measures at about 1.85 once the crown
+     * ramp and the lift are in.
+     */
+    for (const form of ['spire', 'broad', 'broken'] as const) {
+      for (const seed of [11, 42, 777, 20250]) {
+        const fans = skirtFans(createTreeGeometry(seed, HEIGHT, { form }));
+        expect(fans.length, `${form} #${seed} has skirts`).toBeGreaterThan(2);
+        for (const fan of fans) {
+          const where = `${form} #${seed} skirt`;
+          expect(mean(fan.apex) / mean(fan.rim), where).toBeGreaterThan(1.6);
+        }
+      }
+    }
+  });
+
+  it('separates top face from underside by a step the dither can resolve', () => {
+    /*
+     * The bands are multipliers, so what a player actually sees depends on the
+     * campsite's own foliage colour — which is why this runs over all twelve.
+     *
+     * Old: 28/255 of green between the brightest canopy vertex and the
+     * darkest, averaged across the catalogue. New: 46/255. The eight-step
+     * ordered dither at 320x240 puts a band edge roughly every 8/255, so the
+     * old spread was three steps for the whole tree and the new one is nearly
+     * six.
+     */
+    const g = createTreeGeometry(11, HEIGHT, { form: 'spire' });
+    const c = g.getAttribute('color') as THREE.BufferAttribute;
+    let brightest = [1, 1, 1];
+    let darkest = [1, 1, 1];
+    let hi = 0;
+    let lo = Infinity;
+    for (let i = 0; i < c.count; i++) {
+      const v = [c.getX(i), c.getY(i), c.getZ(i)] as number[];
+      // Bark is decisively red-dominant and is not canopy; see the trunk test.
+      if ((v[0] as number) / (v[1] as number) > 2) continue;
+      const value = LUMA(v[0] as number, v[1] as number, v[2] as number);
+      if (value > hi) {
+        hi = value;
+        brightest = v;
+      }
+      if (value < lo) {
+        lo = value;
+        darkest = v;
+      }
+    }
+    const separations = ENVIRONMENTS.map((environment) => {
+      const base = new THREE.Color(environment.scene.nightPalette.foliage);
+      const channel = [base.r, base.g, base.b];
+      const green = (tint: number[]): number =>
+        toByte(Math.min(1, (channel[1] as number) * (tint[1] as number)));
+      return { id: environment.id, delta: green(brightest) - green(darkest) };
+    });
+    for (const row of separations) {
+      expect(row.delta, `${row.id} green top-to-under`).toBeGreaterThan(35);
+    }
+    expect(mean(separations.map((row) => row.delta))).toBeGreaterThan(40);
+  });
+
+  it('does not brighten or darken the wood on the way', () => {
+    /*
+     * D7's floor works both ways: the fix for a flat wood is not to turn the
+     * exposure up. The mean vertex tint over forty trees measured 0.830
+     * before the bands were recomputed and 0.821 after — a wood of the same
+     * value, with the value distributed instead of smeared.
+     */
+    let sum = 0;
+    let count = 0;
+    for (let seed = 0; seed < 40; seed++) {
+      const c = createTreeGeometry(seed, HEIGHT).getAttribute('color') as THREE.BufferAttribute;
+      for (let i = 0; i < c.count; i++) {
+        sum += LUMA(c.getX(i), c.getY(i), c.getZ(i));
+        count++;
+      }
+    }
+    expect(sum / count).toBeGreaterThan(0.74);
+    expect(sum / count).toBeLessThan(0.92);
+  });
+
+  it('gives every tree in a wood its own green', () => {
+    /*
+     * The direction's `#3f5f42 -> #4e6340 -> #2f4a38` drift, as a multiplier
+     * so the manifest keeps owning the hue. What is asserted is the shape of
+     * the drift, not its absolute values:
+     *
+     * - the treeline is not one colour (chroma spans at least 15%),
+     * - and it is still *this campsite's* colour (the wood's mean tint stays
+     *   within a few per cent of neutral, so twelve environments keep twelve
+     *   identities rather than converging on the drift's own green).
+     */
+    const woods = Array.from({ length: 24 }, (_, i) => createTreeGeometry(i * 977 + 3, HEIGHT));
+    const warmth: number[] = [];
+    let rSum = 0;
+    let gSum = 0;
+    let bSum = 0;
+    let n = 0;
+    for (const g of woods) {
+      const c = g.getAttribute('color') as THREE.BufferAttribute;
+      let r = 0;
+      let green = 0;
+      let b = 0;
+      let canopy = 0;
+      for (let i = 0; i < c.count; i++) {
+        if (c.getX(i) / c.getY(i) > 2) continue;
+        r += c.getX(i);
+        green += c.getY(i);
+        b += c.getZ(i);
+        canopy++;
+      }
+      if (canopy === 0) continue; // a snag is all bark
+      warmth.push(r / green);
+      rSum += r / canopy;
+      gSum += green / canopy;
+      bSum += b / canopy;
+      n++;
+    }
+    expect(Math.max(...warmth) / Math.min(...warmth), 'warm-to-cool spread').toBeGreaterThan(1.15);
+    // Centred on neutral: the mean canopy is what the manifest asked for.
+    const meanTint = [rSum / n, gSum / n, bSum / n];
+    const chroma = Math.max(...meanTint) / Math.min(...meanTint);
+    expect(chroma, `wood mean tint ${meanTint.map((v) => v.toFixed(3)).join(', ')}`).toBeLessThan(1.12);
+  });
+
+  it('deals the hue across a wood instead of rolling it four times', () => {
+    /*
+     * The wood a campsite actually draws is four to six bucket geometries,
+     * not forty. Four independent hue rolls come up nearly the same green
+     * about one campsite in four — measured at a warm-to-cool spread of 1.08
+     * at seed 99991 against 1.37 at seed 60013 — which is the flat treeline
+     * this was meant to break up, at a quarter of the catalogue. Dealing an
+     * even slice of the drift to each bucket, rotated by a per-campsite
+     * phase, puts the *worst* wood in two hundred at 1.20.
+     */
+    const warmthOf = (g: THREE.BufferGeometry): number => {
+      const c = g.getAttribute('color') as THREE.BufferAttribute;
+      let r = 0;
+      let green = 0;
+      for (let i = 0; i < c.count; i++) {
+        if (c.getX(i) / c.getY(i) > 2) continue; // bark
+        r += c.getX(i);
+        green += c.getY(i);
+      }
+      return green > 0 ? r / green : Number.NaN;
+    };
+    let worst = Infinity;
+    for (let i = 0; i < 200; i++) {
+      for (const count of [4, 6]) {
+        const warmth = createTreeGeometrySet(i * 7919 + 3, HEIGHT, count)
+          .map(warmthOf)
+          .filter((v) => !Number.isNaN(v));
+        worst = Math.min(worst, Math.max(...warmth) / Math.min(...warmth));
+      }
+    }
+    expect(worst, 'the flattest wood in two hundred campsites').toBeGreaterThan(1.15);
+  });
+
+  it('makes the trunk a thin dark stick rather than a pale post', () => {
+    /*
+     * "A fat pale cylinder ... reads as a mushroom stalk." Both halves.
+     *
+     * Width: the base radius was up to 0.048x the tree's height, which is a
+     * 40 cm trunk on a 4.2 m tree and fifteen pixels across at six metres
+     * through the world camera's 62 degree field. A third of that is both
+     * what the direction asked for and what a fir that height actually
+     * measures. The floor matters as much as the ceiling — under about a
+     * pixel the trunk stops existing and the canopy floats.
+     */
+    for (const form of ['spire', 'broad', 'broken', 'snag'] as const) {
+      let widest = 0;
+      let narrowest = Infinity;
+      for (let seed = 0; seed < 40; seed++) {
+        const p = createTreeGeometry(seed, HEIGHT, { form }).getAttribute(
+          'position',
+        ) as THREE.BufferAttribute;
+        let radius = 0;
+        for (let i = 0; i < p.count; i++) {
+          if (p.getY(i) > 1e-6) continue; // the trunk is the only thing on the ground
+          radius = Math.max(radius, Math.hypot(p.getX(i), p.getZ(i)));
+        }
+        widest = Math.max(widest, radius);
+        narrowest = Math.min(narrowest, radius);
+      }
+      // A snag has no canopy and is read entirely by its trunk, so it keeps
+      // half again — still well under half of what every tree used to be.
+      const ceiling = form === 'snag' ? 0.028 : 0.017;
+      expect(widest / HEIGHT, `${form} widest trunk radius`).toBeLessThan(ceiling);
+      expect(narrowest / HEIGHT, `${form} narrowest trunk radius`).toBeGreaterThan(0.008);
+    }
+
+    // And dark, and warm: red beats green on the trunk where green beats red
+    // on every bough. That inversion is the only thing telling a player it is
+    // wood at a resolution where it is three pixels wide.
+    const c = createTreeGeometry(11, HEIGHT, { form: 'spire' }).getAttribute(
+      'color',
+    ) as THREE.BufferAttribute;
+    const bark: number[] = [];
+    const canopy: number[] = [];
+    for (let i = 0; i < c.count; i++) {
+      const value = LUMA(c.getX(i), c.getY(i), c.getZ(i));
+      (c.getX(i) / c.getY(i) > 2 ? bark : canopy).push(value);
+    }
+    expect(bark.length).toBeGreaterThan(12);
+    expect(mean(bark), 'bark is darker than the canopy it sits under').toBeLessThan(mean(canopy) * 0.5);
+  });
+
+  it('closes the daylight gap under the bottom skirt', () => {
+    /*
+     * The direction: within 15% of the ground. A broad fir used to hold its
+     * lowest boughs at 39% of its height, which at any distance is a stalk
+     * with a hat on it, and the gap was the other half of the mushroom.
+     *
+     * The floor is the other half of the assertion: the underside apex of the
+     * lowest skirt reaches below its rim, and at `far` detail three skirts
+     * have to cover the whole canopy, so it went underground before it was
+     * clamped.
+     */
+    for (const form of ['spire', 'broad', 'broken'] as const) {
+      for (const detail of ['near', 'mid', 'far'] as const) {
+        for (let seed = 0; seed < 30; seed++) {
+          const fans = skirtFans(createTreeGeometry(seed, HEIGHT, { form, detail }));
+          const lowest = Math.min(...fans.map((f) => f.low));
+          const where = `${form}/${detail} #${seed}`;
+          expect(lowest / HEIGHT, where).toBeLessThanOrEqual(0.15);
+          expect(lowest, where).toBeGreaterThan(0);
+        }
+      }
+    }
   });
 });

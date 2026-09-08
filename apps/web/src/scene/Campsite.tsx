@@ -456,6 +456,23 @@ export function Campsite({
     [settings, seed, palette.foliage],
   );
 
+  /*
+   * Deadfall wood: greyer and cooler than a fresh log, because it has been
+   * lying there long enough to lose its bark and go silver. That also keeps it
+   * from competing with the warm log you sit on, which is the thing in the
+   * middle of the frame the eye is supposed to land on.
+   */
+  const deadfallMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 64 }),
+        color: 0x8c8479,
+        roughness: 1,
+      }),
+    [settings],
+  );
+
   const rockMaterial = useMemo(
     () => createPs1Material({ settings, map: getTexture('stone', { size: 64, seed }), roughness: 1 }),
     [settings, seed],
@@ -533,6 +550,49 @@ export function Campsite({
    * is what a silhouette that is not a triangle costs.
    */
   const treeGeometries = useMemo(() => createTreeGeometrySet(seed, 4.2, 6), [seed]);
+
+  /*
+   * Deadfall, out where there is nothing else.
+   *
+   * An art review's note on every campfire frame was that the eye goes fire,
+   * then nothing, then trees: between the log you sit on and the treeline
+   * there is flat ground and a few rocks, so the middle distance has no scale
+   * and no depth cue. A wood this old has trees down in it, and a fallen trunk
+   * is the ideal thing to put there — it lies across the view rather than
+   * along it, which breaks the horizontal, and it is the one object in a
+   * forest whose length tells you how far away it is.
+   *
+   * Placed in a band between the walkable middle and the treeline, angled
+   * roughly tangentially so they cross the sight line rather than point at the
+   * camera, and seeded so a campsite has the same wood down in it every visit.
+   * Sunk slightly: a trunk resting exactly on an undulating heightfield floats
+   * at one end, and one that has lain there for years is into the duff anyway.
+   */
+  const deadfall = useMemo<ScatterItem[]>(() => {
+    const rng = mulberry(seed ^ 0x51d3);
+    const inner = Math.max(5.5, extent * 0.55);
+    const outer = Math.max(inner + 3, extent * 0.95);
+    return Array.from({ length: 7 }, () => {
+      const angle = rng() * Math.PI * 2;
+      const radius = inner + rng() * (outer - inner);
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      return {
+        x,
+        // Sampled where it lies rather than at the origin, or a trunk on the
+        // far slope hangs in the air.
+        y: terrainHeight(x, z, seed, 0.7, basin) - 0.06,
+        z,
+        // Tangential, plus a wide wobble: exactly tangential seven times reads
+        // as a fence.
+        rotationY: angle + Math.PI / 2 + (rng() - 0.5) * 1.5,
+        scale: 0.8 + rng() * 1.5,
+      };
+    });
+  }, [seed, extent, basin]);
+
+  /** One trunk, reused for all seven at different lengths and angles. */
+  const deadfallGeometry = useMemo(() => createLogGeometry(2.6, 0.19), []);
 
   /**
    * The understorey, placed from the manifest's own densities.
@@ -943,6 +1003,26 @@ export function Campsite({
         opacity: 0.9,
         depthWrite: false,
         toneMapped: false,
+        /*
+         * The single most consequential defaulted boolean in this codebase.
+         *
+         * `PointsMaterial.fog` defaults to TRUE, the scene's fog is linear
+         * with a far plane well inside the star dome, and three.js's
+         * `fog_fragment` chunk does not tint at a fog factor of 1 — it
+         * replaces the fragment colour outright. So every one of these four
+         * hundred and twenty stars was drawn at exactly the campsite's fog
+         * colour, whatever its own brightness, and the per-star brightness two
+         * lines above was computed and then thrown away one stage later.
+         *
+         * An art director's verdict on the night sky was "uniformly sized,
+         * uniformly bright 1px dots — sensor noise, not a sky", and that is
+         * what one default did to code that was otherwise working. It is worth
+         * recording how invisible it was: a screenshot cannot tell a star
+         * field that was drawn flat from one that was authored flat, and the
+         * only reason it was found at all is that somebody went looking for
+         * the mechanism rather than adjusting the art.
+         */
+        fog: false,
       }),
     [],
   );
@@ -1071,8 +1151,30 @@ export function Campsite({
     // Fog tightens with weather, which is both atmosphere and a draw-distance
     // saving exactly when the scene gets busiest.
     const reduction = Math.min(1, weather.fog * 0.8 + weather.precipitation * 0.3);
-    sceneFog.near = 2.5;
-    sceneFog.far = Math.max(6, drawDistance * (1 - reduction * 0.78));
+    /*
+     * Where the haze starts, which was two and a half metres.
+     *
+     * Everything past the fire was being washed toward the fog colour, so on a
+     * clear evening the treeline arrived at roughly eighty per cent fog — and
+     * once the fog colour was corrected to resolve to the horizon (see
+     * `daylight.ts`), that meant the far trees became the horizon band almost
+     * exactly and read as pale ghosts standing in front of a darker sky. Both
+     * halves had to move: fog was the wrong *colour*, and there was far too
+     * much of it.
+     *
+     * A clearing you can see across is twenty metres wide. Haze inside that is
+     * not atmosphere, it is a filter. Starting at about a third of the draw
+     * distance leaves the campsite itself unfogged, puts a tree at the treeline
+     * around forty per cent fogged — enough for depth, not enough to erase it —
+     * and keeps the far wall of the wood reading as a wall.
+     *
+     * Weather still tightens it, which is both atmosphere and a draw-distance
+     * saving exactly when the scene gets busiest: a real fog pulls `near` in as
+     * well as `far`, because that is the difference between distance haze and
+     * standing inside a cloud.
+     */
+    sceneFog.near = Math.max(1.2, drawDistance * 0.32 * (1 - reduction * 0.85));
+    sceneFog.far = Math.max(6, drawDistance * 1.35 * (1 - reduction * 0.72));
     sceneFog.color.copy(ease.fog);
 
     /*
@@ -1326,6 +1428,14 @@ export function Campsite({
           ),
         ),
       )}
+
+      {/* Deadfall in the middle distance. See the note where it is placed. */}
+      <Scatter
+        geometry={deadfallGeometry}
+        material={deadfallMaterial}
+        items={deadfall}
+        receiveShadow
+      />
 
       {/* Rocks */}
       {rocks.map((items, i) => (

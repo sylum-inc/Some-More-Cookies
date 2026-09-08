@@ -68,8 +68,13 @@ const PARTS: readonly Box[] = [
   // Thumb, lying across the front of the fingers, which is how a hand holds
   // something light.
   { at: [-0.046, -0.012, 0.03], size: [0.03, 0.03, 0.062], tilt: [0.2, 0.38] },
-  // Forearm, running back past the camera. Long enough to leave the frame.
-  { at: [0.012, -0.038, -0.16], size: [0.072, 0.076, 0.28], tilt: [0.12, 0] },
+  /*
+   * Forearm, running back toward the camera and out of the bottom of the
+   * frame. Long enough to leave it, short enough not to *be* it: the first
+   * version was 28 cm starting from a fist 27 cm away, so it reached the lens
+   * exactly and rendered as a featureless wall down one side of the screen.
+   */
+  { at: [0.014, -0.042, -0.125], size: [0.064, 0.068, 0.2], tilt: [0.16, 0] },
 ];
 
 /**

@@ -24,10 +24,22 @@ describe('the hand', () => {
     expect(width).toBeLessThan(0.2);
     expect(height).toBeGreaterThan(0.09);
     expect(height).toBeLessThan(0.2);
-    // The forearm has to run back past the camera, or the fist reads as
-    // severed and floating in the corner.
-    expect(depth).toBeGreaterThan(0.3);
-    expect(box.min.z).toBeLessThan(-0.24);
+    /*
+     * The forearm has to run back well past the fist, or the fist reads as
+     * severed and floating in the corner — but it must not be so long that it
+     * reaches the lens, which is what the first version did: 28 cm of arm
+     * starting from a fist 27 cm away arrived exactly at the camera and
+     * rendered as a featureless wall down one side of the frame.
+     *
+     * Asserted as a ratio rather than as a length, because the length that is
+     * right depends on how far out the hand is held and that is the scene's
+     * business, while "an arm is several times longer than a fist is deep" is
+     * true of every arm.
+     */
+    const behind = -box.min.z;
+    expect(behind / depth, 'most of the shape is forearm').toBeGreaterThan(0.55);
+    expect(behind, 'the arm reaches back past the fist').toBeGreaterThan(0.15);
+    expect(behind, 'the arm reaches the lens').toBeLessThan(0.3);
   });
 
   it('has outward normals on every triangle', () => {

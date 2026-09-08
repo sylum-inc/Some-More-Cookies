@@ -208,6 +208,16 @@ export interface Ps1MaterialOptions {
   emissive?: THREE.ColorRepresentation;
   emissiveIntensity?: number;
   vertexColors?: boolean;
+  /**
+   * An emissive mask, so a surface can glow in some places and not others.
+   *
+   * The case this exists for is a burning log: a flat emissive across a whole
+   * piece of wood reads as a mustard slab with the brightness turned up, and
+   * what wood actually does is split along the grain and glow through the
+   * splits. With a mostly-black map, turning the intensity up lights the seams
+   * instead of washing the object.
+   */
+  emissiveMap?: THREE.Texture | null;
   transparent?: boolean;
   opacity?: number;
   side?: THREE.Side;
@@ -244,6 +254,7 @@ export function createPs1Material(options: Ps1MaterialOptions = {}): THREE.MeshS
     map: options.map ?? null,
     color: options.color ?? 0xffffff,
     emissive: options.emissive ?? 0x000000,
+    emissiveMap: options.emissiveMap ?? null,
     emissiveIntensity: options.emissiveIntensity ?? 1,
     vertexColors: options.vertexColors ?? false,
     transparent: options.transparent ?? false,

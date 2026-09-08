@@ -1088,7 +1088,19 @@ export function World({
       const [hx, hy, hz] = holdPointFor(player);
       const forward = Math.cos(player.facing);
       const forwardZ = Math.sin(player.facing);
-      hand.position.set(hx - forward * 0.06, hy - 0.075, hz - forwardZ * 0.06);
+      /*
+       * Further out and lower than the sandwich, not behind it.
+       *
+       * The first placement put the fist six centimetres *nearer* the eye than
+       * the thing it was holding, which at a 52-degree lens made a nine-
+       * centimetre hand about a third of the frame wide with its forearm
+       * running all the way back to the lens — a featureless slab down the
+       * right-hand side rather than a hand, and the s'more floating beside it
+       * rather than in it. A held object sits ON the fist, so the fist has to
+       * be under it and slightly further away, and the whole assembly has to
+       * be far enough out to read as an object rather than as a wall.
+       */
+      hand.position.set(hx + forward * 0.055, hy - 0.088, hz + forwardZ * 0.055);
       hand.rotation.y = -player.facing + Math.PI / 2;
       // Tipped with the head, so looking down at what you are holding brings
       // the hand up rather than sliding it off the bottom of the screen.

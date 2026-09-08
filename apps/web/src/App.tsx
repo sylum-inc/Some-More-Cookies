@@ -2665,72 +2665,69 @@ function BiteRing({
       </div>
     );
   }
+  /*
+   * A ring, not a row.
+   *
+   * These were eight buttons in a straight horizontal line at uniform spacing,
+   * and two art reviews in a row read them as a progress counter — the first
+   * when they still had the numerals 1 to 8 in them, the second after the
+   * numerals had been replaced with pictures. Replacing the numbers was not
+   * enough, because the *arrangement* was the tell: eight identical things
+   * evenly spaced along a line is a meter however they are drawn, and §5.3
+   * does not care what is inside the boxes.
+   *
+   * So they go where they actually are. The model has eight bite positions
+   * around the sandwich; the control is now those eight positions, laid out
+   * the way the sandwich is laid out, with the target for the near side at the
+   * bottom and the far side at the top. It stops reading as a count because a
+   * ring cannot count — there is no first one and no last one — and it starts
+   * reading as what it is, which is a choice about where to bite.
+   *
+   * Sized so the ring is 44px targets on a circle that fits inside the width a
+   * phone has left after the thumb pad and the verb cluster: 150px across at
+   * the default text scale, and it grows with the setting like everything else.
+   */
+  const target = Math.max(44, 30 * textScale);
+  const radius = Math.max(52, 38 * textScale);
+  const box = radius * 2 + target;
   return (
     <div
       style={{
-        display: 'flex',
-        /*
-         * No gap. The spacing between the dots comes from the touch targets
-         * being larger than the dots they contain, which is the point: eight
-         * 44px targets are 352px, and they have to fit a 375px phone.
-         *
-         * It used to be fixed to the viewport at nine per cent up, plus the
-         * home indicator, with a comment about landing within a pixel of the
-         * "Make this real" corner on a notched phone. It sits in the HUD's
-         * bottom row now, so nothing about where it is has to be reasoned
-         * about against where anything else is.
-         */
-        gap: 0,
-        flexWrap: 'wrap',
-        justifyContent: 'center',
+        position: 'relative',
+        width: box,
+        height: box,
+        flex: '0 0 auto',
       }}
     >
-      {Array.from({ length: 8 }, (_, i) => (
-        <button
-          key={i}
-          className="sm-focus"
-          aria-label={`Bite from side ${i + 1}`}
-          onClick={() => onBite(i)}
-          style={{
-            /*
-             * The button is the *target*; the circle inside it is the picture.
-             *
-             * These were 26px square, which is what they look like and well
-             * under both Apple's 44pt and Android's 48dp minimum. Making the
-             * visible dot bigger was not an option — eight 44px circles in a
-             * row do not fit a 375px screen — so the tappable box grew and the
-             * dot did not, which is the ordinary answer and costs nothing
-             * visually. Never below 44 even at a reduced text scale: a
-             * minimum that scales is not a minimum.
-             */
-            width: `${Math.max(44, 30 * textScale)}px`,
-            height: `${Math.max(44, 30 * textScale)}px`,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 0,
-            background: 'transparent',
-            border: 'none',
-          }}
-        >
-          {/*
-            A picture of the bite, not a number.
-
-            These were circles containing the numerals 1 to 8. Eight numbered
-            dots in a row across the bottom of the screen is a progress counter
-            however it is meant, and §5.3 forbids a counter reaching a player —
-            it also looked exactly like a debug control, which is what an art
-            review called it. Each target is now the sandwich seen from above
-            with the bite taken out of the side that target actually aims at,
-            so the row says *where* rather than *how many*, and a thumb can
-            find the far side without counting round to it.
-
-            The name is still on the button, where a screen reader and a
-            keyboard player need it and where it costs the picture nothing.
-          */}
-          <Sprite name={biteSprite(i)} scale={1} />
-        </button>
-      ))}
+      {Array.from({ length: 8 }, (_, i) => {
+        // Position 0 is the near side, at the bottom, and they run clockwise —
+        // matching the order the model numbers them so a keyboard player and a
+        // thumb are talking about the same bite.
+        const angle = Math.PI / 2 + (i / 8) * Math.PI * 2;
+        return (
+          <button
+            key={i}
+            className="sm-focus"
+            aria-label={`Bite from side ${i + 1}`}
+            onClick={() => onBite(i)}
+            style={{
+              position: 'absolute',
+              left: box / 2 + Math.cos(angle) * radius - target / 2,
+              top: box / 2 - Math.sin(angle) * radius - target / 2,
+              width: target,
+              height: target,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              background: 'transparent',
+              border: 'none',
+            }}
+          >
+            <Sprite name={biteSprite(i)} scale={1} />
+          </button>
+        );
+      })}
     </div>
   );
 }

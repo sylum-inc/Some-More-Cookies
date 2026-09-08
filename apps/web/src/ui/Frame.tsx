@@ -25,6 +25,7 @@
  * and no JavaScript runs at all.
  */
 
+import { useEffect } from 'react';
 import { SPRITE_FRAME, SPRITE_FRAME_SLICE } from './sprites/atlas.js';
 
 /** How many screen pixels one atlas pixel becomes. Integers only — see `Sprite`. */
@@ -59,9 +60,32 @@ export interface FrameProps {
 }
 
 export function Frame({ width, enabled = true }: FrameProps): React.ReactElement | null {
+  const inset = bezelInset(width, enabled);
+  /*
+   * How thick the rail is, published to the stylesheet.
+   *
+   * `frameInset` reaches the HUD as a prop, which is fine because App renders
+   * both. The overlays are not App's children in that sense — they are
+   * `position: fixed` scrims that pin themselves to the viewport — and none of
+   * them knew the rail existed. They padded themselves by `4vmin`, which
+   * clears 18 pixels of bezel at 1280 wide and does not at 393, so a panel
+   * that was already cutting its own content was also spending its margin on
+   * a number that meant nothing.
+   *
+   * A custom property rather than a second prop threaded through five
+   * components: the bezel is the only thing that knows this, and CSS is where
+   * it is needed. Written on the root element so `.sm-overlay` can read it
+   * wherever it happens to be mounted.
+   */
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--sm-frame-inset', `${inset}px`);
+    return () => {
+      root.style.removeProperty('--sm-frame-inset');
+    };
+  }, [inset]);
   if (!enabled || SPRITE_FRAME === null) return null;
   const step = bezelScale(width);
-  const inset = SPRITE_FRAME_SLICE * step;
   return (
     <div
       aria-hidden

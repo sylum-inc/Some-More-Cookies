@@ -73,8 +73,25 @@ export function RoastingStick({ marshmallow, settings, bearing }: RoastingStickP
         vertexColors: true,
         roughness: 0.78,
         flatShading: false,
-        emissive: 0x3a1d0c,
-        emissiveIntensity: 0.85 * settings.fireBrightness,
+        /*
+         * Warm enough to beat the ambient, which is the actual requirement.
+         *
+         * The first value here was 0x3a1d0c at 0.85, which is about (49,25,10)
+         * — and the scene's night ambient is 0x33445f at an intensity of
+         * around 1.3, landing on a near-white sugar albedo, which is about
+         * (65,85,105). The blue simply won, and every face turned away from
+         * the flame came back navy on a white marshmallow forty centimetres
+         * from a fire. Being a floor is not enough; it has to be a floor that
+         * is higher than the thing it is flooring.
+         *
+         * This is the fire's bounce off the sugar, which a single point light
+         * in the pit cannot produce and which is genuinely most of what lights
+         * the shadow side of anything held over a campfire. Scaled by the fire
+         * setting so a player who has turned the fire down does not get a
+         * glowing sweet.
+         */
+        emissive: 0x6b3a18,
+        emissiveIntensity: 1.05 * settings.fireBrightness,
       }),
     [settings],
   );

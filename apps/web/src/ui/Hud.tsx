@@ -21,7 +21,20 @@ import {
   woodType,
   MAX_ARMFUL,
 } from '@somemore/sim';
-import { SURFACE, TOKENS, FONT_STACK, machineText, paperPanel, plate } from './styles.js';
+import {
+  CUT_MARK_PX,
+  FONT_STACK,
+  SR_ONLY,
+  SURFACE,
+  TOKENS,
+  machineText,
+  paperPadding,
+  paperPanel,
+  plate,
+  px as uiPx,
+  typePx,
+  useScrollCut,
+} from './styles.js';
 
 export interface HudProps {
   ritual: RitualState;
@@ -444,7 +457,13 @@ export interface ThrowGrip {
 
 export function Hud(props: HudProps): React.ReactElement {
   const { ritual, stage, textScale, highContrast } = props;
-  const scale = (n: number) => `${n * textScale}px`;
+  // Whether the survey has more to say below its own bottom edge. It is the
+  // third of the three panels an art grade found cut with nothing to say so.
+  const surveyCut = useScrollCut<HTMLDivElement>();
+  // Whole pixels. A HUD drawn over a nearest-neighbour buffer cannot afford
+  // half-pixel padding any more than it can afford half-pixel type; see `px`
+  // in styles.ts for what the fractions were doing to the letterforms.
+  const scale = (n: number) => uiPx(n, textScale);
 
   // Non-numeric heat reading — heat must be legible without relying on colour
   // alone (spec §12).
@@ -589,13 +608,13 @@ export function Hud(props: HudProps): React.ReactElement {
           gap: scale(9),
           background: 'linear-gradient(180deg, rgba(46,32,14,0.88), rgba(16,11,6,0.9))',
           color: 'rgba(248,238,218,0.98)',
-          border: `1px solid ${TOKENS.amber}`,
+          border: `2px solid ${TOKENS.amber}`,
           boxShadow:
-            'inset 1px 1px 0 rgba(255,210,74,0.22), inset -1px -1px 0 rgba(0,0,0,0.6), 0 2px 12px rgba(0,0,0,0.55)',
-          padding: `${9 * textScale}px ${12 * textScale}px`,
-          fontSize: scale(12.5),
+            'inset 2px 2px 0 rgba(255,210,74,0.22), inset -2px -2px 0 rgba(0,0,0,0.6), 0 2px 12px rgba(0,0,0,0.55)',
+          padding: `${uiPx(9, textScale)} ${uiPx(12, textScale)}`,
+          fontSize: scale(12),
           letterSpacing: '0.08em',
-          borderRadius: 3,
+          borderRadius: 0,
           textAlign: 'right',
           maxWidth: '100%',
           pointerEvents: 'auto',
@@ -632,11 +651,11 @@ export function Hud(props: HudProps): React.ReactElement {
           gap: scale(2),
           padding: `${scale(3)} ${scale(5)}`,
           background: highContrast ? '#000' : 'linear-gradient(180deg, rgba(30,36,44,0.72), rgba(10,13,18,0.78))',
-          border: highContrast ? '2px solid #fff' : '1px solid rgba(166,179,194,0.28)',
+          border: highContrast ? '2px solid #fff' : '2px solid rgba(166,179,194,0.28)',
           boxShadow: highContrast
             ? 'none'
-            : 'inset 1px 1px 0 rgba(200,215,235,0.16), inset -1px -1px 0 rgba(0,0,0,0.5)',
-          borderRadius: 3,
+            : 'inset 2px 2px 0 rgba(200,215,235,0.16), inset -2px -2px 0 rgba(0,0,0,0.5)',
+          borderRadius: 0,
           pointerEvents: 'none',
         }}
       >
@@ -795,20 +814,27 @@ export function Hud(props: HudProps): React.ReactElement {
         */}
         {survey !== null && (
           <div style={{ display: 'flex', padding: `${scale(4)} ${scale(12)} 0` }}>
+            {/*
+              A frame with the scrolling inside it, exactly as the two overlay
+              panels are built — and for exactly the reason those two were
+              rebuilt. This was one padded element that was both the page and
+              the scrollport, so its own bottom pad sat between the last line
+              and the edge, there was nothing at the cut to say the page went
+              on, and the shipped capture shows it stopping mid-sentence at
+              "along the path to". The frame does not scroll; the cut mark can
+              therefore be positioned against it and is always exactly at the
+              cut.
+            */}
             <div
-              role="status"
-              aria-live="assertive"
-              aria-atomic="true"
-              data-testid="survey"
+              className="sm-panel-tall"
+              data-more={surveyCut.more}
               style={{
-                ...paperPanel(textScale),
+                ...paperPanel(textScale, true),
                 maxWidth: 'min(46ch, 78vw)',
                 // Short enough to leave the world visible under it and the
                 // bottom of the frame free, tall enough that a talkative
                 // campsite is still worth reading in one go.
                 maxHeight: 'min(46vh, 340px)',
-                overflowY: 'auto',
-                overscrollBehavior: 'contain',
                 lineHeight: 1.65,
                 // Enabled, unlike the rest of the HUD: a region that scrolls
                 // and cannot be scrolled is a region with content nobody can
@@ -816,34 +842,57 @@ export function Hud(props: HudProps): React.ReactElement {
                 pointerEvents: 'auto',
               }}
             >
-              {survey.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
+              <div
+                ref={surveyCut.ref}
+                className="sm-panel-scroll"
+                role="status"
+                aria-live="assertive"
+                aria-atomic="true"
+                data-testid="survey"
+                style={{
+                  padding: paperPadding(textScale),
+                  // The page's own bottom pad plus the mark's twenty fixed
+                  // pixels, so the last line can scroll clear of the dither
+                  // rather than ending underneath it. The mark does not scale
+                  // with the type, so neither does the allowance for it.
+                  paddingBottom: `${Math.round(9 * textScale) + CUT_MARK_PX}px`,
+                }}
+              >
+                {survey.map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+              </div>
             </div>
           </div>
         )}
       </div>
 
       {/*
-        The bottom of the screen is one row, laid out by the browser.
+        The bottom of the screen, in named areas.
 
         The three things that live down here — what the world is saying, the
         bite targets, and what your thumb can do — used to be three fixed
-        elements at three hand-picked offsets, and on a 375 px phone the
-        right-hand cluster grew by one wrapped line and landed on the bite
-        ring. That is the third time this file has produced that defect from
-        the same cause. A row cannot: the lane shrinks, the two ends take what
-        they need, and none of them can reach the others.
+        elements at three hand-picked offsets, then a column with the words on
+        top of the controls. Both shapes produced the same defect from the same
+        cause, and the second one is what a phone review caught: a column is as
+        tall as the *sum* of what is in it, and on a 393-line landscape
+        viewport that sum is taller than the screen, so the words rode up and
+        landed on the status chips in the top-left corner. In portrait the same
+        stack parked two plates of prose immediately above the campfire.
+
+        So the arrangement is a grid with named areas and one aspect query in
+        `styles.ts`, and the areas are what the doctrine has always said they
+        are: the words are one thing, the pad is one thing, the acts are one
+        thing, and where they go depends on the shape of the window rather than
+        on which of them happens to be rendering today.
       */}
       <div
+        className="sm-hud-bottom"
         style={{
           position: 'absolute',
           left: 'env(safe-area-inset-left, 0px)',
           right: 'env(safe-area-inset-right, 0px)',
           bottom: 'env(safe-area-inset-bottom, 0px)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'stretch',
           pointerEvents: 'none',
         }}
       >
@@ -856,16 +905,19 @@ export function Hud(props: HudProps): React.ReactElement {
         never share a row by construction rather than by measurement.
       */}
       <div
+        className="sm-hud-words"
         style={{
           padding: scale(12),
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
+          justifyContent: 'flex-end',
           gap: scale(6),
           // Shrinks to whatever the two ends leave it, and never past zero:
           // without `minWidth`, a flex item refuses to go below its longest
           // word and pushes the thumb column off the screen instead.
           maxWidth: 'min(38ch, 100%)',
+          minWidth: 0,
           pointerEvents: 'none',
         }}
       >
@@ -1005,26 +1057,17 @@ export function Hud(props: HudProps): React.ReactElement {
       </div>
 
       {/*
-        And beneath the words, the controls: pad on the left, bite targets in
-        the middle, thumb cluster on the right.
-
-        Its own row rather than the same one. Sharing a row with the lane meant
-        a 393 px phone gave the words whatever the buttons left over — about
-        150 px — and "The reflector on the site post answers from anywhere in
-        the site" came out one word per line. Text gets a row, controls get a
-        row, and neither has to be told how wide the other is.
-      */}
-      {/*
-        The bite targets, on a row of their own.
+        The bite targets, on a band of their own.
 
         Eight 44 px targets are 352 px and they have to fit a 375 px phone, so
         there is no width left over for a thumb pad on one side and a stack of
-        buttons on the other: sharing a row with them put "Bite from side 8"
+        buttons on the other: sharing a lane with them put "Bite from side 8"
         squarely over "Photo". It is a targeting control rather than a corner
         control, and it gets the width it needs.
       */}
       {props.bottomCentre !== undefined && (
         <div
+          className="sm-hud-bite"
           style={{
             display: 'flex',
             justifyContent: 'center',
@@ -1036,18 +1079,29 @@ export function Hud(props: HudProps): React.ReactElement {
         </div>
       )}
 
+      {/*
+        The pad, in its own area rather than sharing a row with the acts.
+
+        It was one flex row of [pad, acts] with `space-between`, which meant
+        the pad and the acts were one object as far as the layout went and the
+        words could only ever be above or below *both* of them. Separating them
+        is what lets the wide arrangement put the words and the pad down the
+        left and the acts up the right — which is the doctrine at the top of
+        this file, finally expressed as boxes.
+
+        Always rendered, and padded only when there is something in it: an
+        empty grid area costs nothing, but an empty *padded* one is twelve
+        pixels of gap under the words on every device that has no thumb.
+      */}
       <div
+        className="sm-hud-stick"
         style={{
-          display: 'flex',
-          alignItems: 'flex-end',
-          justifyContent: 'space-between',
-          gap: scale(8),
+          padding: props.stick === undefined ? 0 : `0 ${scale(12)} ${scale(12)}`,
           pointerEvents: 'none',
         }}
       >
-        {/* Always present, even with no pad in it: `space-between` needs a
-            first child or the thumb cluster walks to the left. */}
-        <div style={{ flexShrink: 0, padding: scale(12), paddingTop: 0 }}>{props.stick}</div>
+        {props.stick}
+      </div>
 
       {/*
         Up the right: what your thumb can do.
@@ -1057,18 +1111,19 @@ export function Hud(props: HudProps): React.ReactElement {
         is on cannot change how far it is from the corner.
       */}
       <div
+        className="sm-hud-acts"
         style={{
           padding: scale(12),
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',
+          justifyContent: 'flex-end',
           gap: scale(8),
           /*
            * Shrinks, and its rows wrap inside it. Refusing to shrink read fine
            * on a laptop and ran "What is around me?", "Photo" and "Take a
            * marshmallow" straight off the right-hand edge of a 393 px phone:
-           * `space-between` will happily push a rigid child past the end of
-           * the row it is in.
+           * a rigid child will happily be pushed past the end of its own row.
            */
           minWidth: 0,
           pointerEvents: 'none',
@@ -1110,7 +1165,6 @@ export function Hud(props: HudProps): React.ReactElement {
             menu (spec: contextual direct manipulation), so this appears only
             when the player has actually walked up to something. */}
         {reachButton}
-      </div>
       </div>
       </div>
 
@@ -1162,26 +1216,6 @@ export function Hud(props: HudProps): React.ReactElement {
     </div>
   );
 }
-
-/**
- * Off screen, but read aloud.
- *
- * The `clip`/`clip-path` pair rather than `display: none` or `visibility:
- * hidden`, either of which takes the element out of the accessibility tree as
- * well as out of the picture, which is the opposite of what this is for.
- */
-const SR_ONLY: React.CSSProperties = {
-  position: 'absolute',
-  width: 1,
-  height: 1,
-  margin: -1,
-  padding: 0,
-  overflow: 'hidden',
-  clip: 'rect(0 0 0 0)',
-  clipPath: 'inset(50%)',
-  whiteSpace: 'nowrap',
-  border: 0,
-};
 
 /** What the SM-01's panel and its indicator say, as a sentence. */
 function machineInWords(machine: RitualState['machine']): string {
@@ -1283,15 +1317,15 @@ function CornerButton({
         // the whole of how a plate reads as raised.
         border: highContrast
           ? '2px solid #fff'
-          : `1px solid ${accent ? 'rgba(255,210,74,0.55)' : 'rgba(166,179,194,0.34)'}`,
+          : `2px solid ${accent ? 'rgba(255,210,74,0.55)' : 'rgba(166,179,194,0.34)'}`,
         boxShadow: highContrast
           ? 'none'
-          : 'inset 1px 1px 0 rgba(200,215,235,0.20), inset -1px -1px 0 rgba(0,0,0,0.55), 0 1px 3px rgba(0,0,0,0.5)',
-        padding: `${pad}px ${pad + (showWord ? 6 : 2) * textScale}px`,
-        fontSize: `${11 * textScale}px`,
+          : 'inset 2px 2px 0 rgba(200,215,235,0.20), inset -2px -2px 0 rgba(0,0,0,0.55), 0 2px 4px rgba(0,0,0,0.5)',
+        padding: `${Math.round(pad)}px ${Math.round(pad + (showWord ? 6 : 2) * textScale)}px`,
+        fontSize: typePx(11, textScale),
         letterSpacing: '0.08em',
         textTransform: 'uppercase',
-        borderRadius: 3,
+        borderRadius: 0,
         fontWeight: accent ? 700 : 500,
         lineHeight: 1.1,
       }}

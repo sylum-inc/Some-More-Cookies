@@ -160,8 +160,23 @@ export function Fire({
    */
   const logMaterials = useMemo(
     () =>
-      Array.from({ length: LOG_SLOTS }, () =>
-        createPs1Material({ map: getTexture('bark', { size: 64 }), settings, roughness: 1 }),
+      Array.from({ length: LOG_SLOTS }, (_, i) =>
+        createPs1Material({
+          map: getTexture('bark', { size: 64 }),
+          settings,
+          roughness: 1,
+          /*
+           * The seams it burns through, per slot.
+           *
+           * Seeded by slot index so two logs side by side do not split in the
+           * same places — which is the whole reason there is one material per
+           * slot rather than one shared, and the reason this is worth a
+           * texture rather than a constant.
+           */
+          emissiveMap: getTexture('charCracks', { size: 64, seed: 0x9e37 + i * 131 }),
+          emissive: 0xffffff,
+          emissiveIntensity: 0,
+        }),
       ),
     [settings],
   );
@@ -448,7 +463,19 @@ export function Fire({
         // Fuel chars visibly as it burns, and thin fuel gets there far sooner.
         const charAmount = Math.min(1, log.burnedFor / (260 / grade.burns));
         material.color.setRGB(1 - charAmount * 0.78, 1 - charAmount * 0.84, 1 - charAmount * 0.88);
-        material.emissive.setRGB(log.ignition * 0.25, log.ignition * 0.07, 0);
+        /*
+         * How hard it is glowing through its own cracks.
+         *
+         * The emissive colour is white and the map carries the orange, so this
+         * is one number rather than three — and because the map is black
+         * across most of the log, turning it up lights the seams rather than
+         * washing the whole piece red, which is what the old
+         * `setRGB(ignition * 0.25, ...)` did. Charring feeds into it as well
+         * as ignition: a piece that has been burning a while glows in its
+         * splits even between flames, which is the difference between a log on
+         * a fire and a log with a light shone on it.
+         */
+        material.emissiveIntensity = log.ignition * 1.35 + charAmount * log.ignition * 0.9;
 
         // Steam off whatever is drying, so moisture is something you can see
         // rather than a number nobody is shown.

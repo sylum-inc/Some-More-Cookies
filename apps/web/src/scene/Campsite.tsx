@@ -22,6 +22,7 @@ import {
   type WeatherState,
 } from '@somemore/sim';
 import { luminance, skyLook, type SkyLook } from '../render/daylight.js';
+import { TIER_TINT, starTier } from './NightSky.js';
 
 /** Ground below this is under water, so nothing is planted in it. */
 const WATERLINE = -0.14;
@@ -343,6 +344,7 @@ export function Campsite({
   const sceneFog = useMemo(() => new THREE.Fog(0x0b1016, 2.5, 30), []);
   const sceneBackground = useMemo(() => new THREE.Color(0x070a0f), []);
   const starsRef = useRef<THREE.Points>(null);
+  const brightStarsRef = useRef<THREE.Points>(null);
   const rainRef = useRef<THREE.LineSegments>(null);
   /** How much snow is lying, eased so a squall whitens the ground over seconds. */
   const snowCover = useRef(0);
@@ -957,28 +959,64 @@ export function Campsite({
     };
   }, [sky, weather.cloudCover]);
 
-  const starGeometry = useMemo(() => {
+  /*
+   * The anonymous field stars, in three tiers like the named ones.
+   *
+   * These were 420 points at one size with a random brightness, which is what
+   * an art review meant by "uniformly sized, uniformly bright 1px dots —
+   * sensor noise, not a sky". Two things were wrong and only one of them was
+   * the art: the material's `fog` flag (see below) was repainting every one of
+   * them the same colour anyway, so the random brightness never reached the
+   * screen either.
+   *
+   * A real sky is not a uniform sprinkle. It is a handful of stars you could
+   * name, a few dozen you can see plainly, and a haze of ones you only catch
+   * with the corner of your eye — and the count goes up steeply as they get
+   * fainter. So each star gets a magnitude drawn from a distribution with that
+   * shape, and lands in one of the three tiers `NightSky` already defines for
+   * the named stars, drawn in the same three tints. One sky with one set of
+   * steps, rather than a tiered constellation layer over an untiered wash.
+   *
+   * Two clouds, because point size is a property of the material and not of
+   * the point: the bright tier is drawn at two internal pixels and the other
+   * two at one. At 320x240 that is the entire difference between a star and a
+   * bright star, and it is the whole reason the tiers are worth having.
+   */
+  const starLayers = useMemo(() => {
     const count = 420;
-    const positions = new Float32Array(count * 3);
-    const colors = new Float32Array(count * 3);
     const rng = mulberry(0x57a5);
-    let index = 0;
+    const soft: number[] = [];
+    const softColors: number[] = [];
+    const bright: number[] = [];
+    const brightColors: number[] = [];
 
-    // Field stars.
     for (let i = 0; i < count; i++) {
       // Upper hemisphere only.
       const theta = rng() * Math.PI * 2;
       const phi = Math.acos(rng() * 0.95);
       const r = 120;
-      positions[index * 3] = Math.sin(phi) * Math.cos(theta) * r;
-      positions[index * 3 + 1] = Math.cos(phi) * r + 20;
-      positions[index * 3 + 2] = Math.sin(phi) * Math.sin(theta) * r;
-      const brightness = 0.45 + rng() * 0.55;
-      // Slight colour variation: not every star is white.
-      colors[index * 3] = brightness;
-      colors[index * 3 + 1] = brightness * (0.9 + rng() * 0.1);
-      colors[index * 3 + 2] = brightness * (0.92 + rng() * 0.12);
-      index++;
+      const x = Math.sin(phi) * Math.cos(theta) * r;
+      const y = Math.cos(phi) * r + 20;
+      const z = Math.sin(phi) * Math.sin(theta) * r;
+
+      /*
+       * A magnitude, not a brightness. Raised to a power so the count climbs
+       * steeply toward the faint end — a flat random gives as many bright
+       * stars as dim ones, which is the sprinkle this is replacing. The range
+       * puts roughly a dozen in the bright tier out of four hundred, which is
+       * about what a dark sky gives you.
+       */
+      const magnitude = 1.4 + Math.pow(rng(), 0.35) * 3.4;
+      const tier = starTier(magnitude);
+      const tint = TIER_TINT[tier];
+      // A small nudge off the tier's own value, so three tiers do not read as
+      // three colours.
+      const nudge = 0.88 + rng() * 0.24;
+
+      const target = tier === 'bright' ? bright : soft;
+      const colors = tier === 'bright' ? brightColors : softColors;
+      target.push(x, y, z);
+      colors.push(tint.r * nudge, tint.g * nudge, tint.b * nudge);
     }
 
     // The named constellations are *not* here. They used to be scattered
@@ -986,12 +1024,30 @@ export function Campsite({
     // where they are, which meant they could not be found and so could not be
     // looked for. `NightSky.tsx` draws them at the real altitude and azimuth
     // the astronomy model computes; these are the anonymous ones.
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    return geometry;
+    const build = (positions: number[], colors: number[]): THREE.BufferGeometry => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      return geometry;
+    };
+    return { soft: build(soft, softColors), bright: build(bright, brightColors) };
   }, []);
+
+  /** The bright tier, at two internal pixels. See the note where they are built. */
+  const brightStarMaterial = useMemo(
+    () =>
+      new THREE.PointsMaterial({
+        size: 2,
+        sizeAttenuation: false,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        toneMapped: false,
+        fog: false,
+      }),
+    [],
+  );
 
   const starMaterial = useMemo(
     () =>
@@ -1307,6 +1363,12 @@ export function Campsite({
       const visibility = sky.starVisibility * (1 - weather.cloudCover * 0.95) * (1 - daylightWash);
       starMaterial.opacity = Math.max(0, visibility * 0.95);
       starsRef.current.visible = visibility > 0.02;
+      brightStarMaterial.opacity = Math.max(0, visibility * 0.98);
+      if (brightStarsRef.current) {
+        brightStarsRef.current.visible = visibility > 0.02;
+        // Turned with the other cloud, or the two skies drift apart.
+        brightStarsRef.current.rotation.y = starsRef.current.rotation.y;
+      }
       // Very slow rotation — the sky turns over the course of a long session.
       starsRef.current.rotation.y += delta * 0.0016;
     }
@@ -1383,7 +1445,14 @@ export function Campsite({
       </mesh>
 
       {/* Night sky */}
-      <points ref={starsRef} geometry={starGeometry} material={starMaterial} frustumCulled={false} />
+      {/* Two clouds, one per point size. See the note where they are built. */}
+      <points ref={starsRef} geometry={starLayers.soft} material={starMaterial} frustumCulled={false} />
+      <points
+        ref={brightStarsRef}
+        geometry={starLayers.bright}
+        material={brightStarMaterial}
+        frustumCulled={false}
+      />
 
       {/*
         Moon and sun — flat discs, which is exactly what PS1 ones were.

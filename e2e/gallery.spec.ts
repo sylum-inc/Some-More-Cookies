@@ -174,6 +174,22 @@ test.describe('gallery', () => {
       await page.waitForTimeout(1400);
     };
 
+    /*
+     * Lying back, which is the one thing the sky was built for.
+     *
+     * `world-sky` above is a standing player craning their neck, and it was
+     * the only frame of the sky in the whole sheet — so a grade of "the night
+     * sky is unbuilt" was made against the least favourable possible view of
+     * it. Stargazing tips the head all the way back and widens the lens, which
+     * is when the constellations, the Milky Way and the moon's halo are
+     * actually on screen together.
+     */
+    await page.evaluate(() => window.__someMore!.actions['lieBack']?.(true));
+    await page.waitForTimeout(2200);
+    await shot('world-stargazing');
+    await page.evaluate(() => window.__someMore!.actions['lieBack']?.(false));
+    await page.waitForTimeout(600);
+
     // --- the hours --------------------------------------------------------
     /*
      * The sun goes all the way round now, so the HUD has to survive daylight

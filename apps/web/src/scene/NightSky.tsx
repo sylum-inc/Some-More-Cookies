@@ -75,7 +75,10 @@ export function starTier(magnitude: number): StarTier {
   return magnitude <= TIER_MID_MAGNITUDE ? 'mid' : 'faint';
 }
 
-const TIER_TINT: Record<StarTier, THREE.Color> = {
+/** The colour a tier is drawn in. Exported so the anonymous field stars in
+ *  `Campsite` can be tiered against the same three values — one sky, one set
+ *  of steps, rather than a tiered constellation layer over an untiered wash. */
+export const TIER_TINT: Record<StarTier, THREE.Color> = {
   faint: TINT_FAINT,
   mid: TINT_MID,
   bright: TINT_BRIGHT,

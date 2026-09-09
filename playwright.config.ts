@@ -2,6 +2,25 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
+/*
+ * Which port the preview server runs on.
+ *
+ * Fixed at 4173 until now, which meant exactly one Playwright run could exist
+ * on this machine at a time — a second one dies on "port already in use"
+ * before it has built anything. That was tolerable while a person ran the
+ * suite; it is not tolerable when several agents are each verifying their own
+ * fix, and in practice it produced a run of confusing failures that had
+ * nothing to do with the code under test.
+ *
+ * Overridable by environment so concurrent runs can each have their own
+ * server, and defaulted so nothing that already invokes Playwright has to
+ * change. `reuseExistingServer` stays false: sharing one server between runs
+ * would put them back in each other's way, which is the thing this fixes.
+ */
+const PREVIEW_PORT = Number(process.env['SOMEMORE_PREVIEW_PORT'] ?? 4173);
+const PREVIEW_URL = `http://127.0.0.1:${PREVIEW_PORT}`;
+
+
 /**
  * Finds a pre-provisioned Chromium.
  *
@@ -62,7 +81,7 @@ export default defineConfig({
    */
   snapshotPathTemplate: '{testDir}/__screenshots__/{arg}{ext}',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: PREVIEW_URL,
     viewport: { width: 1024, height: 768 },
     deviceScaleFactor: 1,
     launchOptions: {
@@ -215,12 +234,12 @@ export default defineConfig({
    * long it takes somebody to notice.
    */
   webServer: {
-    command: 'npm run build --workspace @somemore/web && npm run preview --workspace @somemore/web',
+    command: `npm run build --workspace @somemore/web && npm run preview --workspace @somemore/web -- --port ${PREVIEW_PORT}`,
     // A harness build: the client honours `token` and `ws` in a fire link only
     // when this is set, so a bearer token pasted into a chat is not a
     // credential on the public site. The two-browser spec depends on it.
     env: { VITE_E2E: '1' },
-    url: 'http://127.0.0.1:4173',
+    url: PREVIEW_URL,
     reuseExistingServer: false,
     timeout: 180_000,
   },

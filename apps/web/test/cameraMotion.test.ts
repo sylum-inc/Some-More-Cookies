@@ -225,3 +225,95 @@ describe('a frame that arrives late', () => {
     expect(motion.travelled).toBeLessThan(1);
   });
 });
+
+describe('the thing in your hands', () => {
+  /*
+   * The arm, which is the only motion term with a large amplitude.
+   *
+   * Everything else in this module is measured in millimetres and single
+   * degrees, because a camera that moves more than that is a camera that makes
+   * people ill. The held object is the exception and has to be: it is seen
+   * *against* the frame rather than through it, so an effect small enough to be
+   * safe on the camera is invisible on the hand. Seventeen degrees of lag on a
+   * marshmallow is a wrist doing what a wrist does; seventeen degrees on the
+   * view would be unplayable.
+   */
+  it('trails a turn by far more than the eyes do', () => {
+    const motion = createCameraMotion();
+    const frames = run(motion, { ...STILL, turnRate: 3 }, 0.5);
+    const last = frames[frames.length - 1]!;
+    // Both lag the same way — the sign is what makes it read as "left behind"
+    // rather than as "thrown ahead".
+    expect(Math.sign(last.swingYaw)).toBe(Math.sign(last.yaw));
+    // And the arm lags several times harder than the neck. The exact ratio is
+    // not the contract; the order of magnitude is.
+    expect(Math.abs(last.swingYaw)).toBeGreaterThan(Math.abs(last.yaw) * 2);
+  });
+
+  it('overshoots when the turn stops and comes back', () => {
+    /*
+     * The whole reason this is a spring and not an ease. An ease can only
+     * arrive; an arm arrives, carries on a little, and returns. If this test
+     * fails because the swing never crosses zero, the damping has been raised
+     * past critical and the effect has quietly become an ease.
+     */
+    const motion = createCameraMotion();
+    const turned = run(motion, { ...STILL, turnRate: 3 }, 0.5);
+    const swung = turned[turned.length - 1]!.swingYaw;
+    const after = run(motion, STILL, 1.5).map((frame) => frame.swingYaw);
+    // It crosses the far side of zero from where it was held.
+    const overshot = after.some((value) => Math.sign(value) === -Math.sign(swung));
+    expect(overshot).toBe(true);
+    // And then settles. Not to exactly zero — it is still ringing — but to
+    // something far smaller than it was held at.
+    expect(Math.abs(after[after.length - 1]!)).toBeLessThan(Math.abs(swung) * 0.2);
+  });
+
+  it('takes much longer to settle than the eyes do', () => {
+    // The detuning is the point: the view is done in a tenth of a second and
+    // the hand is still moving. If these two settle together, the swing has
+    // been retuned to the look lag and stopped being a separate body part.
+    const motion = createCameraMotion();
+    run(motion, { ...STILL, turnRate: 3 }, 0.5);
+    const after = run(motion, STILL, 0.25);
+    const held = after[0]!;
+    const later = after[after.length - 1]!;
+    expect(Math.abs(later.yaw)).toBeLessThan(Math.abs(held.yaw) * 0.5);
+    expect(Math.abs(later.swingYaw)).toBeGreaterThan(Math.abs(held.swingYaw) * 0.5);
+  });
+
+  it('bobs harder than the head when walking', () => {
+    // An arm is a lever on the end of a torso, so the hand travels further
+    // through a stride than the eyes do. Reported as the *extra* travel, so
+    // whatever holds it can add the two without double-counting the head's.
+    const motion = createCameraMotion();
+    const frames = run(motion, WALK, 3);
+    const peakHead = Math.max(...frames.map((frame) => Math.abs(frame.up)));
+    const peakHand = Math.max(...frames.map((frame) => Math.abs(frame.swingUp)));
+    expect(peakHand).toBeGreaterThan(0);
+    expect(peakHand).toBeGreaterThan(peakHead * 0.5);
+    // But still centimetres, not a flail.
+    expect(peakHand).toBeLessThan(0.09);
+  });
+
+  it('is thrown sideways by the turn, and not by standing still', () => {
+    const motion = createCameraMotion();
+    const still = run(motion, STILL, 1);
+    expect(still[still.length - 1]!.swingRight).toBeCloseTo(0, 3);
+    const turned = run(motion, { ...STILL, turnRate: 3 }, 0.5);
+    expect(Math.abs(turned[turned.length - 1]!.swingRight)).toBeGreaterThan(0.005);
+  });
+
+  it('is none of it under reduced motion', () => {
+    // §12 again. The hand is the largest term here, so it is also the one that
+    // would be worst to leave switched on by accident.
+    const motion = createCameraMotion();
+    const frames = run(motion, { ...WALK, scale: 0, turnRate: 3, pitchRate: 2 }, 2);
+    for (const frame of frames) {
+      expect(frame.swingYaw).toBe(0);
+      expect(frame.swingPitch).toBe(0);
+      expect(frame.swingRight).toBe(0);
+      expect(frame.swingUp).toBe(0);
+    }
+  });
+});

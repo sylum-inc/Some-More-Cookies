@@ -39,6 +39,14 @@
  * - **Acceleration lean.** Setting off pitches the view back a little and
  *   stopping pitches it forward, which is inertia and is felt long before it
  *   is noticed.
+ * - **Held-object swing.** Whatever is in the player's hands does not turn
+ *   when the head turns. It trails, swings past, and settles — on a much
+ *   slower, much looser spring than the eyes, because a hand is on the end of
+ *   an arm and an eye is not. This is the term you feel rather than see: it
+ *   is the difference between carrying a marshmallow on a stick and having a
+ *   marshmallow welded to the lens. It is also the only motion term with a
+ *   large amplitude — the look lag is three degrees and this is nearer
+ *   twenty, because the arm really does travel that far.
  * - **Vignette.** How hard the frame's edges are pulled in — a number this
  *   module reports and the renderer draws. Speed narrows the world; an
  *   impulse squeezes it. It is the cheapest possible sense of exertion and it
@@ -97,6 +105,29 @@ const LAND_DECAY = 9;
 /** Metres of fore-and-aft lean per m/s^2, and the rate the estimate smooths. */
 const ACCEL_LEAN = 0.011;
 const ACCEL_FOLLOW = 6;
+/*
+ * Held-object swing: the same idea as the look lag, deliberately detuned.
+ *
+ * A quarter of the stiffness and a little over half the damping, which puts
+ * the damping ratio near 0.53 against the look lag's 0.59 — but at a quarter
+ * of the frequency, so the same ratio takes four times as long to play out.
+ * That is the whole effect: the eyes settle in a tenth of a second and the
+ * thing in your hand is still coming back half a second later.
+ *
+ * The amplitudes are an order of magnitude larger than the camera's for the
+ * same reason. Three degrees of eye lag is a whole neck's worth; seventeen
+ * degrees of hand lag is a wrist, and a wrist has that much travel in it.
+ */
+const SWING_STIFFNESS = 22;
+const SWING_DAMPING = 5;
+/** Radians the held object trails at the reference turn rate: about 17, and 11. */
+const SWING_YAW_MAX = 0.3;
+const SWING_PITCH_MAX = 0.19;
+/** Metres the hand is thrown sideways by the same turn. */
+const SWING_THROW = 0.055;
+/** How much harder the hand bobs than the head. An arm is a lever. */
+const SWING_BOB_GAIN = 2.4;
+
 /** How much the frame closes in: at full speed, and at a full impulse. */
 const SPEED_VIGNETTE = 0.34;
 const IMPULSE_VIGNETTE = 0.5;
@@ -127,6 +158,44 @@ export interface CameraMotion {
   accel: number;
   /** Last frame's speed, to difference against. */
   lastSpeed: number;
+  /** Radians the thing in the player's hands trails the hand by, and its rate. */
+  swingYaw: number;
+  swingYawVelocity: number;
+  swingPitch: number;
+  swingPitchVelocity: number;
+}
+
+/**
+ * How far the thing in the player's hands is behind where the hands are.
+ *
+ * The four swing terms of a `MotionOffset`, lifted into their own shape
+ * because they travel further than the rest: the camera consumes its own
+ * offsets in one place, whereas these have to reach the hand, whatever the
+ * hand is holding, and the torch — three separate components, none of which
+ * has any business knowing about the camera.
+ */
+export interface HeldSwing {
+  /** Radians of bearing lag. */
+  readonly yaw: number;
+  /** Radians the held object tips, relative to the head's pitch. */
+  readonly pitch: number;
+  /** Metres thrown sideways by the turn. */
+  readonly right: number;
+  /** Metres of extra stride bounce the arm adds over the head's. */
+  readonly up: number;
+}
+
+/** A hand that is not swinging: the anchored close-ups, and reduced motion. */
+export const NO_SWING: HeldSwing = { yaw: 0, pitch: 0, right: 0, up: 0 };
+
+/** Picks the four swing terms out of a frame's offset. */
+export function heldSwingOf(offset: MotionOffset): HeldSwing {
+  return {
+    yaw: offset.swingYaw,
+    pitch: offset.swingPitch,
+    right: offset.swingRight,
+    up: offset.swingUp,
+  };
 }
 
 export function createCameraMotion(): CameraMotion {
@@ -145,6 +214,10 @@ export function createCameraMotion(): CameraMotion {
     landing: 0,
     accel: 0,
     lastSpeed: 0,
+    swingYaw: 0,
+    swingYawVelocity: 0,
+    swingPitch: 0,
+    swingPitchVelocity: 0,
   };
 }
 
@@ -182,6 +255,23 @@ export interface MotionOffset {
   readonly pitch: number;
   /** 0..1 of extra edge darkening the renderer should draw this frame. */
   readonly vignette: number;
+  /*
+   * The held object, reported separately because it is not the camera.
+   *
+   * These are applied by whatever is holding something — the hand, the
+   * roasting stick, the sandwich — and deliberately not folded into the
+   * camera terms above. A held object that moved with the camera would be
+   * invisible: it is only ever seen *against* the camera, so the entire
+   * effect lives in the difference between the two.
+   */
+  /** Radians the held object trails the hand's yaw by. */
+  readonly swingYaw: number;
+  /** Radians it trails in pitch. */
+  readonly swingPitch: number;
+  /** Metres it is thrown along the camera's right vector. */
+  readonly swingRight: number;
+  /** Metres it rises and falls with the stride, over and above the head's bob. */
+  readonly swingUp: number;
 }
 
 const STILL: MotionOffset = {
@@ -194,6 +284,10 @@ const STILL: MotionOffset = {
   yaw: 0,
   pitch: 0,
   vignette: 0,
+  swingYaw: 0,
+  swingPitch: 0,
+  swingRight: 0,
+  swingUp: 0,
 };
 
 /**
@@ -257,6 +351,20 @@ export function stepCameraMotion(
   const yawTarget = -clamp(input.turnRate / LAG_REFERENCE, -1, 1) * YAW_LAG_MAX * settleLag;
   const pitchTarget =
     -clamp((input.pitchRate ?? 0) / LAG_REFERENCE, -1, 1) * PITCH_LAG_MAX * settleLag;
+  /*
+   * And the same two targets again for whatever is in the player's hands.
+   *
+   * Sitting down damps the hand far less than it damps the head: a seated
+   * body still has arms, and the thing you are holding is exactly what you
+   * are looking at while seated. Using the head's 0.35 here made turning to
+   * look along the fire from the log feel like the marshmallow was nailed to
+   * the camera, which is the defect this whole term exists to fix.
+   */
+  const settleSwing = input.settled ? 0.7 : 1;
+  const swingYawTarget =
+    -clamp(input.turnRate / LAG_REFERENCE, -1, 1) * SWING_YAW_MAX * settleSwing;
+  const swingPitchTarget =
+    -clamp((input.pitchRate ?? 0) / LAG_REFERENCE, -1, 1) * SWING_PITCH_MAX * settleSwing;
   let remaining = step;
   while (remaining > 0) {
     const slice = Math.min(SPRING_STEP, remaining);
@@ -264,6 +372,16 @@ export function stepCameraMotion(
     motion.yawLagVelocity +=
       ((yawTarget - motion.yawLag) * LOOK_STIFFNESS - motion.yawLagVelocity * LOOK_DAMPING) * slice;
     motion.yawLag += motion.yawLagVelocity * slice;
+    motion.swingYawVelocity +=
+      ((swingYawTarget - motion.swingYaw) * SWING_STIFFNESS -
+        motion.swingYawVelocity * SWING_DAMPING) *
+      slice;
+    motion.swingYaw += motion.swingYawVelocity * slice;
+    motion.swingPitchVelocity +=
+      ((swingPitchTarget - motion.swingPitch) * SWING_STIFFNESS -
+        motion.swingPitchVelocity * SWING_DAMPING) *
+      slice;
+    motion.swingPitch += motion.swingPitchVelocity * slice;
     motion.pitchLagVelocity +=
       ((pitchTarget - motion.pitchLag) * LOOK_STIFFNESS - motion.pitchLagVelocity * LOOK_DAMPING) *
       slice;
@@ -351,6 +469,23 @@ export function stepCameraMotion(
     yaw: motion.yawLag * scale,
     pitch: motion.pitchLag * scale,
     vignette: vignette * scale,
+    /*
+     * The hand, given back relative to the head rather than to the world.
+     *
+     * `yawLag` is subtracted because the view is already trailing by that
+     * much: if the hand only trailed by its own lag, the two would partly
+     * cancel and the swing would read as a fraction of what it is. What we
+     * want on screen is how far the hand is behind *the frame*, and the frame
+     * has itself fallen behind the head.
+     */
+    swingYaw: (motion.swingYaw - motion.yawLag) * scale,
+    swingPitch: (motion.swingPitch - motion.pitchLag) * scale,
+    // Thrown outward by the turn, which is the arm's mass going straight on
+    // while the shoulder goes round. Same sign as the angular lag.
+    swingRight: motion.swingYaw * SWING_THROW * scale,
+    // The stride, amplified. The head's own bob is already in `up`, so this is
+    // only the extra travel the arm adds on top of it.
+    swingUp: (bobUp * (SWING_BOB_GAIN - 1) - motion.landing * motion.landing * LAND_DIP) * scale,
   };
 }
 

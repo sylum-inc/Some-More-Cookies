@@ -62,7 +62,14 @@ import { Campsite } from './Campsite.js';
 import { Fire } from './Fire.js';
 import { Machine } from './Machine.js';
 import { AssemblyTable, PlacedStack, RoastingStick, Sandwich } from './RitualObjects.js';
-import { createCameraMotion, shakeCamera, stepCameraMotion } from './cameraMotion.js';
+import {
+  createCameraMotion,
+  heldSwingOf,
+  NO_SWING,
+  shakeCamera,
+  stepCameraMotion,
+  type HeldSwing,
+} from './cameraMotion.js';
 import { createHandGeometry } from '../render/hand.js';
 import { Radio } from './Radio.js';
 import { Wildlife } from './Wildlife.js';
@@ -187,16 +194,33 @@ const HOLD_VIEW_OFFSET = 0.38;
  * actually is. Eating then happens wherever you happen to be standing, which
  * is what the design always said it did.
  */
-export function holdPointFor(player: PlayerState): [number, number, number] {
+export function holdPointFor(
+  player: PlayerState,
+  swing: HeldSwing = NO_SWING,
+): [number, number, number] {
   const eye = eyePosition(player, holdScratch);
-  const forward = Math.cos(player.facing);
-  const forwardZ = Math.sin(player.facing);
+  /*
+   * The bearing the hand is on, which is not the bearing the head is on.
+   *
+   * An arm hangs off a body and a body has mass, so when the head snaps round
+   * the hand arrives late and goes slightly too far. Modelling that as a lag
+   * on the *bearing* — rather than as a wobble applied to the finished
+   * position — is what makes it read as an arm: the hand keeps its distance
+   * from the eye throughout and simply orbits, exactly as a hand on the end of
+   * a forearm does. A positional wobble would slide it toward and away from
+   * the lens instead, which reads as a lens fault, not a body.
+   */
+  const bearing = player.facing + swing.yaw;
+  const forward = Math.cos(bearing);
+  const forwardZ = Math.sin(bearing);
   return [
-    eye.x + forward * HOLD_REACH - forwardZ * HOLD_ASIDE,
-    eye.y - HOLD_BELOW_EYE,
-    eye.z + forwardZ * HOLD_REACH + forward * HOLD_ASIDE,
+    eye.x + forward * HOLD_REACH - forwardZ * HOLD_ASIDE + swing.right * -forwardZ,
+    eye.y - HOLD_BELOW_EYE + swing.up,
+    eye.z + forwardZ * HOLD_REACH + forward * HOLD_ASIDE + swing.right * forward,
   ];
 }
+
+
 
 /** Reused so holding a sandwich allocates nothing per frame. */
 const holdScratch = vec3(0, 0, 0);
@@ -741,6 +765,18 @@ export function World({
   /** The curio being looked at last frame, so the head is aimed once and not every frame. */
   const lastInspected = useRef<string | null>(null);
   const shake = useRef(0);
+  /*
+   * Last frame's held-object swing, kept in a ref because of frame ordering.
+   *
+   * `stepCameraMotion` runs inside the free-movement branch, which is *after*
+   * the block that places the hand and whatever is in it. Reading last frame's
+   * value rather than restructuring the callback is deliberate: the swing is a
+   * spring that takes the better part of a second to settle, so one frame of
+   * delay on it is somewhere around 2% of the effect and is not perceivable —
+   * whereas moving the hand placement below the camera would put it after the
+   * anchored branch returns, and the close-ups would lose their hand entirely.
+   */
+  const heldSwing = useRef<HeldSwing>(NO_SWING);
   const seedNumber = useMemo(() => hashSeed(state.campsiteSeed), [state.campsiteSeed]);
   const environment = useMemo(() => getEnvironment(state.environmentId), [state.environmentId]);
   /*
@@ -1069,14 +1105,19 @@ export function World({
       onSimStep?.(ritual);
     });
 
-    // The sandwich goes where the hands go.
+    // The sandwich goes where the hands go — including where the hands are
+    // still catching up to. `swing` is last frame's arm lag; see `heldSwing`.
+    const swing = heldSwing.current;
     const held = heldSandwichRef.current;
     if (held) {
-      const [hx, hy, hz] = holdPointFor(player);
+      const [hx, hy, hz] = holdPointFor(player, swing);
       held.position.set(hx, hy, hz);
       // Turned to face whoever is holding it, so it reads as a sandwich rather
       // than as a slab seen edge on.
-      held.rotation.y = player.facing + Math.PI / 2;
+      held.rotation.y = player.facing + swing.yaw + Math.PI / 2;
+      // And tipped by the same lag, so a fast look down leaves the sandwich
+      // briefly flatter than the hand under it before it catches up.
+      held.rotation.z = swing.pitch;
     }
 
     /*
@@ -1091,9 +1132,9 @@ export function World({
      */
     const hand = handRef.current;
     if (hand) {
-      const [hx, hy, hz] = holdPointFor(player);
-      const forward = Math.cos(player.facing);
-      const forwardZ = Math.sin(player.facing);
+      const [hx, hy, hz] = holdPointFor(player, swing);
+      const forward = Math.cos(player.facing + swing.yaw);
+      const forwardZ = Math.sin(player.facing + swing.yaw);
       /*
        * Further out and lower than the sandwich, not behind it.
        *
@@ -1107,10 +1148,16 @@ export function World({
        * be far enough out to read as an object rather than as a wall.
        */
       hand.position.set(hx + forward * 0.055, hy - 0.088, hz + forwardZ * 0.055);
-      hand.rotation.y = -player.facing + Math.PI / 2;
+      hand.rotation.y = -(player.facing + swing.yaw) + Math.PI / 2;
       // Tipped with the head, so looking down at what you are holding brings
-      // the hand up rather than sliding it off the bottom of the screen.
-      hand.rotation.x = player.pitch * 0.35;
+      // the hand up rather than sliding it off the bottom of the screen — plus
+      // the wrist's own lag, which is what makes a flick of the look read as a
+      // hand being carried rather than a hand bolted to the lens.
+      hand.rotation.x = player.pitch * 0.35 + swing.pitch;
+      // The forearm rolls into a turn the way a wrist does. Bounded, because
+      // past about fifteen degrees this stops being a wrist and starts being a
+      // broken one.
+      hand.rotation.z = Math.max(-0.26, Math.min(0.26, swing.yaw * 0.85));
     }
 
     // A look delta is consumed once, not once per simulation step.
@@ -1329,6 +1376,9 @@ export function World({
         perspective.updateProjectionMatrix();
       }
       publishVignette(lastVignette, sway.vignette);
+      // Handed to next frame's hand placement. See `heldSwing`'s comment for
+      // why this is a ref and not a local.
+      heldSwing.current = heldSwingOf(sway);
       if (onFrame && typeof performance !== 'undefined') onFrame(performance.now() - frameStart);
       return;
     }
@@ -1336,6 +1386,11 @@ export function World({
     // Composed stages have no body under them, so nothing is squeezing the
     // frame. Released rather than left where the last playable frame put it.
     publishVignette(lastVignette, 0);
+    // And the arm stops trailing, for the same reason: a composed shot is not
+    // being held by anybody. Zeroed outright rather than eased, because the
+    // stage change is already a cut in framing and easing one term across it
+    // would be the only thing still moving.
+    if (heldSwing.current.yaw !== 0) heldSwing.current = NO_SWING;
 
     const pose = poseFor(ritual.stage, arrivalRef.current, ritual.marshmallow.position, anchorBearing.current);
     // Reduced motion damps the ease rather than removing it — an instant cut

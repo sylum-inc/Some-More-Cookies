@@ -1192,6 +1192,27 @@ export function App({ store }: AppProps): React.ReactElement {
       // A piece of wood in hand. The drag belongs to the fire.
       if (grabbedFuel.current !== null) return;
 
+      /*
+       * A press that landed on a control is not a press on the world.
+       *
+       * These handlers sit on the element wrapping both the canvas and the
+       * HUD, so every press on the reach prompt, the drawn thumb pad or a
+       * corner button also arrived here as a press on the campsite — and a
+       * press that lifts without travelling is a tap, which walks you to
+       * whatever ground is under it. Pressing "Put a light to it" therefore
+       * struck the match *and* set off toward a point a metre and a half
+       * ahead, and by the time you got there the prompt under your thumb was
+       * "Take a log", because the woodpile had come into reach and the fire
+       * had gone out of it. Eight presses later there were eight logs in a
+       * cold pit and no second match. Reported as a flake in the fire suite;
+       * it is the interface walking away from the thing it just offered.
+       *
+       * The HUD already means this — its root is `pointerEvents: 'none'` and
+       * only the controls themselves turn it back on. What it had no way to
+       * say is that the press stops at the control.
+       */
+      if (event.target !== rendererRef.current?.gl.domElement) return;
+
       // A stone in hand at the water's edge: the drag *is* the throw. It
       // takes priority over looking and walking, the same way the roasting
       // drag takes priority once there is a marshmallow on the stick.

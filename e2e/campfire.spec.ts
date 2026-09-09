@@ -271,8 +271,50 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
   page.on('pageerror', (error) => failures.push(error.message));
   const url = `${WEB_ORIGIN}/?fire=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(player.token)}&ws=${encodeURIComponent(WS_URL)}`;
   await page.goto(url);
+  /*
+   * In front *before* it is asked to reach the fire, not after.
+   *
+   * Joining needs the main thread twice: the client opens its socket from the
+   * render loop's second frame, and sends `join` from that socket's `open`
+   * handler. A page that is not in front has no render loop — the fact the
+   * rest of this file is built around — so this helper was leaving the second
+   * browser hidden behind the first one for the whole of its cold start and
+   * then asking why it had not spoken.
+   *
+   * Measured on this runner, hidden: fourteen seconds from navigation to the
+   * socket opening, and fifteen more before the `open` handler got a turn —
+   * against a service that closes an unjoined socket after ten. Nothing about
+   * the product is different when the page is in front; only which window
+   * Chromium is drawing.
+   */
+  await page.bringToFront();
+  const knocked = Date.now();
   try {
-    await page.waitForFunction(() => window.__someMore?.campfire?.joined === true, undefined, { timeout: 30_000 });
+    /*
+     * Ninety seconds, like the first-frame budget below it, and for the same
+     * reason.
+     *
+     * Thirty was chosen on 30 August, when `joined` meant "open a socket and
+     * shake hands". It stopped meaning that on 2 September, when the client
+     * began opening the socket from the render loop's second frame and sending
+     * `join` from that socket's `open` handler: reaching the fire became a cold
+     * start twice over — two frames of a scene whose materials have never been
+     * compiled, and then a turn on a main thread that is still compiling the
+     * rest of them. Nobody moved the number.
+     *
+     * It has been a coin toss ever since, and the art round is not what did it:
+     * run at c9c4ae8, the last commit before that work, this same test still
+     * fails one run in three with the same symptom — the service giving up on a
+     * socket that has been open ten seconds without a join, because the page
+     * could not answer. Measured here with the page in front, the first browser
+     * reaches the fire in six or seven seconds and the second, sharing a
+     * software rasteriser with a page that is already drawing, in twenty to
+     * thirty-seven. None of that is a property of the product; it is the price
+     * of two WebGL contexts on a machine with no GPU. So the budget is generous
+     * and the number is printed on every run, which is the bargain `firstFrame`
+     * already struck below.
+     */
+    await page.waitForFunction(() => window.__someMore?.campfire?.joined === true, undefined, { timeout: 90_000 });
   } catch (error) {
     /*
      * Say why the socket did not open.
@@ -306,6 +348,7 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
       { cause: error },
     );
   }
+  console.log(`  ${player.name} reached the fire ${((Date.now() - knocked) / 1000).toFixed(1)} s after opening the link`);
   /*
    * Out of the trees and into the clearing, so the camera is at the fire.
    *

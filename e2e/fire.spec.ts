@@ -569,7 +569,19 @@ test.describe('going and getting firewood', () => {
     // Back to the pit. Hands full of wood, so the fire offers to take it.
     await comeToTheFire(page);
     const before = await readFire(page);
-    await expect(page.getByTestId('reach')).toContainText('Lay it on');
+    /*
+     * Read off the accessible name, because the prompt is a picture now.
+     *
+     * The reach prompt used to be the sentence itself, in the largest type on
+     * screen; it is a drawn icon with the phrase on `aria-label`. The offer is
+     * the same offer and the string is the same string — `reachLabel` is
+     * unchanged — but the element's text is empty, so a text assertion here
+     * was reporting "the fire will not take the wood" when what had happened
+     * was that the words moved channel. `place.spec.ts` reads the landmark
+     * prompt the same way and for the same reason: §12 wants the verb named
+     * somewhere that is not the picture, and this is that channel.
+     */
+    await expect(page.getByTestId('reach')).toHaveAttribute('aria-label', 'Lay it on');
     await page.getByTestId('reach').click();
 
     /*
@@ -747,7 +759,11 @@ test.describe('a fire that outlives the tab', () => {
       player.position.x = 1;
       player.position.z = 0;
     });
-    await expect(page.getByTestId('reach')).toHaveText('Lay a new fire', { timeout: 10_000 });
+    // On `aria-label` rather than in the text, for the reason given above: the
+    // prompt is an icon and the phrase is its accessible name.
+    await expect(page.getByTestId('reach')).toHaveAttribute('aria-label', 'Lay a new fire', {
+      timeout: 10_000,
+    });
 
     // Go and get something fine and dry, and lay it on.
     const patch = await page.evaluate(() => {
@@ -773,7 +789,9 @@ test.describe('a fire that outlives the tab', () => {
     await page.getByTestId('reach').click();
 
     // Now there is something in it to light, and the prompt says so.
-    await expect(page.getByTestId('reach')).toHaveText('Put a light to it', { timeout: 10_000 });
+    await expect(page.getByTestId('reach')).toHaveAttribute('aria-label', 'Put a light to it', {
+      timeout: 10_000,
+    });
     await page.getByTestId('reach').click();
 
     /*

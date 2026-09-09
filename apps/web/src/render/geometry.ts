@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import {
   BITE_POSITIONS,
+  clamp01,
   patchColor,
   sandwichLayers,
   terrainHeight,
@@ -1185,6 +1186,85 @@ function pushTriangle(
   );
 }
 
+/**
+ * A box that is a surface rather than a primitive.
+ *
+ * Everything built out of boxes in this world — the bear box, the site post,
+ * the ruined frame, the survey stake, the shelf — used `BoxGeometry` straight,
+ * and `BoxGeometry` lays 0..1 UVs across every face whatever size the face is.
+ * That is the same defect the ground had, at a smaller scale and with the same
+ * result: a metre-wide face carrying a sixty-four pixel tile magnified to a
+ * centimetre and a half a texel, which is not a texture, it is a wash. An art
+ * review picked exactly one object out of a dusk frame and called it "a plain
+ * grey rectangle... an untextured box", and it was untextured in every way
+ * that matters.
+ *
+ * Two things fix it and neither costs a triangle:
+ *
+ *   - **UVs in metres.** Each face is scaled by its own real dimensions, so
+ *     one tile is `tile` metres whichever face it lands on and a big face gets
+ *     more texture rather than a bigger texture.
+ *   - **A weathering tint.** A vertex colour that darkens the undersides,
+ *     lifts the top, and runs a gradient down each side — the dirt line every
+ *     object that has stood outdoors has, and the single cheapest thing that
+ *     separates a made object from a rendered cuboid.
+ */
+export function createBoxGeometry(
+  width: number,
+  height: number,
+  depth: number,
+  options: { tile?: number; seed?: number; index?: number; tone?: number } = {},
+): THREE.BufferGeometry {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  const tile = options.tile ?? 0.45;
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
+  const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+
+  /*
+   * `BoxGeometry` builds its faces in a fixed order — +x, -x, +y, -y, +z, -z —
+   * four vertices each at one segment. Each face's UV runs across two of the
+   * three dimensions, and which two is what this table says.
+   */
+  const spans: readonly [number, number][] = [
+    [depth, height], [depth, height],
+    [width, depth], [width, depth],
+    [width, height], [width, height],
+  ];
+  for (let face = 0; face < 6; face++) {
+    const [su, sv] = spans[face] as [number, number];
+    for (let v = 0; v < 4; v++) {
+      const i = face * 4 + v;
+      if (i >= uv.count) break;
+      uv.setXY(i, uv.getX(i) * (su / tile), uv.getY(i) * (sv / tile));
+    }
+  }
+  uv.needsUpdate = true;
+
+  const seed = options.seed ?? 1;
+  const index = options.index ?? 0;
+  const base = options.tone ?? 1;
+  const colors = new Float32Array(position.count * 3);
+  const half = height / 2;
+  for (let i = 0; i < position.count; i++) {
+    const y = position.getY(i);
+    const ny = geometry.getAttribute('normal')?.getY(i) ?? 0;
+    // Top faces catch the sky, undersides get nothing at all.
+    const facing = ny > 0.5 ? 1.16 : ny < -0.5 ? 0.68 : 1;
+    // And every vertical face is dirtier at the bottom than at the top.
+    const up = half > 0 ? clamp01((y + half) / (height || 1)) : 1;
+    const grime = ny > -0.5 && ny < 0.5 ? 0.8 + up * 0.26 : 1;
+    // A per-part nudge, so a box built out of seven boxes is not seven
+    // identical values.
+    const nudge = 0.94 + latticeValue(index + 1, i >> 2, seed) * 0.12;
+    const value = base * facing * grime * nudge;
+    colors[i * 3] = value * 1.02;
+    colors[i * 3 + 1] = value;
+    colors[i * 3 + 2] = value * 0.96;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
 /** An irregular low-poly rock. */
 /**
  * A rock, and the bug that made every one of them a pile of loose triangles.
@@ -1288,36 +1368,24 @@ function groundTint(position: THREE.BufferAttribute, seed: number): THREE.Buffer
     const fine = valueNoise2D(x / 2.1, z / 2.1, seed ^ 0x5bd1);
     // Centred on 1, so a vertex with average noise is exactly the colour the
     // manifest asked for and nothing shifts the campsite's identity.
-    let tone = 1 + (broad - 0.5) * 0.26 + (fine - 0.5) * 0.12;
+    const tone = 1 + (broad - 0.5) * 0.26 + (fine - 0.5) * 0.12;
 
     /*
-     * The worn ring, which the campsite's own prose has described for three
-     * rounds and the ground has never had.
+     * The worn ring is not here any more, and that is the point.
      *
-     * "Deep rust-brown needle litter over compacted dirt, worn to bare soil in
-     * a ring around the fire" is on screen every time somebody looks at the
-     * hearth, and until now it described a uniform brown field. A ring of bare
-     * earth around a pit is the single most reliable sign that a place is used
-     * rather than generated, and it costs nothing: bare soil is paler and
-     * greyer than duff, because what makes duff dark is the needles.
-     *
-     * Between one and a half and three metres — inside that is the fire ring's
-     * own stones and ash, outside it is where people actually sit. The edge is
-     * deliberately soft and noisy: a hard ring would read as a decal, which is
-     * the failure this whole session has been correcting elsewhere.
+     * It used to be a term in this function: a brightening between 1.35 and
+     * 3.4 metres, on a mesh whose quads are a metre and three quarters across.
+     * Two vertices wide is not a ring, it is a smudge — and it was never drawn
+     * at all, because nothing ever attached this attribute to the terrain.
+     * `createGroundCoverGeometry` draws it properly now, on its own radial
+     * mesh at ten times the vertex density and in its own tile, and it covers
+     * every metre this term used to reach. Computing it twice and drawing it
+     * once is exactly the pattern this project keeps being bitten by.
      */
-    const fromFire = Math.hypot(x, z);
-    const ring = Math.max(
-      0,
-      Math.min(1, (fromFire - 1.35) / 0.7) * Math.min(1, (3.4 - fromFire) / 0.9),
-    );
-    const worn = ring * (0.72 + broad * 0.45);
-    tone *= 1 + worn * 0.3;
     const lift = Math.max(-1, Math.min(1, y * 1.4));
-    // Bare soil is greyer as well as paler: the red comes out with the needles.
-    colors[i * 3] = tone * (1 + lift * 0.05) * (1 - worn * 0.06);
+    colors[i * 3] = tone * (1 + lift * 0.05);
     colors[i * 3 + 1] = tone * (1 + lift * 0.015);
-    colors[i * 3 + 2] = tone * (1 - lift * 0.045) * (1 + worn * 0.1);
+    colors[i * 3 + 2] = tone * (1 - lift * 0.045);
   }
   return new THREE.BufferAttribute(colors, 3);
 }
@@ -1707,5 +1775,408 @@ export function createTerrainGeometry(
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();
+  /*
+   * And the tint, which was computed and never attached.
+   *
+   * `groundTint` was written for this mesh — its own comment says "the
+   * terrain is a metre-and-three-quarters to a quad" — and the only caller it
+   * ever had was `createRockGeometry`. `Campsite` then built the ground
+   * material with `vertexColors: true` and a comment saying "the per-vertex
+   * tint `createTerrainGeometry` bakes in", against a geometry that had no
+   * colour attribute at all. So the broad patches, the height tilt and the
+   * worn ring around the fire were all dead code, and a fourth art review
+   * described the ground as one flat field for the fourth time.
+   *
+   * It is worse than merely absent, too: `MeshStandardMaterial` carries no
+   * `defaultAttributeValues`, so a missing `color` attribute leaves the shader
+   * reading the generic vertex attribute — whatever the driver last left
+   * there, with (0,0,0,1) the specified default. A ground that renders is not
+   * evidence that the multiply was 1.
+   */
+  geometry.setAttribute('color', groundTint(position, seed));
+  return geometry;
+}
+
+/** How `createTerrainGeometry` was called, so its drawn surface can be sampled. */
+export interface TerrainGrid {
+  readonly size: number;
+  readonly segments: number;
+  readonly seed: number;
+  readonly amplitude?: number;
+  readonly basin?: WaterBasin;
+}
+
+/**
+ * The height of the ground *as drawn*, which is not the height of the ground.
+ *
+ * `terrainHeight` is the analytic surface the player walks on; the mesh is a
+ * grid of flat triangles through samples of it, and between those samples the
+ * two disagree — measured on the shipping campsite at up to 9 cm, with the
+ * mesh *above* the function about as often as below.
+ *
+ * Nine centimetres is nothing to a walk cycle and everything to anything laid
+ * on top of the ground. A mat placed at the analytic height and lifted a
+ * centimetre and a half is swallowed by the drawn terrain across a good
+ * fraction of its area, in patches, which reads as holes torn in the clearing
+ * floor. So anything that lies *on* the ground is placed on the surface that
+ * is actually there.
+ *
+ * `PlaneGeometry` splits each quad along the diagonal from its (−x, +z) corner
+ * to its (+x, −z) corner — the `a, b, d` / `b, c, d` winding in three's own
+ * source — which is what decides the two branches below. That is checked
+ * against a ray-cast onto the real mesh rather than trusted.
+ */
+export function drawnTerrainHeight(x: number, z: number, grid: TerrainGrid): number {
+  const step = grid.size / grid.segments;
+  const half = grid.size / 2;
+  const amplitude = grid.amplitude ?? 0.6;
+  const gx = (x + half) / step;
+  const gz = (z + half) / step;
+  const i = Math.floor(gx);
+  const j = Math.floor(gz);
+  const u = gx - i;
+  const v = gz - j;
+  const x0 = i * step - half;
+  const z0 = j * step - half;
+  const h = (px: number, pz: number): number =>
+    terrainHeight(px, pz, grid.seed, amplitude, grid.basin);
+  if (u + v <= 1) {
+    const h00 = h(x0, z0);
+    return h00 + (h(x0 + step, z0) - h00) * u + (h(x0, z0 + step) - h00) * v;
+  }
+  const h11 = h(x0 + step, z0 + step);
+  return h11 + (h(x0, z0 + step) - h11) * (1 - u) + (h(x0 + step, z0) - h11) * (1 - v);
+}
+
+/**
+ * The ground you are actually standing on.
+ *
+ * The terrain mesh is one grid at a metre and three quarters to a quad,
+ * stretched over forty-six to seventy metres, and it cannot be both. Detail
+ * belongs where the camera is: half of every frame is the ground within about
+ * eight metres of the fire, and out past that it should quieten or the whole
+ * field turns to mush under the downsample. Making the whole grid finer would
+ * spend the entire triangle budget describing ground the player never looks
+ * at.
+ *
+ * So this is a small radial mat laid over the terrain around the fire, in two
+ * pieces:
+ *
+ *   - **the worn ring**, the trodden ground people have flattened by sitting
+ *     and walking on it, in its own compacted tile;
+ *   - **the duff** outside it, needle litter in its own tile at a coarser
+ *     scale.
+ *
+ * Two pieces rather than a tint across one, because "no variation in grain
+ * between the trodden ring and the untrodden ground" is a note about
+ * *texture*, and a tint cannot change a grain. They share one jittered
+ * boundary polygon so the seam is exact — no gap, no overlap — and the
+ * boundary is deliberately ragged: a circle would read as a decal, which is
+ * what a worn ring must never do.
+ *
+ * Radially tessellated so the vertex density is highest where the camera is,
+ * which is the whole point: a fifth of the triangles of an equivalent grid,
+ * concentrated in the two metres in front of your feet.
+ */
+export interface GroundCover {
+  /** Compacted bare soil, from the fire out to the ragged boundary. */
+  readonly worn: THREE.BufferGeometry;
+  /** Needle litter, from the boundary out to where the mat fades away. */
+  readonly duff: THREE.BufferGeometry;
+  /** Triangles in both pieces together, for budgeting. */
+  readonly triangles: number;
+}
+
+export function createGroundCoverGeometry(options: {
+  seed: number;
+  /**
+   * Where the mat starts. There is a hole in the middle of it, because the
+   * middle of it is the fire: the ash bed is a disc of radius 0.42 sitting
+   * five millimetres off the ground and the ring stones stand at 0.4, and a
+   * mat laid over the top of those would bury the most looked-at object in
+   * the game under a centimetre and a half of dirt.
+   */
+  innerRadius?: number;
+  /** Where the worn ring sits, on average, in metres from the fire. */
+  wornRadius?: number;
+  /** Where the mat stops and the plain terrain takes over. */
+  outerRadius?: number;
+  /** Radial spokes. The quality tier's dial: fewer is coarser, not smaller. */
+  spokes?: number;
+  /** Ground height at a point — the same analytic function the player walks. */
+  height: (x: number, z: number) => number;
+  /** Metres per texture tile, per piece. */
+  wornTile?: number;
+  duffTile?: number;
+}): GroundCover {
+  const seed = options.seed;
+  const innerRadius = options.innerRadius ?? 0.58;
+  const wornRadius = options.wornRadius ?? 3.1;
+  const outerRadius = options.outerRadius ?? 7.6;
+  const spokes = Math.max(8, options.spokes ?? 20);
+  const wornTile = options.wornTile ?? 0.85;
+  /*
+   * The duff mat tiles at exactly the terrain's own scale.
+   *
+   * It is tempting to make it finer — it is the near ground, after all — and
+   * the first attempt did, at 1.25 m against the terrain's 2 m. Rendered, that
+   * put a visible ring in the picture where the mat ended: two tile scales of
+   * the same texture minify differently under nearest sampling with no
+   * mipmaps, so the coarse one aliases pale and the fine one reads its true
+   * mean, and the seam between them is a step in *value* rather than in grain.
+   * Which is the decal failure again.
+   *
+   * So the duff mat contributes vertex density and the ragged inner boundary,
+   * and the whole of the grain change lives at the worn ring's edge — which is
+   * where the art direction wants it, and is the one boundary that is supposed
+   * to be visible.
+   */
+  const duffTile = options.duffTile ?? 2;
+  const height = options.height;
+
+  /*
+   * The boundary. Two harmonics rather than per-spoke noise: a wobble at every
+   * spoke reads as a sawtooth, and what a trodden edge actually has is a few
+   * long lobes — the sides people come in from are worn further out than the
+   * side with the woodpile against it.
+   */
+  const boundary = new Float64Array(spokes);
+  const phaseA = valueNoise2D(seed * 0.017, 3.1, seed) * Math.PI * 2;
+  const phaseB = valueNoise2D(seed * 0.031, 7.7, seed ^ 0x2f11) * Math.PI * 2;
+  for (let s = 0; s < spokes; s++) {
+    const angle = (s / spokes) * Math.PI * 2;
+    const lobe = Math.sin(angle * 2 + phaseA) * 0.42 + Math.sin(angle * 3 + phaseB) * 0.26;
+    const grain = valueNoise2D(Math.cos(angle) * 4, Math.sin(angle) * 4, seed ^ 0x77a3) - 0.5;
+    boundary[s] = wornRadius * (1 + lobe * 0.22) + grain * 0.5;
+  }
+
+  /** Radii for one piece, packed toward the inside so the near ground is finer. */
+  const ringsBetween = (inner: number, outer: number, count: number, bias: number): number[] => {
+    const out: number[] = [];
+    for (let i = 0; i <= count; i++) {
+      const t = Math.pow(i / count, bias);
+      out.push(inner + (outer - inner) * t);
+    }
+    return out;
+  };
+
+  const build = (
+    innerAt: (spoke: number) => number,
+    outerAt: (spoke: number) => number,
+    steps: number,
+    bias: number,
+    tile: number,
+    tone: (x: number, z: number, radial: number, along: number) => Tone,
+  ): THREE.BufferGeometry => {
+    const surfaces: Surfaces = { positions: [], normals: [], uvs: [], colors: [] };
+    const at = (spoke: number, step: number): [number, number, number, Tone, number, number] => {
+      const s = spoke % spokes;
+      const angle = (s / spokes) * Math.PI * 2;
+      const inner = innerAt(s);
+      const outer = outerAt(s);
+      const radii = ringsBetween(inner, outer, steps, bias);
+      const r = radii[step] as number;
+      const x = Math.cos(angle) * r;
+      const z = Math.sin(angle) * r;
+      // Lifted a centimetre and a half. Enough to win the depth test against
+      // the coarse grid it lies on everywhere between that grid's vertices,
+      // small enough that the lip is under a pixel at the distance the mat
+      // ends.
+      const y = height(x, z) + 0.015;
+      return [x, y, z, tone(x, z, step / steps, s / spokes), x / tile, z / tile];
+    };
+
+    for (let s = 0; s < spokes; s++) {
+      for (let step = 0; step < steps; step++) {
+        const a = at(s, step);
+        const b = at(s + 1, step);
+        const c = at(s + 1, step + 1);
+        const d = at(s, step + 1);
+        const push = (p: [number, number, number, Tone, number, number]): void => {
+          surfaces.positions.push(p[0], p[1], p[2]);
+          surfaces.normals.push(0, 1, 0);
+          surfaces.uvs.push(p[4], p[5]);
+          surfaces.colors.push(p[3][0], p[3][1], p[3][2]);
+        };
+        /*
+         * Wound so the mat faces up, which is the only way it is ever seen.
+         *
+         * The obvious order — outward, then round — winds these clockwise seen
+         * from above, and a clockwise triangle under a `FrontSide` material is
+         * not a dark triangle, it is no triangle: the whole mat was culled and
+         * the clearing floor looked exactly as it did before. Found by
+         * rendering it offline and noticing that the fire lit the terrain
+         * showing through the pit hole and nothing else.
+         */
+        push(a); push(c); push(d);
+        push(a); push(b); push(c);
+      }
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(surfaces.positions, 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(surfaces.normals, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(surfaces.uvs, 2));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(surfaces.colors, 3));
+    geometry.computeBoundingSphere();
+    return geometry;
+  };
+
+  /*
+   * The tints. Both are centred so that the *outermost* ring of the duff is
+   * exactly 1 — the identity under the multiply — because that ring has to
+   * disappear into the terrain around it. Anything else and the mat has a
+   * visible rim, which is the decal failure again.
+   */
+  const wornSteps = 5;
+  const duffSteps = 4;
+
+  const worn = build(
+    () => innerRadius,
+    (s) => boundary[s] as number,
+    wornSteps,
+    // Biased inward: the rings crowd toward the pit, which is where the camera
+    // is and where the scorch has to resolve.
+    0.78,
+    wornTile,
+    (x, z, radial) => {
+      const grain = valueNoise2D(x / 1.7, z / 1.7, seed ^ 0x51ab) - 0.5;
+      const broad = valueNoise2D(x / 5.5, z / 5.5, seed) - 0.5;
+      /*
+       * Scorch. Right at the pit the ground is ash and burnt soil, not bare
+       * earth, and the ring reads as *used* rather than as merely swept
+       * because of the dark centre it surrounds.
+       */
+      const scorch = clamp01(1 - radial / 0.4);
+      const value = 1 + grain * 0.16 + broad * 0.14 - scorch * 0.34;
+      // Bare soil is greyer than duff, and scorched soil greyer still: the red
+      // in a forest floor is the needles, and there are none here.
+      return [
+        value * (1 - scorch * 0.05),
+        value * (1 + 0.015),
+        value * (1 + 0.05 + scorch * 0.06),
+      ];
+    },
+  );
+
+  const duff = build(
+    (s) => boundary[s] as number,
+    () => outerRadius,
+    duffSteps,
+    1.25,
+    duffTile,
+    (x, z, radial) => {
+      const grain = valueNoise2D(x / 2.2, z / 2.2, seed ^ 0x5bd1) - 0.5;
+      const broad = valueNoise2D(x / 7.4, z / 7.4, seed) - 0.5;
+      // Faded out at the rim so the mat has no edge, and thickest just outside
+      // the worn ring where the sweeping piled it up.
+      const fade = 1 - radial * radial;
+      const bank = clamp01(1 - radial / 0.3) * 0.05;
+      const value = 1 + (grain * 0.2 + broad * 0.16 - bank) * fade;
+      return [value * (1 + 0.04 * fade), value, value * (1 - 0.05 * fade)];
+    },
+  );
+
+  return {
+    worn,
+    duff,
+    triangles: spokes * (wornSteps + duffSteps) * 2,
+  };
+}
+
+/**
+ * The things lying on the ground, as one shape each so they can be instanced.
+ *
+ * Two of them, because two is what the eye needs to stop reading a surface as
+ * a plane: something hard and pale that catches the light, and something soft
+ * and dark that does not. Both are a handful of triangles — the whole point is
+ * that there are ninety of them in one draw call, not that any one of them is
+ * a model.
+ */
+export type LitterKind = 'pebble' | 'sprig';
+
+export function createLitterGeometry(kind: LitterKind, seed: number, size = 0.09): THREE.BufferGeometry {
+  const rng = mulberry(seed);
+  const surfaces: Surfaces = { positions: [], normals: [], uvs: [], colors: [] };
+
+  if (kind === 'pebble') {
+    /*
+     * A stone half out of the ground: a six-sided plate with the middle
+     * lifted. Six triangles. An icosahedron would be twenty for a shape that
+     * is four pixels across, and the buried half is never seen.
+     */
+    const sides = 6;
+    const rim: [number, number, number][] = [];
+    for (let i = 0; i < sides; i++) {
+      const angle = (i / sides) * Math.PI * 2 + rng() * 0.35;
+      const r = size * (0.62 + rng() * 0.55);
+      rim.push([Math.cos(angle) * r, size * 0.06 * rng(), Math.sin(angle) * r]);
+    }
+    const px = (rng() - 0.5) * size * 0.3;
+    const py = size * (0.42 + rng() * 0.3);
+    const pz = (rng() - 0.5) * size * 0.3;
+    for (let i = 0; i < sides; i++) {
+      const a = rim[i] as [number, number, number];
+      const b = rim[(i + 1) % sides] as [number, number, number];
+      // Warm on some faces, cool on the others — a stone with one value is a
+      // disc, and a disc is what a pebble must not be.
+      const lit = 0.84 + (((i * 2 + 1) % sides) / sides) * 0.46;
+      const tone: Tone = [lit * 1.05, lit, lit * 0.95];
+      // Peak, then round the rim the *other* way: anticlockwise seen from
+      // above is what a `FrontSide` material draws.
+      pushTriangle(
+        surfaces,
+        px, py, pz,
+        b[0], b[1], b[2],
+        a[0], a[1], a[2],
+        0.5, 0.5,
+        (i + 1) / sides, 0,
+        i / sides, 0,
+        [lit * 1.12, lit * 1.06, lit],
+        tone,
+        tone,
+      );
+    }
+  } else {
+    /*
+     * A sprig of fallen needles and one small stick, lying flat. Three long
+     * thin triangles at different angles: at 426x240 a twig is one or two
+     * pixels wide, so what it contributes is a dark directional mark on a
+     * surface that otherwise has none.
+     */
+    const blades = 3;
+    for (let i = 0; i < blades; i++) {
+      const angle = (i / blades) * Math.PI * 2 + rng() * 1.1;
+      const length = size * (1.5 + rng() * 1.6);
+      const width = size * (0.16 + rng() * 0.14);
+      const lift = size * 0.035;
+      const cx = (rng() - 0.5) * size * 0.7;
+      const cz = (rng() - 0.5) * size * 0.7;
+      const dx = Math.cos(angle);
+      const dz = Math.sin(angle);
+      const value = 0.72 + rng() * 0.5;
+      const tone: Tone = [value * 1.1, value, value * 0.86];
+      pushTriangle(
+        surfaces,
+        cx + dz * width, lift, cz - dx * width,
+        cx - dz * width, lift, cz + dx * width,
+        cx + dx * length, lift + size * 0.02, cz + dz * length,
+        0, 0,
+        1, 0,
+        0.5, 1,
+        tone,
+        tone,
+        // The far end of a stick is the end that catches the light.
+        [tone[0] * 1.25, tone[1] * 1.22, tone[2] * 1.18],
+      );
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(surfaces.positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(surfaces.normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(surfaces.uvs, 2));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(surfaces.colors, 3));
+  geometry.computeBoundingSphere();
   return geometry;
 }

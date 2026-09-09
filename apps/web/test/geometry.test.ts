@@ -17,8 +17,13 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { ENVIRONMENTS } from '@somemore/content';
 import {
+  createBoxGeometry,
+  createGroundCoverGeometry,
+  createLitterGeometry,
+  createTerrainGeometry,
   createTreeGeometry,
   createTreeGeometrySet,
+  drawnTerrainHeight,
   mergeGeometries,
   type TreeForm,
 } from '../src/render/geometry.js';
@@ -665,5 +670,194 @@ describe('colour in the wood', () => {
         }
       }
     }
+  });
+});
+
+/**
+ * The clearing floor.
+ *
+ * Every assertion here exists because the thing it checks was wrong once and
+ * would not have shown up as an error. The dominant failure in this project is
+ * a render feature that is silently discarded, and ground is the surface where
+ * that is hardest to see: half of every frame is ground, and a mat that is
+ * culled, a tint that is never attached and a texture magnified past the point
+ * of being a texture all look identical to a flat brown field.
+ */
+describe('the ground', () => {
+  /** Every triangle's face normal. */
+  function faceNormals(geometry: THREE.BufferGeometry): THREE.Vector3[] {
+    const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+    const index = geometry.index;
+    const count = index ? index.count : position.count;
+    const out: THREE.Vector3[] = [];
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    for (let i = 0; i < count; i += 3) {
+      a.fromBufferAttribute(position, index ? index.getX(i) : i);
+      b.fromBufferAttribute(position, index ? index.getX(i + 1) : i + 1);
+      c.fromBufferAttribute(position, index ? index.getX(i + 2) : i + 2);
+      out.push(b.clone().sub(a).cross(c.clone().sub(a)).normalize());
+    }
+    return out;
+  }
+
+  const flat = (): number => 0;
+
+  it('carries the tint the ground material asks for', () => {
+    /*
+     * `groundTint` was written for the terrain, applied only to rocks, and the
+     * ground material was built with `vertexColors: true` against a geometry
+     * that had no colour attribute at all — for three art reviews. That is not
+     * a neutral mistake either: `MeshStandardMaterial` has no
+     * `defaultAttributeValues`, so a missing `color` leaves the shader reading
+     * the generic vertex attribute, whose specified default is black.
+     */
+    const terrain = createTerrainGeometry(46, 26, 7, 0.7);
+    const colors = terrain.getAttribute('color') as THREE.BufferAttribute | undefined;
+    expect(colors, 'the terrain must carry a colour attribute').toBeDefined();
+    const position = terrain.getAttribute('position') as THREE.BufferAttribute;
+    expect(colors?.count).toBe(position.count);
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < (colors?.count ?? 0); i++) {
+      const v = colors?.getY(i) ?? 1;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    // Centred on 1, so the manifest's own ground colour is still the ground
+    // colour, and wide enough that the variation survives the dither.
+    expect(min).toBeGreaterThan(0.6);
+    expect(max).toBeLessThan(1.6);
+    expect(max - min).toBeGreaterThan(0.2);
+  });
+
+  it('draws the mat face up, or does not draw it at all', () => {
+    /*
+     * The one that cost the most to find. Wound outward-then-round, these
+     * triangles face *down*, and every material in this scene is `FrontSide` —
+     * so the whole clearing floor was culled and the picture was identical to
+     * the picture without it. Caught by rendering the scene offline and
+     * noticing that the campfire lit the ground showing through the fire pit's
+     * hole and nothing around it.
+     */
+    const cover = createGroundCoverGeometry({ seed: 3, height: flat });
+    for (const piece of [cover.worn, cover.duff]) {
+      for (const normal of faceNormals(piece)) expect(normal.y).toBeGreaterThan(0.5);
+    }
+    for (const kind of ['pebble', 'sprig'] as const) {
+      for (const normal of faceNormals(createLitterGeometry(kind, 11))) {
+        expect(normal.y).toBeGreaterThan(0.1);
+      }
+    }
+  });
+
+  it('leaves the fire pit alone', () => {
+    // The ash bed is a disc of radius 0.42 five millimetres off the ground and
+    // the ring stones stand at 0.4. A mat over the top of those buries the one
+    // object the whole game is pointed at.
+    const cover = createGroundCoverGeometry({ seed: 3, height: flat });
+    const position = cover.worn.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < position.count; i++) {
+      expect(Math.hypot(position.getX(i), position.getZ(i))).toBeGreaterThan(0.5);
+    }
+  });
+
+  it('gives the worn ring a ragged edge rather than a circle', () => {
+    // A circle reads as a decal, which is the failure every other fix in this
+    // area has been correcting.
+    const cover = createGroundCoverGeometry({ seed: 3, height: flat });
+    const position = cover.duff.getAttribute('position') as THREE.BufferAttribute;
+    let min = Infinity;
+    let max = -Infinity;
+    for (let i = 0; i < position.count; i++) {
+      const r = Math.hypot(position.getX(i), position.getZ(i));
+      // The inner rim only: the outer one is a circle on purpose.
+      if (r > 5) continue;
+      if (r < min) min = r;
+      if (r > max) max = r;
+    }
+    expect(max - min).toBeGreaterThan(0.6);
+  });
+
+  it('meets the terrain the renderer draws, not the one the player walks', () => {
+    /*
+     * The drawn ground is flat triangles through samples of `terrainHeight`,
+     * and departs from it by up to nine centimetres between vertices, in both
+     * directions. A mat laid at the analytic height and lifted a centimetre
+     * and a half is swallowed across a good fraction of its area, in patches.
+     */
+    const grid = { size: 46, segments: 26, seed: 7, amplitude: 0.7 };
+    const cover = createGroundCoverGeometry({
+      seed: 7,
+      height: (x: number, z: number) => drawnTerrainHeight(x, z, grid),
+    });
+    const position = cover.duff.getAttribute('position') as THREE.BufferAttribute;
+    for (let i = 0; i < position.count; i++) {
+      const above = position.getY(i) - drawnTerrainHeight(position.getX(i), position.getZ(i), grid);
+      expect(above).toBeGreaterThan(0);
+      expect(above).toBeLessThan(0.05);
+    }
+  });
+
+  it('stays inside its share of the budget', () => {
+    // Four draw calls and about a thousand triangles for the eight metres that
+    // are half of every frame, against ARCHITECTURE §10's 120 and 60k.
+    for (const spokes of [14, 20, 26]) {
+      const cover = createGroundCoverGeometry({ seed: 1, spokes, height: flat });
+      expect(cover.triangles).toBeLessThanOrEqual(480);
+      expect(triangles(cover.worn) + triangles(cover.duff)).toBe(cover.triangles);
+    }
+    expect(triangles(createLitterGeometry('pebble', 1))).toBeLessThanOrEqual(8);
+    expect(triangles(createLitterGeometry('sprig', 1))).toBeLessThanOrEqual(4);
+  });
+
+  it('is the same ground twice for the same seed', () => {
+    const a = createGroundCoverGeometry({ seed: 90210, height: flat });
+    const b = createGroundCoverGeometry({ seed: 90210, height: flat });
+    expect(Array.from((a.worn.getAttribute('position') as THREE.BufferAttribute).array)).toEqual(
+      Array.from((b.worn.getAttribute('position') as THREE.BufferAttribute).array),
+    );
+  });
+});
+
+/**
+ * `BoxGeometry` lays 0..1 UVs across every face whatever size the face is, so
+ * a metre-wide bear box magnified a 64-pixel tile to a centimetre and a half a
+ * texel. An art review picked exactly one object out of a dusk frame and
+ * called it "a plain grey rectangle... an untextured box".
+ */
+describe('a box that is a surface', () => {
+  function uvExtent(geometry: THREE.BufferGeometry): number {
+    const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
+    let max = 0;
+    for (let i = 0; i < uv.count; i++) max = Math.max(max, uv.getX(i), uv.getY(i));
+    return max;
+  }
+
+  it('tiles by the metre rather than by the face', () => {
+    expect(uvExtent(createBoxGeometry(0.1, 0.1, 0.1, { tile: 0.4 }))).toBeCloseTo(0.25, 5);
+    expect(uvExtent(createBoxGeometry(1.6, 1.6, 1.6, { tile: 0.4 }))).toBeCloseTo(4, 5);
+  });
+
+  it('weathers: lit on top, dark underneath, dirtier at the foot', () => {
+    const geometry = createBoxGeometry(1, 1, 1, { seed: 5 });
+    const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+    const normal = geometry.getAttribute('normal') as THREE.BufferAttribute;
+    const color = geometry.getAttribute('color') as THREE.BufferAttribute;
+    let top = 0;
+    let bottom = 0;
+    let sideLow = 0;
+    let sideHigh = 0;
+    for (let i = 0; i < position.count; i++) {
+      const value = color.getY(i);
+      if (normal.getY(i) > 0.5) top = Math.max(top, value);
+      else if (normal.getY(i) < -0.5) bottom = Math.max(bottom, value);
+      else if (position.getY(i) < 0) sideLow = Math.max(sideLow, value);
+      else sideHigh = Math.max(sideHigh, value);
+    }
+    expect(top).toBeGreaterThan(sideHigh);
+    expect(sideHigh).toBeGreaterThan(sideLow);
+    expect(sideLow).toBeGreaterThan(bottom);
   });
 });

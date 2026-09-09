@@ -38,12 +38,16 @@ import { getTexture } from '../render/textures.js';
 import { createLandmarkGeometry, isPlaceable } from '../render/landmarks.js';
 import { createCurioGeometry, curioMaterial } from '../render/curios.js';
 import {
+  createGroundCoverGeometry,
+  createLitterGeometry,
   createLogGeometry,
   createRockGeometry,
   createTerrainGeometry,
   createTreeGeometrySet,
   createUnderstoreyGeometry,
+  drawnTerrainHeight,
   understoreyFamily,
+  type TerrainGrid,
 } from '../render/geometry.js';
 
 export interface CampsiteProps {
@@ -146,6 +150,9 @@ const MOON_FLOOR = 12;
 
 /** Scratch, so easing the sky every frame allocates nothing. */
 const TMP_COLOR = new THREE.Color();
+/** A second one: the hour now moves four albedos, not one. */
+const TMP_COLOR_B = new THREE.Color();
+const WHITE = new THREE.Color(0xffffff);
 
 const DEFAULT_PALETTE = {
   ground: '#4a4438',
@@ -374,12 +381,37 @@ export function Campsite({
    * quadratic and a 70 m basin at the fine spacing is 26,000 triangles on its
    * own.
    */
-  const terrain = useMemo(() => {
+  const terrainGrid = useMemo((): TerrainGrid => {
     const size = Math.max(46, extent * 2 + 12);
     const metresPerSegment = basin ? 46 / 44 : 46 / 26;
     const segments = Math.min(basin ? 72 : 48, Math.round(size / metresPerSegment));
-    return createTerrainGeometry(size, segments, seed, 0.7, basin);
+    return { size, segments, seed, amplitude: 0.7, ...(basin ? { basin } : {}) };
   }, [seed, basin, extent]);
+
+  const terrain = useMemo(
+    () =>
+      createTerrainGeometry(
+        terrainGrid.size,
+        terrainGrid.segments,
+        terrainGrid.seed,
+        terrainGrid.amplitude,
+        terrainGrid.basin,
+      ),
+    [terrainGrid],
+  );
+
+  /**
+   * The surface anything laid on the ground has to sit on.
+   *
+   * Not `terrainHeight`. The mesh is flat triangles through samples of that
+   * function and departs from it by up to six centimetres between vertices —
+   * enough to swallow a mat lifted a centimetre and a half, in patches, which
+   * reads as holes in the clearing floor. See `drawnTerrainHeight`.
+   */
+  const groundAt = useMemo(
+    () => (x: number, z: number) => drawnTerrainHeight(x, z, terrainGrid),
+    [terrainGrid],
+  );
 
   /*
    * The forest floor's texture, at a size where it is a texture.
@@ -442,11 +474,182 @@ export function Campsite({
    * already looked right, because what is wrong is the albedo. So the palette
    * moves with the hour instead, which is how the hardware this is pretending
    * to be did day and night anyway.
+   *
+   * **Lifted toward daylight, not toward white.** The first version of this
+   * lerped the manifest's ground colour 85 % of the way to `0xffffff`, which
+   * raises the value and destroys the chroma at the same rate: the pine
+   * hollow's `#2b2119` came out at `#9e9a96`, a neutral grey with two units of
+   * colour left in it, and a fourth art review called the whole world
+   * achromatic. It was right, and this was half of why.
+   *
+   * A surface in sunlight does not desaturate. It gets brighter and, if
+   * anything, a little *more* saturated, because more of the light reaching
+   * the eye has bounced off it. So the day tone is the same hue at a much
+   * higher lightness, taken in HSL where those two are separable numbers,
+   * with the saturation held rather than washed out.
    */
   const groundTones = useMemo(() => {
     const night = new THREE.Color(palette.ground);
-    return { night, day: night.clone().lerp(TMP_COLOR.setHex(0xffffff), 0.85) };
+    return { night, day: sunlit(night, 0.55, 1.15) };
   }, [palette.ground]);
+
+  /**
+   * The near ground, in two grains.
+   *
+   * See `createGroundCoverGeometry`. The spoke count is the quality dial:
+   * `drawDistance` arrives already capped by the tier, so a weak device gets a
+   * coarser mat rather than a smaller one — the near ground is the last thing
+   * in this scene that should shrink, since it is what the player is standing
+   * on.
+   */
+  const groundCover = useMemo(
+    () =>
+      createGroundCoverGeometry({
+        seed,
+        spokes: drawDistance < 26 ? 14 : drawDistance < 36 ? 20 : 26,
+        outerRadius: 9.4,
+        height: groundAt,
+      }),
+    [seed, groundAt, drawDistance],
+  );
+  useEffect(
+    () => () => {
+      groundCover.worn.dispose();
+      groundCover.duff.dispose();
+    },
+    [groundCover],
+  );
+
+  /**
+   * The two near-ground tiles, at their own scales.
+   *
+   * Eighty-five centimetres for the trodden ring against two metres for the
+   * duff — and the duff's two metres is exactly the terrain's, so the mat has
+   * no outer edge at all. The whole frequency step lives at the worn ring's
+   * boundary, which is the "variation in grain between the trodden ring and
+   * the untrodden ground" that four reviews have asked for, and it cannot come
+   * from a tint.
+   */
+  const coverTextures = useMemo(() => {
+    const make = (key: 'duff' | 'trodden', metres: number): THREE.Texture | null => {
+      const base = getTexture(key, { size: 64, seed });
+      if (!base) return null;
+      const tiled = base.clone();
+      tiled.wrapS = THREE.RepeatWrapping;
+      tiled.wrapT = THREE.RepeatWrapping;
+      // The mat's UVs are already in metres, so the repeat is the tile size.
+      tiled.repeat.set(1 / metres, 1 / metres);
+      tiled.needsUpdate = true;
+      return tiled;
+    };
+    return { duff: make('duff', 2), trodden: make('trodden', 0.85) };
+  }, [seed]);
+  useEffect(
+    () => () => {
+      coverTextures.duff?.dispose();
+      coverTextures.trodden?.dispose();
+    },
+    [coverTextures],
+  );
+
+  const duffMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        map: coverTextures.duff,
+        color: palette.ground,
+        roughness: 1,
+        vertexColors: true,
+      }),
+    [settings, coverTextures.duff, palette.ground],
+  );
+
+  /*
+   * The worn ring wears the campsite's own ground colour, exactly like the
+   * ground around it.
+   *
+   * The lift lives in the tile — `trodden` is normalised to `TRODDEN_LIFT`
+   * times the reference ground mean — rather than in a paler material colour.
+   * The first version did it the other way and put the ring five times the
+   * albedo of the floor it sits in, which under a campfire is not a worn ring,
+   * it is a spotlight; `e2e/night.spec.ts` asserts a band and would have
+   * failed on it. Keeping the colour shared also means a mesa's worn ring is
+   * a mesa's, with no second palette to keep in step.
+   */
+  const wornMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        map: coverTextures.trodden,
+        color: palette.ground,
+        roughness: 1,
+        vertexColors: true,
+      }),
+    [settings, coverTextures.trodden, palette.ground],
+  );
+
+  /**
+   * What is lying on it.
+   *
+   * Two shapes and two draw calls for the whole clearing floor. The counts
+   * follow `drawDistance` for the same reason the mat's spokes do; nothing
+   * here is ever dropped entirely, because a bare plane is the defect and a
+   * sparse one is only a thinner wood.
+   */
+  const litterGeometries = useMemo(
+    () => ({
+      pebble: createLitterGeometry('pebble', seed ^ 0x3f21, 0.085),
+      sprig: createLitterGeometry('sprig', seed ^ 0x7d0b, 0.075),
+    }),
+    [seed],
+  );
+  useEffect(
+    () => () => {
+      litterGeometries.pebble.dispose();
+      litterGeometries.sprig.dispose();
+    },
+    [litterGeometries],
+  );
+
+  const litterFields = useMemo(() => {
+    const rng = mulberry(seed ^ 0x1c4d);
+    const tier = drawDistance < 26 ? 0.55 : drawDistance < 36 ? 1 : 1.4;
+    const pebbles: ScatterItem[] = [];
+    const sprigs: ScatterItem[] = [];
+    const wanted = Math.round(190 * tier);
+    for (let i = 0; i < wanted; i++) {
+      const angle = rng() * Math.PI * 2;
+      /*
+       * A little steeper than the square root an even spread over a disc would
+       * want. Even is right for a wood you walk through and wrong here: what
+       * has to read is the two or three metres between the fire and the log,
+       * which is where the camera spends the whole game.
+       */
+      const distance = 0.95 + Math.pow(rng(), 0.62) * 7.4;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const y = groundAt(x, z);
+      if (basin && y < WATERLINE) continue;
+      const item: ScatterItem = {
+        x,
+        // On the mat, which is itself a centimetre and a half over the ground.
+        y: y + 0.022,
+        z,
+        rotationY: rng() * Math.PI * 2,
+        scale: 0.6 + rng() * 1.1,
+      };
+      /*
+       * Sticks and needles are what a *swept* ring has least of, and stones
+       * are what it has most: sweeping a fire ring moves the litter out and
+       * leaves the grit behind. So the mix flips across the boundary, which is
+       * the second thing after the tile change that says the ring is worn.
+       */
+      const stony = distance < 3.2 ? 0.68 : 0.26;
+      if (rng() < stony) pebbles.push(item);
+      else sprigs.push(item);
+    }
+    return { pebbles, sprigs };
+  }, [seed, basin, groundAt, drawDistance]);
 
   const treeMaterial = useMemo(
     () =>
@@ -466,6 +669,42 @@ export function Campsite({
   );
 
   /**
+   * The wood's three colours: night, day, and the hour in between.
+   *
+   * The ground has moved with the sun since the daylight ramp was written and
+   * the canopy never has. So at noon the trees kept an albedo authored to be
+   * lit by a campfire — `#1e2a20` at the pine hollow, a green with sixteen
+   * units of chroma in it — under nine and a half units of sun and two and a
+   * half of blue-grey ambient. The result is what a fourth art review called
+   * it: grey cones. Nothing was broken; the trees were simply the only large
+   * surface in the scene still painted for midnight at noon.
+   *
+   * Two axes move, not one:
+   *
+   *   - **Value**, so a conifer in full sun is not a hole. Less than the
+   *     ground gets, because a canopy really is darker than the floor it
+   *     shades and because the treeline has to stay darker than the sky behind
+   *     it — that is the aerial-perspective law, and lifting the trees past
+   *     the horizon would invert it again.
+   *   - **Hue**, which is what "the forest is achromatic" is actually about.
+   *     Conifers go blue-green under a high sun and olive under a low one,
+   *     because the light itself does. So the day tone is nudged cool and the
+   *     golden-hour tone warm, and the frame loop crossfades between them on
+   *     the sun's own colour temperature rather than on the clock.
+   */
+  const foliageTones = useMemo(() => {
+    const night = new THREE.Color(palette.foliage);
+    const day = sunlit(night, 0.31, 1.3);
+    return {
+      night,
+      // High sun: the sky is the fill and the sky is blue.
+      day: day.clone().lerp(new THREE.Color(0x4e7a68), 0.4),
+      // Low sun: the same canopy under a warm key goes olive.
+      golden: sunlit(night, 0.29, 1.4).lerp(new THREE.Color(0x7a7440), 0.3),
+    };
+  }, [palette.foliage]);
+
+  /**
    * The understorey's own material, double-sided and a touch lighter.
    *
    * Fronds, grass blades and hanging moss are built from planes, and a plane
@@ -481,16 +720,23 @@ export function Campsite({
    * best-looking thing in the environment. It cannot be, if the fronds cannot
    * take a highlight.
    */
+  const understoreyTones = useMemo(
+    () => ({
+      night: new THREE.Color(palette.foliage).lerp(new THREE.Color(0x8fa86a), 0.34),
+    }),
+    [palette.foliage],
+  );
+
   const understoreyMaterial = useMemo(
     () =>
       createPs1Material({
         settings,
         map: getTexture('foliage', { size: 64, seed }),
-        color: new THREE.Color(palette.foliage).lerp(new THREE.Color(0x8fa86a), 0.34).getHex(),
+        color: understoreyTones.night.getHex(),
         roughness: 0.92,
         side: THREE.DoubleSide,
       }),
-    [settings, seed, palette.foliage],
+    [settings, seed, understoreyTones],
   );
 
   /*
@@ -510,8 +756,21 @@ export function Campsite({
     [settings],
   );
 
+  /*
+   * `vertexColors` because `createRockGeometry` has always written a tint and
+   * nothing has ever read it. A boulder shaded only by its own flat normals is
+   * two or three values; with the tint it is two or three values plus the
+   * mottle of a rock, which is what stops fourteen instances of four shapes
+   * reading as fourteen instances of four shapes.
+   */
   const rockMaterial = useMemo(
-    () => createPs1Material({ settings, map: getTexture('stone', { size: 64, seed }), roughness: 1 }),
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('stone', { size: 64, seed }),
+        roughness: 1,
+        vertexColors: true,
+      }),
     [settings, seed],
   );
 
@@ -833,7 +1092,24 @@ export function Campsite({
     }));
   }, [curios, seed, basin]);
 
-  /** Weathered wood and dulled metal. Nothing here is new. */
+  /**
+   * Weathered wood and painted steel. Nothing here is new.
+   *
+   * The metal was `aluminium` — a brushed grain over a flat mid grey — laid
+   * across box faces whose UVs ran 0..1 whatever their size. At twenty metres
+   * that is a uniform rectangle with a marginally lighter top, and an art
+   * review of the dusk frame picked it out of a whole campsite as the one
+   * thing that reads as an untextured primitive. Both halves of that are now
+   * fixed: `createBoxGeometry` lays UVs in metres and bakes a weathering
+   * gradient, and the tile is paint rather than mill finish, so the marks on
+   * it — chips, rust runs, panel shading — are large enough to survive being
+   * two pixels wide.
+   *
+   * `vertexColors` is what makes the gradient reach the screen, and it is also
+   * why every geometry these materials touch has to carry a colour attribute:
+   * `MeshStandardMaterial` has no default for a missing one. The landmark and
+   * curio boxes and rocks all do; the merge fills anything else with white.
+   */
   const landmarkMaterials = useMemo(
     () => ({
       wood: createPs1Material({
@@ -841,18 +1117,31 @@ export function Campsite({
         map: getTexture('bark', { size: 64, seed: 'landmark' }),
         color: 0x6f6152,
         roughness: 1,
+        vertexColors: true,
       }),
       metal: createPs1Material({
         settings,
-        map: getTexture('aluminium', { size: 64, seed: 'landmark' }),
-        color: 0x59635a,
+        map: getTexture('paintedMetal', { size: 64, seed: 'landmark' }),
+        /*
+          * Near-neutral, because the olive is in the paint now.
+          *
+          * `0x59635a` over `aluminium` was a green tint over a pale grey mill
+          * finish, which lands on a flat sage slab brighter than the treeline
+          * behind it at every hour — the exact thing an art review picked out
+          * of the dusk frame. Multiplying a warm grey into a tile that is
+          * already olive-drab paint gives the catalogue's own "olive-drab bear
+          * box" and leaves the value a little under where it was.
+          */
+        color: 0xb0aca0,
         roughness: 0.85,
+        vertexColors: true,
       }),
       stone: createPs1Material({
         settings,
         map: getTexture('stone', { size: 64, seed: 'landmark' }),
         color: 0x6b6862,
         roughness: 1,
+        vertexColors: true,
       }),
     }),
     [settings],
@@ -885,6 +1174,49 @@ export function Campsite({
 
   const litterMaterial = useMemo(
     () => createPs1Material({ settings, map: getTexture('bark', { size: 64, seed }), color: 0xb9a98a, roughness: 1 }),
+    [settings, seed],
+  );
+
+  /**
+   * The stones lying in the dirt.
+   *
+   * Not the boulders' material. `rockMaterial` is white over the `stone` tile,
+   * which is around two hundred times the albedo of the ground it sits on —
+   * right for a granite boulder a metre across catching the moon, and wrong
+   * for a pebble the size of a thumbnail: a hundred and ninety of those at
+   * that albedo is not grit on a forest floor, it is popcorn. Five times the
+   * ground reads as a stone half out of the soil, which is what these are.
+   */
+  const pebbleMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('stone', { size: 64, seed }),
+        color: 0x4a453e,
+        roughness: 1,
+        vertexColors: true,
+      }),
+    [settings, seed],
+  );
+
+  /**
+   * The sticks and needles lying on the clearing floor.
+   *
+   * Its own material rather than the fuel patches' litter heap, because that
+   * one is also worn by a bare `coneGeometry` and this one asks for vertex
+   * colours — a geometry without the attribute under a material that wants it
+   * reads the generic vertex attribute, which is the black-ground trap this
+   * whole pass exists to close.
+   */
+  const sprigMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        map: getTexture('bark', { size: 64, seed }),
+        color: 0x6b5a44,
+        roughness: 1,
+        vertexColors: true,
+      }),
     [settings, seed],
   );
   const logGeometry = useMemo(() => createLogGeometry(1.9, 0.19), []);
@@ -1368,12 +1700,56 @@ export function Campsite({
         1.28 + moonlight.ambient * 1.35 * (1 - look.sunShare) + look.sunShare * 1.1;
       hemisphere.intensity += (target - hemisphere.intensity) * k;
       hemisphere.color.lerp(ease.sky, k);
+      /*
+       * And the *other* half of a hemisphere light, which was a constant.
+       *
+       * `groundColor` is the bounce coming back up off the floor, and a fixed
+       * near-black green means the underside of every canopy in the catalogue
+       * is lit by the same colour at every hour. In daylight a forest floor
+       * throws a genuinely warm light up into the boughs above it, and that
+       * upward warm against the sky's downward cool is most of what stops a
+       * conifer being one flat tone — the effect the tone bands are for, done
+       * by the lighting rather than by the mesh.
+       */
+      hemisphere.groundColor.lerp(
+        TMP_COLOR_B.copy(groundMaterial.color).multiplyScalar(0.55 + look.surfaceLift * 0.5),
+        k,
+      );
     }
 
     // And the ground comes up with the sun.
     groundMaterial.color
       .copy(groundTones.night)
       .lerp(groundTones.day, look.surfaceLift);
+    wornMaterial.color.copy(groundTones.night).lerp(groundTones.day, look.surfaceLift);
+    duffMaterial.color.copy(groundTones.night).lerp(groundTones.day, look.surfaceLift);
+
+    /*
+     * And so does the wood, which never has.
+     *
+     * `surfaceLift` peaks at 0.64 rather than at 1, so it is renormalised here
+     * — the canopy has its own two day tones and wants the whole of the ramp
+     * between them, not two thirds of it.
+     *
+     * `warmth` is read off the key light's own colour rather than off the
+     * clock: the ramp already decides that the sun is `#ff8a42` on the horizon
+     * and `#fff6ea` overhead, and taking red-minus-blue from that is one
+     * number that cannot drift out of step with the light actually in the
+     * scene. Warm key, olive canopy; cold key, blue-green canopy.
+     */
+    const canopyLift = clamp01(look.surfaceLift / 0.64);
+    const warmth = clamp01(
+      ((((look.sunColor >> 16) & 0xff) - (look.sunColor & 0xff)) / 120) * (0.35 + look.sunShare * 0.65),
+    );
+    TMP_COLOR.copy(foliageTones.golden).lerp(foliageTones.day, 1 - warmth);
+    treeMaterial.color.copy(foliageTones.night).lerp(TMP_COLOR, canopyLift);
+    // The understorey rides the same ramp from its own, lighter, night colour:
+    // it is a metre from the player's knee and cannot go where the treeline
+    // goes without turning into a black cut-out at the one distance it is
+    // meant to catch firelight.
+    understoreyMaterial.color
+      .copy(understoreyTones.night)
+      .lerp(TMP_COLOR_B.copy(TMP_COLOR).lerp(WHITE, 0.16), canopyLift);
     /*
      * Snow on the ground, which is where snow mostly is.
      *
@@ -1540,6 +1916,41 @@ export function Campsite({
 
       {/* Ground */}
       <mesh geometry={terrain} material={groundMaterial} receiveShadow />
+
+      {/*
+        And the ground you are standing on, over the top of it.
+
+        Two draw calls and about four hundred triangles for the eight metres
+        that are half of every frame — see `createGroundCoverGeometry`. Laid a
+        centimetre and a half proud of the terrain, which is under a pixel at
+        the distance the mat ends and is what keeps it winning the depth test
+        against a grid that only agrees with it at its own vertices.
+      */}
+      <mesh geometry={groundCover.duff} material={duffMaterial} receiveShadow />
+      <mesh geometry={groundCover.worn} material={wornMaterial} receiveShadow />
+
+      {/*
+        What is lying on it. Two more calls; nothing here is a mesh per pebble.
+
+        These do not cast: a stone eight centimetres across contributes nothing
+        to a 512-pixel shadow map over a forty-metre camera except a shadow
+        pass over two hundred more instances, which is the same trade the wood
+        already makes.
+      */}
+      <Scatter
+        geometry={litterGeometries.pebble}
+        material={pebbleMaterial}
+        items={litterFields.pebbles}
+        castShadow={false}
+        receiveShadow
+      />
+      <Scatter
+        geometry={litterGeometries.sprig}
+        material={sprigMaterial}
+        items={litterFields.sprigs}
+        castShadow={false}
+        receiveShadow
+      />
 
       {/* Trees — four draw calls for the whole wood, not one per trunk. */}
       {/* The wood receives shadow but does not cast it. See `Scatter`. */}
@@ -1867,6 +2278,23 @@ export function Campsite({
       />
     </group>
   );
+}
+
+/**
+ * The same colour, in sunlight.
+ *
+ * Lightness raised to `lightness`, saturation scaled by `chroma` — done in
+ * HSL, where those are two numbers, rather than by lerping toward white, where
+ * they are one. Every night palette in the catalogue is a dark, low-key colour
+ * chosen to be lit by a fire from two metres; at noon those albedos read as
+ * holes, and the previous fix for that took them to grey. A surface in
+ * daylight is brighter and no less coloured than the same surface at dusk, and
+ * hue is the whole of what distinguishes a pine hollow from a mesa.
+ */
+function sunlit(color: THREE.Color, lightness: number, chroma: number): THREE.Color {
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  return new THREE.Color().setHSL(hsl.h, Math.min(1, hsl.s * chroma), lightness);
 }
 
 /** `'#0b1016'` from a manifest, as the integer the renderer wants. */

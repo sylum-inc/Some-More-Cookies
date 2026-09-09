@@ -18,7 +18,12 @@
  */
 
 import * as THREE from 'three';
-import { createRockGeometry, createLogGeometry, mergeGeometries } from './geometry.js';
+import {
+  createBoxGeometry,
+  createRockGeometry,
+  createLogGeometry,
+  mergeGeometries,
+} from './geometry.js';
 
 /** Mirrors `LandmarkKind` in `@somemore/content`, which this must not import. */
 export type LandmarkShape = 'natural' | 'built' | 'abandoned' | 'signage' | 'water' | 'sky' | 'camp';
@@ -29,8 +34,24 @@ function wobble(seed: number, index: number): number {
   return x - Math.floor(x);
 }
 
-function box(width: number, height: number, depth: number, x = 0, y = 0, z = 0, tilt = 0): THREE.BufferGeometry {
-  const geometry = new THREE.BoxGeometry(width, height, depth);
+/**
+ * One box of a landmark, textured and weathered rather than bare.
+ *
+ * `seed` and `part` only decide the small per-part value nudge; the shape is
+ * exactly what it was, so every landmark stands where it stood.
+ */
+function box(
+  width: number,
+  height: number,
+  depth: number,
+  x = 0,
+  y = 0,
+  z = 0,
+  tilt = 0,
+  seed = 1,
+  part = 0,
+): THREE.BufferGeometry {
+  const geometry = createBoxGeometry(width, height, depth, { seed, index: part, tile: 0.42 });
   if (tilt !== 0) geometry.rotateZ(tilt);
   geometry.translate(x, y + height / 2, z);
   return geometry;
@@ -49,22 +70,22 @@ export function createLandmarkGeometry(kind: LandmarkShape, seed: number): THREE
     case 'signage': {
       // A post with a board on it. The one shape in a wood that is obviously
       // not of the wood.
-      const post = box(0.09, 1.32, 0.09);
-      const board = box(0.34, 0.26, 0.03, 0, 0.92, 0.04);
-      const reflector = box(0.06, 0.1, 0.02, 0.11, 0.74, 0.06);
+      const post = box(0.09, 1.32, 0.09, 0, 0, 0, 0, seed, 0);
+      const board = box(0.34, 0.26, 0.03, 0, 0.92, 0.04, 0, seed, 1);
+      const reflector = box(0.06, 0.1, 0.02, 0.11, 0.74, 0.06, 0, seed, 2);
       return mergeGeometries([post, board, reflector]);
     }
     case 'built': {
       // A container of some kind: a bear box, a hut, a locker. Squat, lidded,
       // and standing on feet so it does not read as a crate half buried.
-      const body = box(0.94, 0.62, 0.58);
-      const lid = box(1.02, 0.07, 0.64, 0, 0.62, 0);
-      const latch = box(0.08, 0.14, 0.05, 0.4, 0.36, 0.3);
+      const body = box(0.94, 0.62, 0.58, 0, 0, 0, 0, seed, 0);
+      const lid = box(1.02, 0.07, 0.64, 0, 0.62, 0, 0, seed, 1);
+      const latch = box(0.08, 0.14, 0.05, 0.4, 0.36, 0.3, 0, seed, 2);
       const feet = [
-        box(0.1, 0.09, 0.1, -0.38, -0.09, -0.2),
-        box(0.1, 0.09, 0.1, 0.38, -0.09, -0.2),
-        box(0.1, 0.09, 0.1, -0.38, -0.09, 0.2),
-        box(0.1, 0.09, 0.1, 0.38, -0.09, 0.2),
+        box(0.1, 0.09, 0.1, -0.38, -0.09, -0.2, 0, seed, 3),
+        box(0.1, 0.09, 0.1, 0.38, -0.09, -0.2, 0, seed, 4),
+        box(0.1, 0.09, 0.1, -0.38, -0.09, 0.2, 0, seed, 5),
+        box(0.1, 0.09, 0.1, 0.38, -0.09, 0.2, 0, seed, 6),
       ];
       return mergeGeometries([body, lid, latch, ...feet]);
     }
@@ -72,10 +93,10 @@ export function createLandmarkGeometry(kind: LandmarkShape, seed: number): THREE
       // The same silhouette with the life gone out of it: leaning, open, and
       // missing a wall. Read from a distance as "somebody was here once".
       const lean = 0.12 + r(1) * 0.16;
-      const back = box(0.86, 0.74, 0.06, 0, 0, -0.3, lean);
-      const left = box(0.06, 0.68, 0.54, -0.42, 0, 0, lean);
-      const floor = box(0.86, 0.05, 0.6, 0, 0, 0);
-      const post = box(0.07, 0.9, 0.07, 0.4, 0, 0.28, -lean * 0.6);
+      const back = box(0.86, 0.74, 0.06, 0, 0, -0.3, lean, seed, 0);
+      const left = box(0.06, 0.68, 0.54, -0.42, 0, 0, lean, seed, 1);
+      const floor = box(0.86, 0.05, 0.6, 0, 0, 0, 0, seed, 2);
+      const post = box(0.07, 0.9, 0.07, 0.4, 0, 0.28, -lean * 0.6, seed, 3);
       return mergeGeometries([back, left, floor, post]);
     }
     case 'natural': {
@@ -107,14 +128,14 @@ export function createLandmarkGeometry(kind: LandmarkShape, seed: number): THREE
     }
     case 'camp': {
       // Something somebody built to put things on: a rack, a bench, a table.
-      const top = box(1.24, 0.07, 0.5, 0, 0.62, 0);
+      const top = box(1.24, 0.07, 0.5, 0, 0.62, 0, 0, seed, 0);
       const legs = [
-        box(0.08, 0.62, 0.08, -0.52, 0, -0.16),
-        box(0.08, 0.62, 0.08, 0.52, 0, -0.16),
-        box(0.08, 0.62, 0.08, -0.52, 0, 0.16),
-        box(0.08, 0.62, 0.08, 0.52, 0, 0.16),
+        box(0.08, 0.62, 0.08, -0.52, 0, -0.16, 0, seed, 1),
+        box(0.08, 0.62, 0.08, 0.52, 0, -0.16, 0, seed, 2),
+        box(0.08, 0.62, 0.08, -0.52, 0, 0.16, 0, seed, 3),
+        box(0.08, 0.62, 0.08, 0.52, 0, 0.16, 0, seed, 4),
       ];
-      const rail = box(1.1, 0.05, 0.05, 0, 0.3, -0.2);
+      const rail = box(1.1, 0.05, 0.05, 0, 0.3, -0.2, 0, seed, 5);
       return mergeGeometries([top, rail, ...legs]);
     }
     case 'sky':

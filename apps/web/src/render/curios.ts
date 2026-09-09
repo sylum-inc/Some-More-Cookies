@@ -20,7 +20,7 @@
  */
 
 import * as THREE from 'three';
-import { createRockGeometry, mergeGeometries } from './geometry.js';
+import { createBoxGeometry, createRockGeometry, mergeGeometries } from './geometry.js';
 
 /** Mirrors `CurioShape` in `@somemore/sim`, which this must not import. */
 export type CurioShape = 'tin' | 'board' | 'stake' | 'slab';
@@ -31,8 +31,28 @@ function wobble(seed: number, index: number): number {
   return x - Math.floor(x);
 }
 
-function box(width: number, height: number, depth: number, x = 0, y = 0, z = 0, tilt = 0): THREE.BufferGeometry {
-  const geometry = new THREE.BoxGeometry(width, height, depth);
+/**
+ * The same textured, weathered box the landmarks are built from.
+ *
+ * A curio is looked at from a kneel with a torch on it, which is the one
+ * viewing distance at which a 0..1 UV across a fifteen-centimetre face is
+ * *most* obviously a wash rather than a surface. It also matters that these
+ * carry a colour attribute at all: they wear the landmarks' materials, and
+ * those now ask for vertex colours — a part without one reads the generic
+ * vertex attribute, which is black.
+ */
+function box(
+  width: number,
+  height: number,
+  depth: number,
+  x = 0,
+  y = 0,
+  z = 0,
+  tilt = 0,
+  seed = 1,
+  part = 0,
+): THREE.BufferGeometry {
+  const geometry = createBoxGeometry(width, height, depth, { seed, index: part, tile: 0.22 });
   if (tilt !== 0) geometry.rotateZ(tilt);
   geometry.translate(x, y + height / 2, z);
   return geometry;
@@ -82,20 +102,20 @@ export function createCurioGeometry(shape: CurioShape, seed: number): THREE.Buff
        */
       const tilt = (r(1) - 0.5) * 0.12;
       return mergeGeometries([
-        box(0.62, 0.035, 0.24, 0, 0.17, 0, tilt),
-        box(0.09, 0.18, 0.16, -0.22, 0, 0.02),
-        box(0.09, 0.18, 0.16, 0.22, 0, -0.02),
+        box(0.62, 0.035, 0.24, 0, 0.17, 0, tilt, seed, 0),
+        box(0.09, 0.18, 0.16, -0.22, 0, 0.02, 0, seed, 1),
+        box(0.09, 0.18, 0.16, 0.22, 0, -0.02, 0, seed, 2),
         // Something small left on it, which is the reason to look.
-        box(0.13, 0.03, 0.1, r(2) * 0.16 - 0.08, 0.2, r(3) * 0.08 - 0.04, tilt),
+        box(0.13, 0.03, 0.1, r(2) * 0.16 - 0.08, 0.2, r(3) * 0.08 - 0.04, tilt, seed, 3),
       ]);
     }
     case 'stake': {
       // A survey stake, driven and then leaned on by thirty winters.
       const lean = 0.12 + r(1) * 0.22;
       return mergeGeometries([
-        box(0.05, 0.52, 0.05, 0, 0, 0, lean),
+        box(0.05, 0.52, 0.05, 0, 0, 0, lean, seed, 0),
         // The tag, which is the part with the number that does not follow.
-        box(0.11, 0.08, 0.012, Math.sin(lean) * -0.34, 0.36, 0.03, lean),
+        box(0.11, 0.08, 0.012, Math.sin(lean) * -0.34, 0.36, 0.03, lean, seed, 1),
       ]);
     }
     case 'slab':
@@ -107,7 +127,10 @@ export function createCurioGeometry(shape: CurioShape, seed: number): THREE.Buff
       const stone = createRockGeometry(seed + 7, 0.3);
       stone.scale(1.25, 0.28, 1.1);
       stone.translate(0, 0.05, 0);
-      return mergeGeometries([stone, box(0.14, 0.014, 0.14, r(1) * 0.1 - 0.05, 0.09, r(2) * 0.1 - 0.05)]);
+      return mergeGeometries([
+        stone,
+        box(0.14, 0.014, 0.14, r(1) * 0.1 - 0.05, 0.09, r(2) * 0.1 - 0.05, 0, seed, 0),
+      ]);
     }
   }
 }

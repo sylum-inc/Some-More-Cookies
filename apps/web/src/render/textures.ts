@@ -21,6 +21,9 @@ export type TextureKey =
   | 'charCracks'
   | 'foliage'
   | 'dirt'
+  | 'duff'
+  | 'trodden'
+  | 'paintedMetal'
   | 'gravel'
   | 'grass'
   | 'water'
@@ -99,6 +102,126 @@ function blotches(
     ctx.arc(rng.range(0, size), rng.range(0, size), r, 0, Math.PI * 2);
     ctx.fill();
   }
+}
+
+/**
+ * Short strokes at random angles, wrapped around the tile.
+ *
+ * The workhorse for anything made of *fibres* — needle litter, a bough of
+ * foliage, a scuff. Speckle cannot do this job: a one-pixel dot has no
+ * orientation and no extent, so a field of them averages to a flat tone the
+ * moment the surface is more than a few pixels from the camera, which is
+ * exactly what "a smooth radial gradient of brown" was. A stroke four to eight
+ * texels long survives the downsample to 426x240 as a mark rather than as
+ * noise, and that is the difference between a texture and a tint.
+ *
+ * Drawn nine times at tile offsets so a stroke that runs off one edge comes
+ * back on the other; without that every tile has a clean border and the
+ * repeat reads as a grid.
+ */
+function strokes(
+  ctx: Ctx2D,
+  size: number,
+  rng: Rng,
+  colors: readonly string[],
+  count: number,
+  minLength: number,
+  maxLength: number,
+  width = 1,
+): void {
+  ctx.lineWidth = width;
+  for (let i = 0; i < count; i++) {
+    const x = rng.range(0, size);
+    const y = rng.range(0, size);
+    const angle = rng.range(0, Math.PI * 2);
+    const length = rng.range(minLength, maxLength);
+    const dx = Math.cos(angle) * length;
+    const dy = Math.sin(angle) * length;
+    ctx.strokeStyle = colors[rng.int(0, colors.length - 1)] ?? '#000';
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        // Only the wraps that can actually reach the tile are worth drawing.
+        if (ox !== 0 && Math.min(x, size - x) > maxLength) continue;
+        if (oy !== 0 && Math.min(y, size - y) > maxLength) continue;
+        ctx.beginPath();
+        ctx.moveTo(x + ox * size, y + oy * size);
+        ctx.lineTo(x + dx + ox * size, y + dy + oy * size);
+        ctx.stroke();
+      }
+    }
+  }
+  ctx.lineWidth = 1;
+}
+
+/**
+ * The forest floor's reference brightness: the mean of the `dirt` tile the
+ * ground has always worn, in the renderer's linear working space.
+ *
+ * The ground tiles are normalised against this rather than eyeballed, because
+ * a tile's *mean* and a tile's *structure* are two different things and only
+ * one of them is the art direction here. `duff` was drawn with a value range
+ * four times `dirt`'s, which is the whole point — but it also came out half a
+ * stop brighter overall, and multiplied by the manifest's ground colour that
+ * is a 50 % lift on the largest surface in the game at every hour, including
+ * the night the whole product is set in. `e2e/night.spec.ts` asserts a *band*,
+ * not a floor; brightening the ground is as much a failure as darkening it.
+ *
+ * So the tiles carry the grain and the material colours carry the level,
+ * exactly as before, and swapping a tile cannot quietly relight the campsite.
+ */
+export const GROUND_TILE_MEAN = 0.0343;
+
+/**
+ * How much lighter bare trodden soil is than needle litter.
+ *
+ * Small on purpose: the difference between a worn ring and the duff around it
+ * is mostly *grain* — no needles left in it, the stones pressed up out of it —
+ * and only a little value. A ring that is twice the brightness of its
+ * surroundings reads as a light shining on the ground, which is the failure
+ * this replaced.
+ */
+export const TRODDEN_LIFT = 1.7;
+
+/** Rec.709 luma of an sRGB byte triple, in linear light. */
+function linearLuma(r: number, g: number, b: number): number {
+  const decode = (c: number): number => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * decode(r) + 0.7152 * decode(g) + 0.0722 * decode(b);
+}
+
+/**
+ * Scales a finished tile so its mean linear luminance is exactly `target`.
+ *
+ * Done in linear light and applied to the linear values, so it changes the
+ * level and nothing else: hue, the ratio between the light and dark parts, and
+ * the size of the marks all survive. Computed from the tile rather than
+ * written down, so the tile can be redrawn without the balance drifting.
+ */
+function normaliseLinearMean(ctx: Ctx2D, size: number, target: number): void {
+  const image = ctx.getImageData(0, 0, size, size);
+  const data = image.data;
+  let sum = 0;
+  for (let i = 0; i < size * size; i++) {
+    sum += linearLuma(data[i * 4] as number, data[i * 4 + 1] as number, data[i * 4 + 2] as number);
+  }
+  const mean = sum / (size * size);
+  if (mean <= 0) return;
+  const scale = target / mean;
+  const encode = (c: number): number => {
+    const v = c / 255;
+    const linear = (v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)) * scale;
+    const clamped = Math.min(1, Math.max(0, linear));
+    const out = clamped <= 0.0031308 ? clamped * 12.92 : 1.055 * Math.pow(clamped, 1 / 2.4) - 0.055;
+    return Math.round(out * 255);
+  };
+  for (let i = 0; i < size * size; i++) {
+    data[i * 4] = encode(data[i * 4] as number);
+    data[i * 4 + 1] = encode(data[i * 4 + 1] as number);
+    data[i * 4 + 2] = encode(data[i * 4 + 2] as number);
+  }
+  ctx.putImageData(image, 0, 0);
 }
 
 // --- Generators ------------------------------------------------------------
@@ -216,15 +339,147 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
     }
   },
 
+  /**
+   * A bough of conifer, not a field of green noise.
+   *
+   * The old tile was a 0.6-density one-pixel speckle over four close greens
+   * with a dozen low-contrast blotches. Every one of those decisions works
+   * against the only thing this texture has to do, which is survive being
+   * minified onto a tree thirty pixels tall: uncorrelated one-pixel noise
+   * averages to its own mean under any downsample, and four colours within
+   * 12/255 of each other have no mean worth seeing. Graded, correctly, as "the
+   * trees are untextured silhouettes".
+   *
+   * So the structure is at the scale a bough actually is. Dark gaps between
+   * the whorls, lit clumps on top of them, and needles as strokes rather than
+   * as dots — with a value range from #0f2015 to #74a05e, which is four times
+   * the spread the old tile had and is what puts a second value inside the
+   * mass of a tree.
+   */
   foliage: (ctx, size, rng) => {
-    fill(ctx, size, '#1f3a24');
-    speckle(ctx, size, rng, ['#27492c', '#16301c', '#2f5733', '#122616'], 0.6);
-    blotches(ctx, size, rng, ['#1a3320', '#2b5030'], 12, size / 16, size / 7);
+    fill(ctx, size, '#233d27');
+    // The holes: a conifer is mostly the shadow between its boughs.
+    blotches(ctx, size, rng, ['#0f2015', '#14261a', '#122616'], 15, size / 13, size / 5);
+    // And the boughs that catch the light on top of them.
+    blotches(ctx, size, rng, ['#39632f', '#2f5733', '#44743a'], 13, size / 15, size / 7);
+    // Needles. Angled, so the tile has a direction and reads as growth.
+    strokes(ctx, size, rng, ['#2b5030', '#17301c', '#4d8244'], size * 1.4, size / 22, size / 9);
+    // Sparse: a bright single pixel is a highlight at one density and a
+    // firefly at three times it.
+    speckle(ctx, size, rng, ['#5e8a4d', '#1a3320'], 0.05);
   },
 
   dirt: (ctx, size, rng) => {
     fill(ctx, size, '#3c3026');
     speckle(ctx, size, rng, ['#332920', '#48392c', '#2b221a', '#54432f'], 0.7);
+  },
+
+  /**
+   * The forest floor away from the fire: needle litter over dark soil.
+   *
+   * `dirt` is a fine four-colour speckle, which is right for the sides of a
+   * pit and wrong for the largest surface in the game. Half of every frame is
+   * ground; at a metre and a half a texel is a tenth of a pixel and the whole
+   * field collapses to its average. What has to be there instead is *litter* —
+   * fallen needles, cone scales, patches where the duff has worn through to
+   * soil — at a scale of four to ten texels, which is a few pixels on screen
+   * even from standing height.
+   */
+  duff: (ctx, size, rng) => {
+    fill(ctx, size, '#423225');
+    // Broad patches: where the litter is deep, and where it has worn thin.
+    blotches(ctx, size, rng, ['#332619', '#2b2016'], 7, size / 9, size / 4.2);
+    blotches(ctx, size, rng, ['#4a382a', '#54402e'], 6, size / 10, size / 4.5);
+    // Fallen needles, in three ages: fresh rust, weathered brown, black.
+    strokes(ctx, size, rng, ['#6b4d2f', '#5a4128', '#2c1f14'], size * 2, size / 16, size / 7);
+    strokes(ctx, size, rng, ['#7d5c39'], size * 0.5, size / 20, size / 10);
+    // Grit and cone scales, the small pale things that catch a low sun.
+    speckle(ctx, size, rng, ['#8a7a61', '#9b8a6c'], 0.035);
+    speckle(ctx, size, rng, ['#1d150e'], 0.05);
+    // Same level as the tile it replaces; four times the value range.
+    normaliseLinearMean(ctx, size, GROUND_TILE_MEAN);
+  },
+
+  /**
+   * Where people have stood: compacted bare soil, paler and greyer.
+   *
+   * "Worn to bare soil in a ring around the fire" has been in this campsite's
+   * own prose for four rounds and has never been on the screen. It cannot be
+   * done with a tint alone — a ring of the same texture at a different
+   * brightness reads as a light, not as a surface — so the trodden ground gets
+   * its own tile with its own grain: no needles left in it, the small stones
+   * pressed up out of it, and the scuff of feet across it.
+   */
+  trodden: (ctx, size, rng) => {
+    /*
+     * Only about a third brighter than `duff` on average, not twice.
+     *
+     * The first version put a #66 base against duff's #3a, and with the
+     * material colours on top of that the ring came out as a pale disc with a
+     * dark moat round it — a decal, which is the one thing a worn ring must
+     * not be. Bare soil next to needle litter is a small step in value and a
+     * large step in *grain*, and it is the grain that has to do the work.
+     */
+    fill(ctx, size, '#4e4132');
+    blotches(ctx, size, rng, ['#584a39', '#443729', '#5f5040'], 12, size / 9, size / 3.6);
+    // Stones pressed up out of the soil, each with a shadow on one side.
+    for (let i = 0; i < size / 3.4; i++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(1, Math.max(2, size / 22));
+      ctx.fillStyle = '#3a3128';
+      ctx.beginPath();
+      ctx.arc(x + r * 0.35, y + r * 0.35, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = rng.chance(0.5) ? '#7d7160' : '#6d6455';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Scuffs, and the ash that always ends up outside a fire ring.
+    strokes(ctx, size, rng, ['#463a2e', '#63553f'], size * 0.7, size / 12, size / 5);
+    speckle(ctx, size, rng, ['#8d8271', '#332c25'], 0.045);
+    normaliseLinearMean(ctx, size, GROUND_TILE_MEAN * TRODDEN_LIFT);
+  },
+
+  /**
+   * Painted steel that has been outdoors for thirty years.
+   *
+   * The landmarks wore `aluminium`, which is a brushed grain over a flat mid
+   * grey — at twenty metres that is a uniform rectangle, and an art review
+   * picked out exactly one object in the frame as "an untextured box". Paint
+   * is the difference: it chips, and where it chips it rusts, and it streaks
+   * down from the chip. Those are large marks, which is why they survive being
+   * two pixels wide.
+   */
+  paintedMetal: (ctx, size, rng) => {
+    fill(ctx, size, '#4d5347');
+    // Panel shading, so a face is not one value across its width.
+    for (let y = 0; y < size; y++) {
+      const shade = Math.sin((y / size) * Math.PI * 2) * 5 + rng.range(-3, 3);
+      ctx.fillStyle = `rgba(${shade > 0 ? 255 : 0},${shade > 0 ? 255 : 0},${shade > 0 ? 240 : 0},${(Math.abs(shade) / 90).toFixed(3)})`;
+      ctx.fillRect(0, y, size, 1);
+    }
+    // Chips down to bare metal, and the rust that follows them.
+    for (let i = 0; i < size / 3; i++) {
+      const x = rng.range(0, size);
+      const y = rng.range(0, size);
+      const r = rng.range(0.8, Math.max(1.6, size / 26));
+      ctx.fillStyle = rng.chance(0.45) ? '#6f6a5f' : '#5a3a24';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      if (rng.chance(0.5)) {
+        ctx.strokeStyle = 'rgba(96,58,32,0.5)';
+        ctx.lineWidth = Math.max(1, r * 0.7);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + rng.range(-1, 1), y + rng.range(2, size / 5));
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+    speckle(ctx, size, rng, ['#565d50', '#43483e', '#63594a'], 0.14);
   },
 
   gravel: (ctx, size, rng) => {

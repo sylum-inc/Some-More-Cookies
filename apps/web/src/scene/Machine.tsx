@@ -324,10 +324,25 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
   const grilleSlats = useMemo(() => buildGrilleSlats(), []);
   const doorLeaf = useMemo(() => buildSlabFrame(DOOR, WINDOW), []);
   const doorGasket = useMemo(() => buildSlabFrame(GASKET, WINDOW), []);
-  /** One material for the seven slats, which used to carry seven identical ones. */
+  /**
+   * One material for the seven slats, which used to carry seven identical ones.
+   *
+   * And a bare `MeshStandardMaterial` with no map, which is the last one in the
+   * world scene: every other surface on this cabinet goes through
+   * `createPs1Material` and wears a tile, so the grille was the one part of the
+   * SM-01 that had no affine swim, no jitter-consistent shading and no grain —
+   * a flat dark rectangle in the middle of a textured machine.
+   */
   const grillePlastic = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: 0x2c2e31, roughness: 0.9 }),
-    [],
+    () =>
+      createPs1Material({
+        tier: 'ps1Plus',
+        settings,
+        map: getTexture('smokedPlastic', { size: 64 }),
+        color: 0x6e737a,
+        roughness: 0.9,
+      }),
+    [settings],
   );
   useEffect(() => {
     const owned = [enamelShell, aluminiumTrim, rubberTrim, grilleSlats, doorLeaf, doorGasket];

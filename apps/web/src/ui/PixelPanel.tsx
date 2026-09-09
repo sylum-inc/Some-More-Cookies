@@ -635,9 +635,51 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
   /* The document                                                           */
   /* ---------------------------------------------------------------------- */
 
+  /*
+   * Whether a pointer is currently pressed on this panel.
+   *
+   * `reveal` runs on focus, and a click focuses before it completes. So a
+   * control sitting partly below the cut was scrolled out from under the
+   * finger that was pressing it, between `pointerdown` and `pointerup` — the
+   * browser then had no single element under both, dispatched no `click`, and
+   * the control did not change. `access.spec.ts` caught it as "clicking the
+   * checkbox did not change its state", and it is a real defect and not a test
+   * artefact: on a phone the setting you tap slides away and nothing happens.
+   *
+   * A control that was clicked was, by definition, visible enough to click.
+   * So the reveal is for keyboard focus, which is the case it was written for
+   * — a control below the cut is drawn nowhere, and a focus ring around
+   * nothing is no use to somebody moving through the page by tab.
+   */
+  const pointerHeld = useRef(false);
+  const holdPointer = (): void => {
+    pointerHeld.current = true;
+  };
+  const releasePointer = (): void => {
+    pointerHeld.current = false;
+  };
+  /*
+   * Released on the window, not on the panel.
+   *
+   * A press that starts on a control and ends outside it — a drag off a
+   * checkbox, a scroll flick that leaves the dialog — never delivers its
+   * `pointerup` to this subtree, and the flag would stay set. That would
+   * silently disable the keyboard reveal until the next press, which is the
+   * kind of latch that is invisible until somebody is tabbing through a
+   * settings page and cannot see where they are.
+   */
+  useEffect(() => {
+    window.addEventListener('pointerup', releasePointer);
+    window.addEventListener('pointercancel', releasePointer);
+    return () => {
+      window.removeEventListener('pointerup', releasePointer);
+      window.removeEventListener('pointercancel', releasePointer);
+    };
+  }, []);
+
   const focus = (id: string) => () => {
     setFocusedId(id);
-    reveal(id);
+    if (!pointerHeld.current) reveal(id);
   };
   const blur = (): void => setFocusedId(null);
   const stop = (event: React.MouseEvent): void => event.stopPropagation();
@@ -649,6 +691,9 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
       // Clicking the scrim is clicking away from the page, which is what the
       // CSS overlay did and what a player who opened this by accident expects.
       onClick={props.onClose}
+      onPointerDownCapture={holdPointer}
+      onPointerUpCapture={releasePointer}
+      onPointerCancelCapture={releasePointer}
       style={{ position: 'fixed', inset: 0, zIndex: 40, overflow: 'hidden' }}
       {...dialog.props}
     >

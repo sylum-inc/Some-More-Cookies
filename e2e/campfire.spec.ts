@@ -269,7 +269,19 @@ async function walkIn(browser: Browser, player: Player, sessionId: string): Prom
   const failures: string[] = [];
   pageFailures.set(page, failures);
   page.on('pageerror', (error) => failures.push(error.message));
-  const url = `${WEB_ORIGIN}/?fire=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(player.token)}&ws=${encodeURIComponent(WS_URL)}`;
+  /*
+   * Pinned to `mid`, because the budget this file checks is a mid-tier budget.
+   *
+   * ARCHITECTURE §10 says "<= 120 draw calls on the mid tier" and always has.
+   * The tier here was whatever `probeQualityTier` returned at startup, and
+   * `AdaptiveQuality` then promotes as readily as it demotes — so a run that
+   * rendered cheaply for a few seconds was measured on `high`, which carries
+   * the campfire's cube shadow and a draw distance of 42 metres instead of 30,
+   * and was then held to the mid tier's ceiling. The same mistake was found in
+   * `perf.spec.ts` and fixed the same way: a budget that names a tier has to
+   * be measured on that tier.
+   */
+  const url = `${WEB_ORIGIN}/?fire=${encodeURIComponent(sessionId)}&token=${encodeURIComponent(player.token)}&ws=${encodeURIComponent(WS_URL)}&quality=mid`;
   await page.goto(url);
   /*
    * In front *before* it is asked to reach the fire, not after.

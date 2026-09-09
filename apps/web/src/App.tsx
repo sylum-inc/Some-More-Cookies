@@ -394,13 +394,33 @@ export function App({ store }: AppProps): React.ReactElement {
   const keyringRef = useRef<CodeKeyring>(new CodeKeyring([...keysFromBuild(import.meta.env), ...readCachedKeys()]));
   const scanRef = useRef<ScanFlow | null>(null);
 
-  const [quality, setQuality] = useState<QualityTier>(() =>
-    probeQualityTier({
+  /*
+   * The quality tier, with a harness-only way to pin it.
+   *
+   * `probeQualityTier` reads the device's cores and memory, which is right for
+   * a player and useless for a budget check: this runner has four cores, so it
+   * always returns `mid`, and the `high` tier — which is where the fire's cube
+   * shadow lives — could not be measured on it at all. A cost that cannot be
+   * measured is a cost that will not be noticed getting worse.
+   *
+   * Honoured only in a harness build, the same rule the `token` and `ws`
+   * parameters follow above and for a related reason: a player who lands on a
+   * link with `?quality=high` in it should get the tier their device can
+   * actually carry, not the tier the link asked for.
+   */
+  const pinnedQuality = useMemo<QualityTier | null>(() => {
+    if (import.meta.env['VITE_E2E'] !== '1') return null;
+    const asked = new URLSearchParams(location.search).get('quality');
+    return asked === 'low' || asked === 'mid' || asked === 'high' ? asked : null;
+  }, []);
+  const [quality, setQuality] = useState<QualityTier>(() => {
+    if (pinnedQuality !== null) return pinnedQuality;
+    return probeQualityTier({
       deviceMemoryGb: (navigator as { deviceMemory?: number }).deviceMemory,
       hardwareConcurrency: navigator.hardwareConcurrency,
       devicePixelRatio: window.devicePixelRatio,
-    }),
-  );
+    });
+  });
   const adaptive = useMemo(() => new AdaptiveQuality(quality), []);
 
   // Publish the player for the inspection harness and the console. The E2E
@@ -2094,9 +2114,20 @@ export function App({ store }: AppProps): React.ReactElement {
       framesDrawn.current += 1;
       if (framesDrawn.current === 2) onDrawn.current?.();
       const next = adaptive.sample(frameMs);
+      /*
+       * A pinned tier stays pinned.
+       *
+       * The rolling frame-time monitor exists to protect a real player from a
+       * tier their device cannot carry, and under a software rasteriser with
+       * no GPU it would do exactly that — drop a harness that asked for `high`
+       * straight back to `mid` within a second or two, which would make the
+       * pin useless for the one thing it is for, measuring what the high tier
+       * costs.
+       */
+      if (pinnedQuality !== null) return;
       if (next !== quality) setQuality(next);
     },
-    [adaptive, quality],
+    [adaptive, quality, pinnedQuality],
   );
 
   // --- Installed, and on a phone ------------------------------------------

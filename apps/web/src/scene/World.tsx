@@ -1558,13 +1558,26 @@ export function World({
          * night, and nothing in the clearing had a shadow) but not a good
          * enough one to spend three times the frame on.
          *
-         * Measured and then turned off entirely: gating it to `high` did not
-         * help, because the tier the budget is measured at is `high`. The
-         * clearing keeps the sun's directional shadow, which is one pass and
-         * is what daylight actually needed; the fire keeps its light and loses
-         * its shadow, which is the trade the budget can afford.
+         * On `high` only, and the tier is the whole point.
+         *
+         * ARCHITECTURE §10 budgets 120 draw calls **on the mid tier**, in as
+         * many words, and `probeQualityTier` picks a tier from the device's
+         * cores and memory. The measurement that got this turned off in the
+         * first place was taken with the trees still casting into the sun's
+         * shadow map, and I wrote at the time that gating to `high` "did not
+         * help, because the tier the budget is measured at is `high`". That
+         * was wrong: this runner has four cores, so the probe returns `mid`,
+         * the gate was working, and the whole of the 238-to-89 improvement
+         * came from the wood no longer casting. Two changes at once and the
+         * credit went to the wrong one.
+         *
+         * So the fire may cast on `high` without touching the budget §10
+         * actually states — high-tier hardware pays for high-tier shadows —
+         * and a campfire being the only light in a clearing at night is worth
+         * paying for there. `mid` and `low` keep the sun's directional shadow,
+         * which is one pass rather than a cube's six.
          */
-        shadows={false}
+        shadows={quality === 'high'}
         onWorkBed={({ x, z, inward }) => {
           if (!atThePit(player)) return;
           /*

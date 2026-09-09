@@ -354,6 +354,40 @@ Density is the other half. Fog starting at 2.5 m washes a clearing you can see
 across; it starts at about a third of the draw distance, which leaves the
 campsite unfogged and a tree at the treeline around forty per cent hazed.
 
+### 4.1f Near-plane geometry has to be looked at through the lens it is seen through
+
+The first-person hand is the only object in this game guaranteed to be within
+half a metre of the camera, and it has now been wrong three times in a row for
+three different reasons — a slab, then a staircase — each time after reasoning
+carefully about metres and centimetres. Every one of those attempts was correct
+about the geometry and wrong about the picture.
+
+Near-plane objects break the intuition that works everywhere else in the scene.
+At a 68° lens a fist at 30 cm subtends a third of the frame; a part 3 cm nearer
+the eye than its neighbour renders visibly *wider* than it, so a chain of parts
+running back toward the lens draws a staircase whatever their real proportions
+are; and a fist seen end-on has no silhouette at all, because the silhouette of
+a hand is the gaps between the fingers and end-on there are none. None of that
+is visible in a number.
+
+So the technique, and it is cheap: **project the buffer geometry through the
+game's own lens offline and look at the PNG.** A hundred lines — transform, a
+pinhole projection at the real field of view, a z-buffer, flat fill from the
+vertex colours, a stand-in box for whatever the hand is holding at the real
+hold point, upscaled ×3 — renders the actual 426×240 frame in under a second,
+with no browser, no build and no Playwright run that a concurrent agent can
+corrupt. It found the defect immediately, and four candidate poses were tried
+and judged by eye in about four minutes.
+
+Two rules came out of it. Bake the presentation pose into the geometry rather
+than applying it at runtime, so the thing under test is the thing that ships.
+And once a pose is baked, **any test that measures the world's axes is
+measuring the rotation, not the model** — the hand's finger-gap test, written
+for exactly the defect that recurred, kept passing afterwards because a rotated
+hand leaves world-aligned buckets empty and empty buckets read as gaps. It now
+projects onto `handAxes()`. A test that passes for the wrong reason is worse
+than one that fails.
+
 ### 4.2 The fidelity bump
 
 Implemented as a **material tier** rather than a separate renderer, so the world stays cohesive:

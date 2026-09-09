@@ -1196,6 +1196,50 @@ in the frame. It is not the 8.5 the brief asked for, and the remaining distance
 is written down rather than rounded off.
 
 
+### Session 18: the fifth grade, and the two things that were never seen
+
+The round that had never been graded came back at **6.2**, and the sub-scores
+said where it lives: the sky and the framing device score around 6.8, the
+ritual close-ups 5.7, and the three overlays 4.0. The overall number moved
+almost nothing across five gradings, which is the honest signal — four rounds
+of work on the sky and the treeline cannot move a score whose weight is in the
+bottom half of the frame and in three screens that look like a different
+product.
+
+Two findings this round were about things nobody had ever actually looked at.
+
+**The high tier had never been measured.** The campfire's cube shadow was put
+back on `high` last session and committed unverified. The tier comes from a
+startup probe reading cores and memory, so on a four-core runner the answer is
+always `mid` and the tier carrying the single most expensive thing in the build
+was invisible to every run. Measured: **76 draw calls on `mid` against 153 on
+`high`** at the same moment at the same fire — a point light's shadow is a cube,
+six faces, so everything that casts is drawn six more times. Taking that
+measurement also caught the §10 test drifting from 85 draw calls to 182 against
+a 120 ceiling, and the regression was not in the scene: `AdaptiveQuality`
+promotes as readily as it demotes, so a run that rendered cheaply for a few
+seconds was being measured on `high` and held to the mid tier's budget. A budget
+that names a tier has to be measured on that tier.
+
+**The hand had never been seen through the game's lens.** The eating shot —
+the emotional climax — was graded "the single most programmer's test scene
+object in all 42 screenshots": a staircase of untextured boxes with no wrist, no
+knuckles and no thumb. Every one of those parts existed. The fingers pointed
+straight away from the eye, and a fist seen end-on has no silhouette, because
+the silhouette of a hand is the gaps between the fingers. Rendering the buffer
+geometry offline through a 68° pinhole — a hundred lines, no browser — showed it
+in one image and let four candidate poses be judged by eye in four minutes.
+Written up as ARCHITECTURE §4.1f, along with the trap that followed: once a pose
+is baked in, a test that measures the world's axes is measuring the rotation and
+not the model, and the hand's own finger-gap test kept passing for exactly that
+wrong reason.
+
+Also this session: the thing in the player's hands got an arm to be on the end
+of. A second, deliberately detuned spring at a quarter of the look lag's
+frequency, so the eyes settle in a tenth of a second and the hand is still
+coming back half a second later.
+
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

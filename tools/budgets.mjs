@@ -31,6 +31,37 @@ export const STATIC_BUDGETS = Object.freeze({
 });
 
 /**
+ * What the `high` tier is allowed to spend, which is not what §10 budgets.
+ *
+ * §10 says "≤ 120 draw calls **on the mid tier**", in as many words, and for a
+ * long time nothing checked which tier was being measured — `probeQualityTier`
+ * reads the device's cores and memory, so the answer was whatever the runner
+ * happened to be. On a four-core box it is always `mid`, which meant the tier
+ * carrying the most expensive thing in the build was never looked at.
+ *
+ * Measured at the fire, same campsite, same stage:
+ *
+ *     mid    77 draw calls   40,708 triangles
+ *     high  159 draw calls   48,608 triangles
+ *
+ * The whole of that gap is the campfire's shadow. A point light's shadow is a
+ * cube — six faces, so everything that casts is drawn six more times — and it
+ * is on deliberately: a campfire is the only light in a clearing at night, and
+ * an art review's judgement was that the log's shadow thrown across the dirt
+ * would do more for this game than anything else available. High-tier hardware
+ * pays for it; mid and low keep the sun's single directional pass.
+ *
+ * The ceiling is set above the measurement rather than at it, so ordinary
+ * variation does not fail the build, and well below twice it, so the cost
+ * cannot quietly double again. It is a recorded price, not a raised budget:
+ * §10's mid-tier number is untouched and still checked.
+ */
+export const HIGH_TIER_BUDGETS = Object.freeze({
+  drawCalls: 200,
+  triangles: 60_000,
+});
+
+/**
  * Where the automated checks actually fail.
  *
  * These are deliberately *tighter* than the budget so a regression is caught

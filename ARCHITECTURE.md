@@ -560,6 +560,27 @@ constraint a product rule rather than a render trick.
 
 Both figures are pinned in `tools/budgets.mjs` so neither can quietly drift.
 
+**The `high` tier has its own recorded price: ≤ 200 draw calls · ≤ 60k
+triangles.** The 120 above is written for `mid` and the wording always said so,
+but for a long time nothing could check any other tier: the tier comes from a
+startup probe that reads cores and memory, so on a four-core CI runner the
+answer is always `mid`, and the tier carrying the single most expensive thing
+in the build — the campfire's cube shadow — was invisible to every run. The
+measurement, once taken, is that a point light's shadow is six faces, so
+everything that casts is drawn six more times: **76 draw calls on `mid` against
+153 on `high` at the same moment at the same fire**. That is the price of the
+shadow, and it is a price worth paying on hardware that can afford it, which is
+why the fire casts on `high` and nowhere else.
+
+Recording it changes two things. `tools/budgets.mjs` gains `HIGH_TIER_BUDGETS`
+so the number cannot drift unwatched, and the mid-tier test now *pins* its tier
+rather than accepting whatever the probe returns. That second one is not
+housekeeping: `AdaptiveQuality` promotes as readily as it demotes, so a run that
+rendered cheaply for a few seconds would be measured on `high`, pick up the cube
+shadow, and report 182 draw calls against the 120 ceiling. The failure was real
+and the measurement was not — it was the wrong tier's number held to the mid
+tier's budget. A budget that names a tier has to be measured on that tier.
+
 **Adaptive quality tiers** (`low`, `mid`, `high`) scale internal resolution, shadow map size, particle counts, patch grid resolution, draw distance, post-processing, and environment density. Tier is chosen by a startup probe and adjusted by a rolling frame-time monitor — never by device string sniffing.
 
 **Rule:** responsiveness during tactile interaction outranks fidelity. Input → visible response must stay under 50 ms even when frames are being dropped.

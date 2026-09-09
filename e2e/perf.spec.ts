@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import {
   KNOWN_DEVIATIONS,
   MEASURABLE_HERE,
+  HIGH_TIER_BUDGETS,
   STATIC_BUDGETS,
   UNMEASURABLE_HERE,
   WARN_AT_FRACTION,
@@ -13,6 +14,7 @@ import {
 import { ENVIRONMENTS } from '@somemore/content';
 import { sampleRenderer, type RenderSample } from './instrument.js';
 import { driveRitual, openWorld, type StageId } from './stages.js';
+import { act, waitForWorld } from './helpers.js';
 
 /**
  * In-browser performance instrumentation — ARCHITECTURE §10 static budgets.
@@ -37,7 +39,21 @@ test.describe('performance budgets', () => {
     page.on('pageerror', (error) => errors.push(error.message));
 
     const samples: RenderSample[] = [];
-    await openWorld(page, 'camp-perf');
+    /*
+     * Pinned to `mid`, because §10's budget is a mid-tier budget.
+     *
+     * The tier used to be whatever `probeQualityTier` decided, which on this
+     * four-core runner is `mid` — but only at startup. `AdaptiveQuality`
+     * watches frame time and *promotes* as readily as it demotes, so a run
+     * that happened to render cheaply for a few seconds would be measured on
+     * `high`, pick up the campfire's cube shadow, and report 182 draw calls
+     * against a 120 budget. The failure was real and the measurement was not:
+     * it was the wrong tier's number held to the mid tier's ceiling.
+     *
+     * The `high` tier is not left unmeasured — see "what the high tier costs"
+     * below, which prices it deliberately.
+     */
+    await openWorld(page, 'camp-perf', 'pine_hollow', 'mid');
 
     await driveRitual(page, async (stage: StageId) => {
       samples.push(await sampleRenderer(page, stage));
@@ -58,7 +74,7 @@ test.describe('performance budgets', () => {
      */
     const probe = await page.context().newPage();
     try {
-      await openWorld(probe, 'camp-perf-peak');
+      await openWorld(probe, 'camp-perf-peak', 'pine_hollow', 'mid');
       await probe.evaluate(() => {
         const actions = window.__someMore!.actions;
         actions['arrive']!();
@@ -280,5 +296,59 @@ test.describe('performance budgets', () => {
     }
 
     expect(errors, `page errors: ${errors.join(' | ')}`).toEqual([]);
+  });
+});
+
+test.describe('what the high tier costs', () => {
+  /*
+   * The tier the budget is *not* written for, measured on purpose.
+   *
+   * Everything above checks §10's "≤ 120 draw calls on the mid tier". Nothing
+   * checked `high`, and nothing could: the tier comes from a probe that reads
+   * cores and memory, so on a four-core runner the answer is always `mid` and
+   * the tier carrying the most expensive thing in the build — the campfire's
+   * cube shadow — was invisible to every run.
+   *
+   * This is a recorded price rather than a raised budget. If the gap between
+   * the tiers grows, that is a decision somebody should make on purpose, and
+   * this is what makes them make it.
+   */
+  test('the campfire shadow is paid for on high and nowhere else', async ({ page }) => {
+    const measured: Record<string, RenderSample> = {};
+    for (const tier of ['mid', 'high'] as const) {
+      await openWorld(page, 'perf-tiers', 'pine_hollow', tier);
+      await act(page, 'arrive');
+      await waitForWorld(page, "r.stage === 'at-fire'", 'at fire', 40_000);
+      // The shadow map is built on the first frames that need it; sampling
+      // before then measures a scene that has not paid for it yet.
+      await page.waitForTimeout(2500);
+      measured[tier] = await sampleRenderer(page, `at-fire-${tier}`);
+    }
+
+    const mid = measured['mid']!;
+    const high = measured['high']!;
+    // eslint-disable-next-line no-console
+    console.log(
+      `  at the fire — mid ${mid.drawCalls} draws / ${mid.triangles} tris · ` +
+        `high ${high.drawCalls} draws / ${high.triangles} tris ` +
+        `(+${high.drawCalls - mid.drawCalls} for the fire's shadow)`,
+    );
+
+    // Mid is what §10 budgets, and it must stay inside it.
+    expect(mid.drawCalls, 'the mid tier is what ARCHITECTURE §10 budgets').toBeLessThan(
+      STATIC_BUDGETS.drawCalls,
+    );
+    // High is allowed to cost more, but not without anybody noticing.
+    expect(
+      high.drawCalls,
+      `the high tier's recorded price is ${HIGH_TIER_BUDGETS.drawCalls} draw calls`,
+    ).toBeLessThan(HIGH_TIER_BUDGETS.drawCalls);
+    expect(high.triangles).toBeLessThan(HIGH_TIER_BUDGETS.triangles);
+    // And the thing being paid for has to actually be there: if high stops
+    // costing more than mid, the shadow has silently switched itself off.
+    expect(
+      high.drawCalls,
+      'high costs no more than mid — the fire has stopped casting',
+    ).toBeGreaterThan(mid.drawCalls);
   });
 });

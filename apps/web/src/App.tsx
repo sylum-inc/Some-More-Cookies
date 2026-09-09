@@ -2709,7 +2709,24 @@ function BiteRing({
    * the default text scale, and it grows with the setting like everything else.
    */
   const target = Math.max(44, 30 * textScale);
-  const radius = Math.max(52, 38 * textScale);
+  /*
+   * Derived from the target, not chosen beside it.
+   *
+   * Eight square targets spaced at 45 degrees are disjoint only when the
+   * radius is at least the target times root two: any tighter and adjacent
+   * squares share pixels. A 44-pixel target on a radius of 52 — which is what
+   * this was — put neighbouring centres 39.8 pixels apart and overlapped them
+   * by 7 by 29, so a thumb landing in a seam got whichever button the DOM
+   * happened to put last. Every device in the mobile sweep failed on it, and
+   * all eight collisions were ring-against-ring.
+   *
+   * The two numbers cannot be picked independently, which is what the old
+   * pair of `Math.max` calls quietly assumed: at the 1.8 text scale they
+   * diverged furthest, needing 76 and giving 68. This is the ring the design
+   * wants — a row read as a progress meter, which is why it became a ring —
+   * and the design survives a bigger one intact.
+   */
+  const radius = Math.ceil(target * Math.SQRT2);
   const box = radius * 2 + target;
   return (
     <div

@@ -1136,18 +1136,36 @@ export function World({
       const forward = Math.cos(player.facing + swing.yaw);
       const forwardZ = Math.sin(player.facing + swing.yaw);
       /*
-       * Further out and lower than the sandwich, not behind it.
+       * Under the s'more, a little nearer the eye, and out to the right.
        *
-       * The first placement put the fist six centimetres *nearer* the eye than
-       * the thing it was holding, which at a 52-degree lens made a nine-
-       * centimetre hand about a third of the frame wide with its forearm
-       * running all the way back to the lens — a featureless slab down the
-       * right-hand side rather than a hand, and the s'more floating beside it
-       * rather than in it. A held object sits ON the fist, so the fist has to
-       * be under it and slightly further away, and the whole assembly has to
-       * be far enough out to read as an object rather than as a wall.
+       * This has now been wrong in both directions. The first placement put
+       * the fist six centimetres *nearer* the eye than the thing it was
+       * holding and made a featureless slab down the side of the frame; the
+       * correction pushed it five centimetres further out than the s'more,
+       * which fixed the slab and produced the defect an art director named
+       * next — "a staircase of untextured boxes", the s'more balanced on a
+       * black column with no wrist, no knuckles and no thumb.
+       *
+       * Neither number was the problem. The hand was pointing its fingers
+       * straight away from the lens, and a fist seen end-on has no silhouette
+       * at all. `render/hand.ts` now bakes a three-quarter turn into the
+       * geometry, and with the parts side-on the assembly wants to sit where a
+       * hand holding something actually sits: slightly nearer than the object,
+       * below it, and off to the strong-hand side, so the forearm leaves
+       * through the corner of the frame instead of running back to the lens.
+       *
+       * The offsets below were chosen by rendering this geometry through the
+       * game's own 68-degree lens offline and looking at the result, rather
+       * than by reasoning about it — which is how both previous attempts went
+       * wrong.
        */
-      hand.position.set(hx + forward * 0.055, hy - 0.088, hz + forwardZ * 0.055);
+      const across = -forwardZ; // the camera's right, at this facing
+      const acrossZ = forward;
+      hand.position.set(
+        hx - forward * 0.02 + across * 0.065,
+        hy - 0.075,
+        hz - forwardZ * 0.02 + acrossZ * 0.065,
+      );
       hand.rotation.y = -(player.facing + swing.yaw) + Math.PI / 2;
       // Tipped with the head, so looking down at what you are holding brings
       // the hand up rather than sliding it off the bottom of the screen — plus

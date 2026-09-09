@@ -37,9 +37,48 @@ export const HAND_REACH = 0.34;
  * is what the hardware being imitated would have had and it is enough — the
  * fourth is the outline the low resolution draws for free.
  */
-const LIT = 1.18;
+const LIT = 1.34;
 const MID = 0.82;
 const SHADE = 0.46;
+/**
+ * The rim, which is the band that was missing.
+ *
+ * An art director's note on the eating shot: "no rim light from the fire it is
+ * standing next to". The hand at that moment sits against a night frame at
+ * almost exactly the background's own value, so it has no silhouette at all —
+ * it reads as a dark shape stuck to the s'more rather than as a hand in front
+ * of a night. A rim is the cheapest fix there is and the one the reference
+ * hardware used: one band, on the faces that would actually catch a fire, a
+ * long way above the next band down so it survives the colour depth.
+ */
+const RIM = 1.9;
+
+/**
+ * The pose the whole assembly is built in, and the reason it is baked here
+ * rather than applied at runtime.
+ *
+ * The first version pointed the fingers straight away from the eye, which is
+ * the anatomically obvious thing and produced, on screen, a black column with
+ * the s'more balanced on top of it: an art director called it "a staircase of
+ * untextured boxes... no wrist, no knuckles, no thumb", and rendering the
+ * geometry offline through the game's own lens confirmed it exactly. The four
+ * fingers were there; they were end-on, so all four read as one block, and the
+ * palm, wrist, cuff and sleeve stepped outward in perspective because each was
+ * nearer the lens than the last.
+ *
+ * A hand is read from its silhouette, and a fist seen end-on has no silhouette
+ * — it is a circle. Turned three-quarters, the same ten boxes have four finger
+ * gaps, a knuckle break, a thumb crossing the front and a forearm that leaves
+ * through the corner of the frame instead of running back to the lens. Nothing
+ * about the parts changed. Only the angle they are seen from.
+ *
+ * Expressed in the build frame, where **+X is to the player's left, +Y is up,
+ * and +Z is away from the eye** — that is what the runtime's
+ * `rotation.y = -facing + PI/2` maps to. Orthonormalised below, so these two
+ * can be written as the directions they are rather than as a matrix.
+ */
+const FINGERS: readonly [number, number, number] = [0.7, 0.7, 0.16];
+const BACK_OF_HAND: readonly [number, number, number] = [-0.36, 0.36, -0.86];
 
 interface Box {
   /** Centre, in the hand's own frame: +X right, +Y up, +Z away from the eye. */
@@ -58,6 +97,15 @@ interface Box {
    * travels past.
    */
   readonly tone?: number;
+  /**
+   * Whether this part carries the rim.
+   *
+   * Only the parts that stand proud of the silhouette — the finger tips and the
+   * knuckle line. Rimming everything would be a hand made of light rather than
+   * a hand catching some, and would put the brightest thing in the frame next
+   * to the food, which an earlier review already objected to once.
+   */
+  readonly rim?: boolean;
 }
 
 /**
@@ -87,15 +135,15 @@ const PARTS: readonly Box[] = [
    * Each is a little shorter and lower than the one inboard of it, because
    * fingers are, and because a bank of four identical ones is the slab again.
    */
-  { at: [-0.03, 0.014, 0.046], size: [0.017, 0.062, 0.05], tilt: [0.4, 0] },
-  { at: [-0.009, 0.02, 0.05], size: [0.017, 0.066, 0.054], tilt: [0.36, 0] },
-  { at: [0.012, 0.016, 0.048], size: [0.017, 0.062, 0.052], tilt: [0.38, 0] },
-  { at: [0.032, 0.008, 0.042], size: [0.016, 0.054, 0.046], tilt: [0.44, 0] },
+  { at: [-0.03, 0.014, 0.046], size: [0.017, 0.062, 0.05], tilt: [0.4, 0], rim: true },
+  { at: [-0.009, 0.02, 0.05], size: [0.017, 0.066, 0.054], tilt: [0.36, 0], rim: true },
+  { at: [0.012, 0.016, 0.048], size: [0.017, 0.062, 0.052], tilt: [0.38, 0], rim: true },
+  { at: [0.032, 0.008, 0.042], size: [0.016, 0.054, 0.046], tilt: [0.44, 0], rim: true },
   // The knuckle line, which is what says the fingers are curled rather than
   // splayed.
-  { at: [0, 0.046, 0.026], size: [0.086, 0.016, 0.038] },
+  { at: [0, 0.046, 0.026], size: [0.086, 0.016, 0.038], rim: true },
   // Thumb, lying across the front, which is how a hand holds something light.
-  { at: [-0.048, -0.014, 0.028], size: [0.028, 0.028, 0.058], tilt: [0.22, 0.4] },
+  { at: [-0.048, -0.014, 0.028], size: [0.028, 0.028, 0.058], tilt: [0.22, 0.4], rim: true },
   // Wrist: narrower than both the fist and the sleeve, so there is a join.
   { at: [0.008, -0.03, -0.052], size: [0.058, 0.06, 0.06], tilt: [0.14, 0] },
   /*
@@ -126,12 +174,91 @@ export function createHandGeometry(): THREE.BufferGeometry {
     appendBox(part, positions, normals, colors);
   }
 
+  // The three-quarter turn, applied once at build time. See `FINGERS`.
+  const pose = poseMatrix();
+  rotateInPlace(positions, pose);
+  rotateInPlace(normals, pose);
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+/**
+ * The hand's own axes, after the pose is baked in.
+ *
+ * Exported because the geometry is no longer axis-aligned and the measurements
+ * worth making are anatomical, not axial: "the forearm runs back further than
+ * the fist is deep" is a statement about the arm, and the arm now points down
+ * and across. A test that reads the bounding box instead measures the box the
+ * pose happens to sit in, which is a fact about the rotation and not about the
+ * hand.
+ */
+export interface HandAxes {
+  /** Unit vector along the fingers, away from the wrist. */
+  readonly fingers: Vec;
+  /** Unit vector out of the back of the hand. */
+  readonly backOfHand: Vec;
+  /** Unit vector across the knuckles, thumb side to little-finger side. */
+  readonly across: Vec;
+}
+
+export function handAxes(): HandAxes {
+  const m = poseMatrix();
+  // Columns of a row-major matrix are the images of the local axes.
+  return {
+    across: [m[0]!, m[3]!, m[6]!],
+    backOfHand: [m[1]!, m[4]!, m[7]!],
+    fingers: [m[2]!, m[5]!, m[8]!],
+  };
+}
+
+type Vec = readonly [number, number, number];
+
+const unit = (v: Vec): Vec => {
+  const n = Math.hypot(v[0], v[1], v[2]);
+  return [v[0] / n, v[1] / n, v[2] / n];
+};
+
+const cross = (a: Vec, b: Vec): Vec => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+
+/**
+ * `FINGERS` and `BACK_OF_HAND` as a rotation, orthonormalised.
+ *
+ * The two are written as the directions a person would describe, which means
+ * they are not exactly perpendicular. Gram-Schmidt from the fingers outward:
+ * the finger axis is the one that must be exact, because it is the one the
+ * silhouette is made of, and the back of the hand only has to be roughly right
+ * to decide which way the knuckles face.
+ *
+ * Returned row-major, so `rotateInPlace` reads it as three rows dotted against
+ * the point rather than as three basis vectors — the same matrix either way,
+ * but the loop is the hot one and this is the form it wants.
+ */
+function poseMatrix(): number[] {
+  const z = unit(FINGERS);
+  const x = unit(cross(unit(BACK_OF_HAND), z));
+  const y = cross(z, x);
+  return [x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]];
+}
+
+/** Rotates a flat xyz array by a row-major 3x3, in place. */
+function rotateInPlace(values: number[], m: number[]): void {
+  for (let i = 0; i < values.length; i += 3) {
+    const x = values[i]!;
+    const y = values[i + 1]!;
+    const z = values[i + 2]!;
+    values[i] = m[0]! * x + m[1]! * y + m[2]! * z;
+    values[i + 1] = m[3]! * x + m[4]! * y + m[5]! * z;
+    values[i + 2] = m[6]! * x + m[7]! * y + m[8]! * z;
+  }
 }
 
 /** The six faces of one box, each with its own flat normal and tone. */
@@ -172,11 +299,11 @@ function appendBox(
    * light is done by the actual lights.
    */
   const faces: { readonly quad: [number, number, number, number]; readonly tone: number }[] = [
-    { quad: [4, 5, 7, 6], tone: MID }, // +z, toward what you are looking at
+    { quad: [4, 5, 7, 6], tone: box.rim ? RIM : MID }, // +z, the finger tips
     { quad: [1, 0, 2, 3], tone: SHADE }, // -z, toward the eye
     { quad: [2, 6, 7, 3], tone: LIT }, // +y, the back of the hand
     { quad: [1, 5, 4, 0], tone: SHADE }, // -y, the palm side
-    { quad: [5, 1, 3, 7], tone: MID }, // +x
+    { quad: [5, 1, 3, 7], tone: box.rim ? RIM : MID }, // +x, outboard
     { quad: [0, 4, 6, 2], tone: SHADE }, // -x, inboard and always in shadow
   ];
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createHandGeometry, HAND_REACH } from '../src/render/hand.js';
+import { createHandGeometry, handAxes, HAND_REACH } from '../src/render/hand.js';
 
 /**
  * The hand is the only thing in this game that is guaranteed to be within half
@@ -12,18 +12,39 @@ import { createHandGeometry, HAND_REACH } from '../src/render/hand.js';
 describe('the hand', () => {
   const geometry = createHandGeometry();
 
+  /*
+   * Measured along the hand's own axes rather than the world's.
+   *
+   * The pose is baked into the geometry now — the fingers are turned three-
+   * quarters away from the view axis on purpose — so the bounding box is a
+   * fact about that rotation and not about the hand. `handAxes()` gives the
+   * anatomical directions and every measurement below projects onto them,
+   * which is also what makes these assertions survive the next time somebody
+   * changes the angle.
+   */
+  const AXES = handAxes();
+  const along = (axis: readonly [number, number, number]) => {
+    const position = geometry.getAttribute('position');
+    let low = Infinity;
+    let high = -Infinity;
+    for (let i = 0; i < position.count; i++) {
+      const d =
+        position.getX(i) * axis[0] + position.getY(i) * axis[1] + position.getZ(i) * axis[2];
+      if (d < low) low = d;
+      if (d > high) high = d;
+    }
+    return { low, high, span: high - low };
+  };
+
   it('is small enough to be a hand and long enough to leave the frame', () => {
-    geometry.computeBoundingBox();
-    const box = geometry.boundingBox!;
-    const width = box.max.x - box.min.x;
-    const height = box.max.y - box.min.y;
-    const depth = box.max.z - box.min.z;
     // A fist is about nine centimetres across. Anything near twice that is a
     // boxing glove and anything near half is a doll's hand.
-    expect(width).toBeGreaterThan(0.09);
-    expect(width).toBeLessThan(0.2);
-    expect(height).toBeGreaterThan(0.09);
-    expect(height).toBeLessThan(0.2);
+    const across = along(AXES.across);
+    const back = along(AXES.backOfHand);
+    expect(across.span).toBeGreaterThan(0.09);
+    expect(across.span).toBeLessThan(0.2);
+    expect(back.span).toBeGreaterThan(0.09);
+    expect(back.span).toBeLessThan(0.2);
     /*
      * The forearm has to run back well past the fist, or the fist reads as
      * severed and floating in the corner — but it must not be so long that it
@@ -36,10 +57,31 @@ describe('the hand', () => {
      * business, while "an arm is several times longer than a fist is deep" is
      * true of every arm.
      */
-    const behind = -box.min.z;
-    expect(behind / depth, 'most of the shape is forearm').toBeGreaterThan(0.55);
+    const reach = along(AXES.fingers);
+    const behind = -reach.low;
+    expect(behind / reach.span, 'most of the shape is forearm').toBeGreaterThan(0.55);
     expect(behind, 'the arm reaches back past the fist').toBeGreaterThan(0.15);
     expect(behind, 'the arm reaches the lens').toBeLessThan(0.3);
+  });
+
+  it('is turned away from the view axis, so it has a silhouette at all', () => {
+    /*
+     * The defect this exists for, and it shipped.
+     *
+     * The fingers used to point straight away from the eye. Anatomically
+     * obvious, and on screen it produced a black column with the s'more
+     * balanced on top: an art director called it "a staircase of untextured
+     * boxes... no wrist, no knuckles, no thumb". A fist seen end-on has no
+     * silhouette — it is a circle — and a hand is read from its silhouette.
+     *
+     * The runtime turns the whole group by `-facing + PI/2`, which maps this
+     * geometry's +Z onto the direction the player is looking. So the test is
+     * simply: how far off that axis do the fingers point? Under about
+     * thirty-five degrees and the fingers merge into one block again.
+     */
+    const offAxis = Math.acos(Math.abs(AXES.fingers[2]));
+    expect(offAxis, `fingers are ${((offAxis * 180) / Math.PI).toFixed(0)} degrees off the view axis`)
+      .toBeGreaterThan(0.61);
   });
 
   it('has outward normals on every triangle', () => {
@@ -136,14 +178,23 @@ describe('the hand reads as a hand', () => {
      *
      * Measured as vertical slices through the knuckle depth: a solid bank
      * fills every slice, and four fingers leave holes.
+     *
+     * Sliced along the hand's own axes, not the world's. Written against x and
+     * z it kept passing after the pose was baked in — for the wrong reason,
+     * because a rotated hand leaves most of a world-aligned bucket range
+     * empty and empty buckets read as gaps. A test that passes for the wrong
+     * reason is worse than one that fails, and on this codebase that mistake
+     * has now been made often enough to be worth the extra four lines.
      */
+    const axes = handAxes();
     const position = geometry.getAttribute('position');
+    const project = (i: number, axis: readonly [number, number, number]) =>
+      position.getX(i) * axis[0] + position.getY(i) * axis[1] + position.getZ(i) * axis[2];
     // The finger boxes live forward of the palm; sample across that slab.
     const columns = new Array<number>(24).fill(0);
     for (let i = 0; i < position.count; i++) {
-      const z = position.getZ(i);
-      if (z < 0.03) continue;
-      const x = position.getX(i);
+      if (project(i, axes.fingers) < 0.03) continue;
+      const x = project(i, axes.across);
       const bucket = Math.floor(((x + 0.06) / 0.12) * columns.length);
       if (bucket >= 0 && bucket < columns.length) columns[bucket]! += 1;
     }
@@ -164,17 +215,22 @@ describe('the hand reads as a hand', () => {
 
   it('ends in a cuff rather than in mid-air', () => {
     // A forearm that simply stops reads as an amputation. The darkest parts of
-    // the geometry are the cloth, and they have to be the ones furthest back.
+    // the geometry are the cloth, and they have to be the ones furthest back
+    // along the arm — measured along the fingers, which is the arm's own axis.
+    const axis = handAxes().fingers;
     const position = geometry.getAttribute('position');
     const color = geometry.getAttribute('color');
-    let darkestZ = Infinity;
+    let darkestAlong = Infinity;
     let darkest = Infinity;
     for (let i = 0; i < color.count; i++) {
       if (color.getX(i) < darkest) {
         darkest = color.getX(i);
-        darkestZ = position.getZ(i);
+        darkestAlong =
+          position.getX(i) * axis[0] + position.getY(i) * axis[1] + position.getZ(i) * axis[2];
       }
     }
-    expect(darkestZ, 'the darkest material is at the far end, where cloth is').toBeLessThan(-0.08);
+    expect(darkestAlong, 'the darkest material is at the far end, where cloth is').toBeLessThan(
+      -0.08,
+    );
   });
 });

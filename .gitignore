@@ -29,3 +29,6 @@ artifacts/**/*.json
 artifacts/**/*.md
 !e2e/__screenshots__/**
 artifacts/font/
+
+# Agent worktrees, created by isolation runs.
+.claude/worktrees/

@@ -1598,12 +1598,13 @@ export function World({
         settings={settings}
         walkable={walkable}
         waterColour={environment?.scene.nightPalette.water ?? null}
+        quality={quality}
         onTouch={touchIfInReach}
       />
 
       {/* The named constellations, at the real altitude and azimuth for the
           session's date, and whatever is streaking across them. */}
-      <NightSky ritual={ritual} />
+      <NightSky ritual={ritual} quality={quality} />
 
       {/* The torch. One spot light, and only while it is lit. */}
       <Torch

@@ -2275,7 +2275,7 @@ export function App({ store }: AppProps): React.ReactElement {
         setting exists to protect.
       */}
       <MotionVignette />
-      <Frame width={viewport.width} enabled={showFrame} />
+      <Frame width={viewport.width} enabled={showFrame} reducedMotion={state.render.reducedMotion} />
 
       <Hud
         frameInset={bezelInset(viewport.width, showFrame)}

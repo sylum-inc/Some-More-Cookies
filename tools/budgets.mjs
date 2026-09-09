@@ -55,10 +55,36 @@ export const STATIC_BUDGETS = Object.freeze({
  * variation does not fail the build, and well below twice it, so the cost
  * cannot quietly double again. It is a recorded price, not a raised budget:
  * §10's mid-tier number is untouched and still checked.
+ *
+ * **The triangle figure was a placeholder, and it is worth saying so.** The
+ * draw-call number above was measured; 60,000 was copied from `STATIC_BUDGETS`
+ * on the reasoning that it happened to hold at the time, and a number that was
+ * never measured is not a budget, it is a coincidence waiting to expire. It
+ * expired one session later at 63,410, and the geometry that pushed it over is
+ * geometry that was deliberately and correctly added.
+ *
+ * The high tier is not the mid tier with a shadow on it. It draws to 42 metres
+ * where mid draws to 30, and everything that scales with draw distance — the
+ * ground cover, the litter fields, the treeline, the water surface — scales
+ * with it. Measured at the fire, same campsite, same stage:
+ *
+ *     mid    76 draw calls   48,982 triangles
+ *     high  143 draw calls   63,410 triangles
+ *
+ * So 72,000: above the measurement with room for the variation a live fire
+ * produces, and comfortably below twice it. What is NOT relaxed is mid, which
+ * is what §10 states and what the shipping hardware gets.
+ *
+ * And mid is the number to actually worry about. It sat at 45,176 triangles at
+ * the start of the art work and reaches 55,508 now — 92% of its budget, with
+ * every one of those triangles bought on purpose to trade against scarce draw
+ * calls. The trade was right. It is close to done being available, and the
+ * perf report now warns at 85% instead of only failing at 100%, because the
+ * warning machinery existed and had been wired to draw calls alone.
  */
 export const HIGH_TIER_BUDGETS = Object.freeze({
   drawCalls: 200,
-  triangles: 60_000,
+  triangles: 72_000,
 });
 
 /**

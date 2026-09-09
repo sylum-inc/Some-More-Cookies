@@ -226,6 +226,37 @@ test.describe('performance budgets', () => {
           (over > 0 && knownDrawCalls ? ` ${knownDrawCalls.status} ${knownDrawCalls.why}` : ''),
       );
     }
+    /*
+     * And the same warning for triangles, which did not have one.
+     *
+     * `near()` was written for exactly this and was wired only to draw calls,
+     * so the metric that actually went to the wall crossed 85% and then 92% of
+     * its budget in silence across a single session's art work. The report
+     * printed the number the whole time; nothing said it was nearly spent.
+     * A budget with no warning is a budget you find out about by failing.
+     */
+    const tris = report.peaks.triangles.value;
+    if (near(tris, STATIC_BUDGETS.triangles)) {
+      const over = tris - STATIC_BUDGETS.triangles;
+      report.warnings.push(
+        `Triangles reach ${tris.toLocaleString('en-GB')} of ` +
+          `${STATIC_BUDGETS.triangles.toLocaleString('en-GB')} during "${report.peaks.triangles.stage}" — ` +
+          `${Math.round((tris / STATIC_BUDGETS.triangles) * 100)}% of budget, ` +
+          (over > 0
+            ? `${over.toLocaleString('en-GB')} OVER.`
+            : `${(-over).toLocaleString('en-GB')} triangles of headroom.`) +
+          ' Geometry is the cheap half of this budget and has been spent like it: ground cover, a denser ' +
+          'flame cluster, the water surface and the canopy silhouette all bought draw calls back with ' +
+          'triangles. That trade was right and it is close to done being available.',
+      );
+    }
+    const textureMb = report.peaks.textureMegabytes.value;
+    if (near(textureMb, STATIC_BUDGETS.textureMegabytes)) {
+      report.warnings.push(
+        `Texture memory reaches ${textureMb.toFixed(2)} MB of ${STATIC_BUDGETS.textureMegabytes} MB during ` +
+          `"${report.peaks.textureMegabytes.stage}".`,
+      );
+    }
     if (report.peaks.dynamicLights.value > STATIC_BUDGETS.dynamicLights) {
       report.warnings.push(
         `Dynamic lights reach ${report.peaks.dynamicLights.value} against a §10 budget of ${STATIC_BUDGETS.dynamicLights} ` +

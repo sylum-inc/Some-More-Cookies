@@ -379,6 +379,19 @@ with no browser, no build and no Playwright run that a concurrent agent can
 corrupt. It found the defect immediately, and four candidate poses were tried
 and judged by eye in about four minutes.
 
+A third rule arrived later, from the same object. **When the question is a
+value — is this too bright, is that too dark, does the food win the frame —
+sample the pixels. An eye comparing two dark regions in a small image is not an
+instrument.** Three readings of the finished bite shot were made by looking at
+it and all three were wrong: that the fist was closed around nothing (the
+sandwich sits at 58.4% across and 48.6% down, the hand at 65.8% and 64.6% —
+they overlap, and the browser said so); that the hand was far too bright (the
+fist averages rgb(60, 49, 43) against the s'more's rgb(163, 143, 118) — the
+hierarchy was already right); and that the albedo therefore needed a fourfold
+cut (it did not, and the cut pushed the forearm to rgb(16, 9, 8), a black shape
+at the frame edge that fails D7 for no gain). A hundred-line PNG decoder that
+prints the mean and peak of a rectangle settled all three in one command.
+
 Two rules came out of it. Bake the presentation pose into the geometry rather
 than applying it at runtime, so the thing under test is the thing that ships.
 And once a pose is baked, **any test that measures the world's axes is

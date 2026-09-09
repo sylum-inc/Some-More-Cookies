@@ -225,6 +225,49 @@ export function holdPointFor(
 /** Reused so holding a sandwich allocates nothing per frame. */
 const holdScratch = vec3(0, 0, 0);
 
+/**
+ * Which way to be facing while eating, and why it is not "at your own hands".
+ *
+ * The camera has been the player's own eyes since the composed shots were
+ * removed, which means the framing of the game's payoff shot is decided
+ * entirely by which way the body happens to be pointing when the sandwich
+ * arrives — and the sandwich arrives out of the SM-01, so the body is pointing
+ * at the SM-01. Measured from the shipped capture: the machine sits 51 degrees
+ * off the view axis with its door open and its chamber lit, in a 100-degree
+ * lens. It is the brightest thing in the frame at the one moment the frame is
+ * supposed to be about a small warm object in your hands.
+ *
+ * Aiming the head at the hold point could not fix that, because the hold point
+ * is *in front of the current facing* — it is a pitch correction dressed as a
+ * heading, and it steered the head down onto the sandwich while leaving the
+ * body squared up to the freezer.
+ *
+ * So this turns the body instead, to a bearing derived from the fire rather
+ * than from where the player was standing. Off the fire rather than at it:
+ * composing the sandwich against the flames was tried and washed the object
+ * out (see `HOLD_TURN`), and the note it produced was "levitation". A third of
+ * a right angle off puts the fire low in one corner, throws warm light across
+ * the near face of the thing being eaten, and leaves the sandwich's own
+ * silhouette against the dark treeline where it can be read.
+ *
+ * Eased, not snapped, by the same spring that already brings the head up off
+ * the freezer — so it plays as somebody turning away from a machine to eat
+ * what came out of it, which is what a person does.
+ */
+const BITE_BEARING_OFF_FIRE = 0.55;
+const biteScratch: [number, number, number] = [0, 0, 0];
+
+function biteFraming(player: PlayerState, out: [number, number, number]): [number, number, number] {
+  const eye = eyePosition(player, holdScratch);
+  // The fire is the campsite's origin, and is the only fixed light out here.
+  const toFire = Math.atan2(-eye.z, -eye.x);
+  const bearing = toFire + BITE_BEARING_OFF_FIRE;
+  out[0] = eye.x + Math.cos(bearing) * HOLD_REACH;
+  out[1] = eye.y - HOLD_BELOW_EYE;
+  out[2] = eye.z + Math.sin(bearing) * HOLD_REACH;
+  return out;
+}
+
 /** Unit vector pointing out of the machine's face. */
 const MACHINE_FRONT: [number, number] = [Math.sin(LAYOUT.machineRotation), Math.cos(LAYOUT.machineRotation)];
 
@@ -745,12 +788,29 @@ export function World({
       createPs1Material({
         settings,
         /*
-         * Darker than it was. An art review found the hand "the brightest
-         * object in a night frame", which is the wrong way round: the s'more
-         * is what the player is looking at and it has to win the frame. A hand
-         * lit from below by a fire is mostly in its own shadow anyway.
+         * Darker than it was, and no darker, because the frame was measured
+         * rather than looked at.
+         *
+         * An art review once found the hand "the brightest object in a night
+         * frame", which is the wrong way round — the s'more is what the player
+         * is looking at and it has to win. Reading the finished bite shot by
+         * eye, it seemed that had come back: the hand looked pale grey-pink
+         * against a very dark surround, so the albedo was cut fourfold.
+         *
+         * Sampling the actual pixels said otherwise. In the shot the fist
+         * averages rgb(60, 49, 43), the s'more averages rgb(163, 143, 118) and
+         * the fire peaks at 255 — the hierarchy was already right, and the
+         * fourfold cut had pushed the forearm to rgb(16, 9, 8), which is a
+         * black shape at the edge of the frame and fails D7 for no gain. An
+         * object that is dark against something darker still reads as bright,
+         * and an eye comparing two dark regions in a small image is not an
+         * instrument.
+         *
+         * So: a little under the original, enough to give the food more of the
+         * range and not enough to lose the hand. The numbers above are what to
+         * re-measure against, not the impression.
          */
-        color: 0x6f4735,
+        color: 0x5c3a2a,
         roughness: 1,
         vertexColors: true,
         flatShading: true,
@@ -1014,7 +1074,7 @@ export function World({
        * this steers your head onto the sandwich once and never holds it there.
        */
       if (ritual.stage === 'eating' && lookGoal.current !== null) {
-        lookGoal.current = holdPointFor(player);
+        lookGoal.current = biteFraming(player, biteScratch);
       }
       const goal = lookGoal.current;
       if (goal) {
@@ -1235,7 +1295,7 @@ export function World({
          * hands. Snapshotted rather than followed — the ease only has to bring
          * your head up off the freezer, and after that you are looking at it.
          */
-        if (ritual.stage === 'eating') lookGoal.current = holdPointFor(player);
+        if (ritual.stage === 'eating') lookGoal.current = biteFraming(player, biteScratch);
       }
       lastStage.current = ritual.stage;
       store.setStageFromRitual();

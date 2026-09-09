@@ -84,8 +84,22 @@ export async function readRoast(page: Page): Promise<RoastOutcome> {
 }
 
 /** Loads the world with a pinned campsite and environment and waits for WebGL. */
-export async function openWorld(page: Page, camp: string, env = 'pine_hollow'): Promise<void> {
-  await page.goto(`/?camp=${camp}&env=${env}`);
+export async function openWorld(
+  page: Page,
+  camp: string,
+  env = 'pine_hollow',
+  /*
+   * Pin the quality tier, for the checks that are about a tier.
+   *
+   * Honoured only in a harness build (see `App.tsx`). The reason it exists:
+   * `probeQualityTier` reads the device's cores and memory, and this runner
+   * has four cores, so it can only ever return `mid` — which left the `high`
+   * tier, where the most expensive thing in the build lives, impossible to
+   * measure here at all.
+   */
+  quality?: 'low' | 'mid' | 'high',
+): Promise<void> {
+  await page.goto(`/?camp=${camp}&env=${env}${quality ? `&quality=${quality}` : ''}`);
   await page.waitForFunction(() => Boolean(window.__someMore?.three));
   // Procedural textures are generated on first use; give the first frames time
   // to build them so the first capture is not of a half-dressed world.

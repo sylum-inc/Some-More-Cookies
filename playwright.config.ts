@@ -17,6 +17,25 @@ import { defineConfig, devices } from '@playwright/test';
  * change. `reuseExistingServer` stays false: sharing one server between runs
  * would put them back in each other's way, which is the thing this fixes.
  */
+/*
+ * A WARNING THIS PORT DOES NOT REMOVE.
+ *
+ * Two runs on two ports still share one `apps/web/dist`. The webServer command
+ * builds into it and then serves it, so a second run's build overwrites the
+ * tree the first run's preview is still serving — and the app under test
+ * silently becomes another branch's build, or a half-written one, part way
+ * through a suite.
+ *
+ * That is not theoretical. It is the best explanation for a keyboard-look test
+ * that reported the player's heading frozen mid-ease to four decimal places
+ * across 1.8 seconds: no key binding, focus steal or handler guard can stop the
+ * frame loop, but swapping the served bundle underneath a running page can. The
+ * test passed ten times out of ten once it had the machine to itself.
+ *
+ * So: separate ports make concurrent runs *possible*, not *safe*. Until the
+ * build output is per-run too, treat a surprising failure during concurrent
+ * runs as suspect and re-run it alone before believing it.
+ */
 const PREVIEW_PORT = Number(process.env['SOMEMORE_PREVIEW_PORT'] ?? 4173);
 const PREVIEW_URL = `http://127.0.0.1:${PREVIEW_PORT}`;
 

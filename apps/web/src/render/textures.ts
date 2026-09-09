@@ -489,9 +489,32 @@ export function createMachineDecal(options: {
   ctx.lineWidth = Math.max(2, size * 0.012);
   ctx.strokeRect(size * 0.035, size * 0.035, size * 0.93, size * 0.93);
 
-  ctx.fillStyle = ink;
-  ctx.font = `bold ${Math.floor(size * 0.19)}px "Helvetica Neue", Arial, sans-serif`;
+  /*
+   * Fitted to the plate rather than set at a size and hoped for.
+   *
+   * Nineteen per cent of the plate was chosen to make the name legible on a
+   * machine seen from two metres through a 320x240 buffer — and it was, but
+   * "SOME MORE" at that size is wider than the space between the left margin
+   * and the right border, so every machine frame in the game shipped a plate
+   * reading "SOME MO". An art review counted it as an error and was right:
+   * the machine the product is named after had its name cut in half.
+   *
+   * Measured and scaled down only if it does not fit, so the intended size is
+   * still the size whenever the string is short enough to take it. A brand is
+   * the one piece of text on this plate that must never be clipped, and a
+   * layout that depends on nobody ever changing the name is a layout that
+   * breaks the first time somebody does.
+   */
   ctx.textBaseline = 'top';
+  const brandLimit = size * 0.86;
+  let brandSize = size * 0.19;
+  ctx.font = `bold ${Math.floor(brandSize)}px "Helvetica Neue", Arial, sans-serif`;
+  const brandWidth = ctx.measureText('SOME MORE').width;
+  if (brandWidth > brandLimit) {
+    brandSize *= brandLimit / brandWidth;
+    ctx.font = `bold ${Math.floor(brandSize)}px "Helvetica Neue", Arial, sans-serif`;
+  }
+  ctx.fillStyle = ink;
   ctx.fillText('SOME MORE', size * 0.07, size * 0.075);
 
   ctx.font = `bold ${Math.floor(size * 0.085)}px "Helvetica Neue", Arial, sans-serif`;

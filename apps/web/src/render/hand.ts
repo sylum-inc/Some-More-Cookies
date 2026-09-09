@@ -37,9 +37,9 @@ export const HAND_REACH = 0.34;
  * is what the hardware being imitated would have had and it is enough — the
  * fourth is the outline the low resolution draws for free.
  */
-const LIT = 1.34;
-const MID = 0.82;
-const SHADE = 0.46;
+const LIT = 1.0;
+const MID = 0.6;
+const SHADE = 0.3;
 /**
  * The rim, which is the band that was missing.
  *
@@ -50,8 +50,17 @@ const SHADE = 0.46;
  * of a night. A rim is the cheapest fix there is and the one the reference
  * hardware used: one band, on the faces that would actually catch a fire, a
  * long way above the next band down so it survives the colour depth.
+ *
+ * **A rim is an edge, not a surface.** The first attempt put 1.9 on two whole
+ * faces of every part that stands proud, which was reasoned about in the hand's
+ * own frame and rendered in the game's: after the three-quarter pose those two
+ * faces are the largest ones facing the camera, so the "rim" became the fist,
+ * and the eating shot came back with the hand as by far the brightest object in
+ * a night frame — the exact complaint an earlier art review made about this
+ * same mesh, reintroduced by the fix for a different one. It goes on the finger
+ * tips alone now, and the whole band ladder came down with it.
  */
-const RIM = 1.9;
+const RIM = 1.28;
 
 /**
  * The pose the whole assembly is built in, and the reason it is baked here
@@ -303,7 +312,7 @@ function appendBox(
     { quad: [1, 0, 2, 3], tone: SHADE }, // -z, toward the eye
     { quad: [2, 6, 7, 3], tone: LIT }, // +y, the back of the hand
     { quad: [1, 5, 4, 0], tone: SHADE }, // -y, the palm side
-    { quad: [5, 1, 3, 7], tone: box.rim ? RIM : MID }, // +x, outboard
+    { quad: [5, 1, 3, 7], tone: MID }, // +x
     { quad: [0, 4, 6, 2], tone: SHADE }, // -x, inboard and always in shadow
   ];
 

@@ -750,7 +750,7 @@ export function World({
          * is what the player is looking at and it has to win the frame. A hand
          * lit from below by a fire is mostly in its own shadow anyway.
          */
-        color: 0x8a5a42,
+        color: 0x6f4735,
         roughness: 1,
         vertexColors: true,
         flatShading: true,

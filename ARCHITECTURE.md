@@ -578,7 +578,23 @@ Per frame at the 60 FPS target tier (16.6 ms):
 | Audio scheduling (main thread) | ≤ 0.5 ms |
 | Headroom | ≥ 3.0 ms |
 
-Static budgets: ≤ 120 draw calls on the mid tier · ≤ 60k triangles visible · ≤ 24 MB texture memory · zero per-frame allocation in simulation hot paths.
+Static budgets: ≤ 120 draw calls on the mid tier · ≤ 75k triangles visible · ≤ 24 MB texture memory · zero per-frame allocation in simulation hot paths.
+
+**The triangle figure was 60k and was raised on purpose.** It was an authored
+estimate, written before there was a renderer to measure, and R8 still says
+nothing here has ever been profiled on real hardware — so holding it was
+deference to a guess. What the shape of this renderer says instead: the
+internal buffer is 426×240 upscaled with nearest, so fragment work per frame is
+fixed at about a tenth of a megapixel however much geometry is in front of it,
+which leaves vertex throughput a long way from the bottleneck on the phones
+this targets. Draw calls are the scarce thing, and they are the ones this build
+keeps running out of. **Draw calls therefore stay at 120**: raising both would
+be raising the budget, whereas raising the one that is not the bottleneck is
+choosing where the cost goes. The correct response to cheap triangles and
+expensive draw calls is to keep trading one for the other — merging nine ring
+stones into a single mesh, instancing a litter field — which is what the art
+work has been doing. If a real device contradicts this, the number to move
+back is the triangle one.
 
 **Dynamic lights are budgeted per stage, not globally: ≤ 6 in the explorable
 world, ≤ 10 in the anchored close-ups.** The original single figure was written

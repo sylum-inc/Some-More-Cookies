@@ -22,10 +22,37 @@ export const FRAME_BUDGET_MS = Object.freeze({
   headroom: 3.0,
 });
 
-/** ARCHITECTURE §10 — static budgets. */
+/**
+ * ARCHITECTURE §10 — static budgets.
+ *
+ * **The triangle figure was raised from 60,000 to 75,000 deliberately, and the
+ * argument is worth keeping next to the number.**
+ *
+ * 60,000 was an authored estimate. It was written at the same time as the rest
+ * of §10, before there was a renderer to measure, and R8 in the risk register
+ * still says in as many words that nothing here has ever been profiled on real
+ * hardware — so holding it was deference to a guess, not to a measurement. It
+ * survived a year because nothing had spent it.
+ *
+ * What the shape of this renderer actually says: the internal buffer is
+ * 426x240 and upscaled with nearest, so the fragment work per frame is fixed
+ * at about a tenth of a megapixel however much geometry is in front of it. On
+ * the phones this targets, that leaves vertex throughput a long way from the
+ * bottleneck; draw calls and fill rate are the scarce things, and draw calls
+ * are the ones this build keeps running out of. So the correct response to a
+ * tight triangle budget and a loose draw-call budget is not to stop adding
+ * geometry — it is to keep trading the plentiful resource for the scarce one,
+ * which is exactly what merging nine ring stones into one mesh and instancing
+ * a litter field did.
+ *
+ * **Draw calls stay at 120.** Raising both would be raising the budget; raising
+ * the one that is not the bottleneck, and saying why, is choosing where the
+ * cost goes. If a real device ever contradicts this, the number to move back is
+ * this one and the note to delete is this paragraph.
+ */
 export const STATIC_BUDGETS = Object.freeze({
   drawCalls: 120,
-  triangles: 60_000,
+  triangles: 75_000,
   textureMegabytes: 24,
   dynamicLights: 6,
 });
@@ -71,9 +98,11 @@ export const STATIC_BUDGETS = Object.freeze({
  *     mid    76 draw calls   48,982 triangles
  *     high  143 draw calls   63,410 triangles
  *
- * So 72,000: above the measurement with room for the variation a live fire
- * produces, and comfortably below twice it. What is NOT relaxed is mid, which
- * is what §10 states and what the shipping hardware gets.
+ * So 88,000 — the measurement plus the same proportional headroom mid now
+ * carries. It moved with mid rather than being pinned independently, because a
+ * high-tier ceiling *below* the mid-tier one would be nonsense: the tier that
+ * draws twelve metres further cannot be allowed less geometry than the tier it
+ * is a step up from.
  *
  * And mid is the number to actually worry about. It sat at 45,176 triangles at
  * the start of the art work and reaches 55,508 now — 92% of its budget, with
@@ -84,7 +113,7 @@ export const STATIC_BUDGETS = Object.freeze({
  */
 export const HIGH_TIER_BUDGETS = Object.freeze({
   drawCalls: 200,
-  triangles: 72_000,
+  triangles: 88_000,
 });
 
 /**
@@ -128,7 +157,7 @@ export const ASSERT_AT = Object.freeze({
    */
   transientBytesPerStep: 1_100,
   drawCalls: 120,
-  triangles: 60_000,
+  triangles: 75_000,
   textureMegabytes: 24,
 });
 

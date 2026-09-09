@@ -28,3 +28,4 @@ dist-types/
 artifacts/**/*.json
 artifacts/**/*.md
 !e2e/__screenshots__/**
+artifacts/font/

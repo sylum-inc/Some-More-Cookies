@@ -1547,7 +1547,24 @@ export function World({
         fire={ritual.fire}
         settings={settings}
         maxParticles={qualitySettings.maxParticles}
-        shadows={qualitySettings.enableShadows}
+        /*
+         * The fire casts only on `high`, not wherever shadows are on at all.
+         *
+         * A point light's shadow is a cube: six faces, so the whole scene is
+         * re-rendered six times for it. Measured, turning this on took the
+         * worst-case sweep from about 74 draw calls to 232 against a budget of
+         * 133 — it is the single most expensive thing added this session, and
+         * it was added for a good reason (a campfire is the only light at
+         * night, and nothing in the clearing had a shadow) but not a good
+         * enough one to spend three times the frame on.
+         *
+         * Measured and then turned off entirely: gating it to `high` did not
+         * help, because the tier the budget is measured at is `high`. The
+         * clearing keeps the sun's directional shadow, which is one pass and
+         * is what daylight actually needed; the fire keeps its light and loses
+         * its shadow, which is the trade the budget can afford.
+         */
+        shadows={false}
         onWorkBed={({ x, z, inward }) => {
           if (!atThePit(player)) return;
           /*

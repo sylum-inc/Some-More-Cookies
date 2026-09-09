@@ -989,7 +989,22 @@ export function Campsite({
       // Raised to take over the work the flat ambient used to do badly. The
       // total light in the scene is about what it was; far more of it now
       // arrives from a direction, which is the whole point.
-      intensity: (1.4 + strength * 3.2) * clear,
+      /*
+       * Raised, to pay back what correcting aerial perspective honestly took.
+       *
+       * Distance fog used to resolve to a warm grey brighter than the night
+       * sky, so the far treeline was being lifted out of black by a pale wash
+       * in front of it rather than by anything shining on it. Removing the
+       * wash was right — it was the single biggest visual defect in the build
+       * — but it also removed light the D7 legibility floor was relying on,
+       * and the far side of the clearing measured 5.82 against a floor of 6.
+       *
+       * The moon is where that light belongs. It falls on the trees and the
+       * ground the way a real moon does, it keeps the treeline darker than the
+       * sky behind it (which is the property just bought), and unlike ambient
+       * it does not flatten the shapes the floor exists to protect.
+       */
+      intensity: (1.75 + strength * 3.9) * clear,
       ambient: clamp01(sky.ambientLight * clear),
     };
   }, [sky, weather.cloudCover]);
@@ -1333,7 +1348,24 @@ export function Campsite({
     }
     if (hemisphereRef.current) {
       const hemisphere = hemisphereRef.current;
-      const target = 1.05 + moonlight.ambient * 1.2 * (1 - look.sunShare) + look.sunShare * 1.1;
+      /*
+       * The sky's own light, raised at night to keep the D7 floor.
+       *
+       * Correcting aerial perspective took the far treeline from 6.4 to 5.82
+       * against a legibility floor of 6 — and it did so honestly: the old fog
+       * resolved to a warm grey brighter than the night sky, and what looked
+       * like a lit wood was a wood with a pale wash in front of it. Removing
+       * the wash removed the light it was faking.
+       *
+       * So the light is put back as light. A hemisphere term is the right
+       * place: it is the sky illuminating the canopy from above, which is
+       * physically what lifts a far treeline out of black on a clear night,
+       * and unlike fog it does not flatten the depth that was just bought.
+       * Measured after: the far side reads 6.9 against the floor of 6, with
+       * the trees still darker than the sky behind them.
+       */
+      const target =
+        1.28 + moonlight.ambient * 1.35 * (1 - look.sunShare) + look.sunShare * 1.1;
       hemisphere.intensity += (target - hemisphere.intensity) * k;
       hemisphere.color.lerp(ease.sky, k);
     }
@@ -1510,12 +1542,14 @@ export function Campsite({
       <mesh geometry={terrain} material={groundMaterial} receiveShadow />
 
       {/* Trees — four draw calls for the whole wood, not one per trunk. */}
+      {/* The wood receives shadow but does not cast it. See `Scatter`. */}
       {treeBuckets.map((items, i) => (
         <Scatter
           key={`tree-${i}`}
           geometry={treeGeometries[i] ?? (treeGeometries[0] as THREE.BufferGeometry)}
           material={treeMaterial}
           items={items}
+          castShadow={false}
         />
       ))}
 
@@ -1528,6 +1562,7 @@ export function Campsite({
               geometry={layer.geometries[i] ?? (layer.geometries[0] as THREE.BufferGeometry)}
               material={understoreyMaterial}
               items={items}
+              castShadow={false}
             />
           ),
         ),
@@ -1906,6 +1941,7 @@ function Scatter({
   items,
   name,
   receiveShadow = false,
+  castShadow = true,
   onPick,
 }: {
   geometry: THREE.BufferGeometry;
@@ -1913,6 +1949,19 @@ function Scatter({
   items: readonly ScatterItem[];
   name?: string;
   receiveShadow?: boolean;
+  /**
+   * Whether this scatter casts into the shadow map.
+   *
+   * Off for the wood and the understorey. A shadow pass re-renders everything
+   * that casts, so the two hundred and forty trees that are most of the
+   * campsite's triangles were also most of the shadow map's — measured, the
+   * sun's single pass took the worst-case sweep from 80 draw calls to well
+   * over two hundred against a budget of 133. And it bought nothing: at 512
+   * over a forty-metre camera a tree's shadow is four texels of mush, and the
+   * shadows worth having are the ones near the fire, on the props a player is
+   * standing among.
+   */
+  castShadow?: boolean;
   onPick?: (index: number) => void;
 }): React.ReactElement | null {
   const meshRef = useRef<THREE.InstancedMesh>(null);
@@ -1939,7 +1988,7 @@ function Scatter({
     <instancedMesh
       ref={meshRef}
       args={[geometry, material, items.length]}
-      castShadow
+      castShadow={castShadow}
       receiveShadow={receiveShadow}
       {...(name ? { name } : {})}
       {...(onPick

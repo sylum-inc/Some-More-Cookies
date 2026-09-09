@@ -152,9 +152,22 @@ test.describe('the named things', () => {
     }, { x: target.x, z: target.z });
     await page.waitForTimeout(700);
 
-    // The world offers it by name.
+    /*
+     * The world offers it by name — as an accessible name now, not as visible
+     * text.
+     *
+     * The reach prompt used to be a sentence. It is a drawn icon with the
+     * phrase on `aria-label`, because seven stacked blocks of system font over
+     * the campsite was the look this build spent a session removing. What must
+     * not change is that the thing is *named*: §12 requires every verb to have
+     * a channel that is not the picture, and a screen reader, a keyboard
+     * player and this assertion all read the same one.
+     */
     await expect(page.getByTestId('reach')).toBeVisible();
-    await expect(page.getByTestId('reach')).toContainText(new RegExp(target.label.split(' ')[0]!, 'i'));
+    await expect(page.getByTestId('reach')).toHaveAttribute(
+      'aria-label',
+      new RegExp(target.label.split(' ')[0]!, 'i'),
+    );
     await page.getByTestId('reach').click();
     await page.waitForTimeout(300);
 

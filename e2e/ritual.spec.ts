@@ -217,8 +217,20 @@ test.describe('the ritual', () => {
     await page.getByRole('button', { name: 'Photo' }).click();
     await page.waitForTimeout(1200);
     await capture(page, '18-passport');
-    // The photo really was developed and saved.
-    await expect(page.locator('.sm-panel img')).toHaveCount(1);
+    /*
+     * The photo really was developed and saved.
+     *
+     * There is no `<img>` in the booklet any more: a photograph is
+     * box-filtered and ordered-dithered onto the panel's own paper-to-ink ramp
+     * and drawn into the pixel buffer (spec §6.2), so what the document carries
+     * is the print's caption and the bytes are checked where they live.
+     */
+    await expect(page.getByRole('heading', { name: /^Photographs$/i })).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => (window.__someMore!.store.state.passport as unknown as { photos: unknown[] }).photos.length,
+      ),
+    ).toBe(1);
     await expect(page.getByRole('heading', { name: /Record of sandwiches/i })).toBeVisible();
 
     await page.keyboard.press('Escape');

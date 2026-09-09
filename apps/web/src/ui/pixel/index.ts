@@ -14,6 +14,7 @@
 export * from './palette.js';
 export * from './surface.js';
 export * from './dither.js';
+export * from './photo.js';
 export * from './chrome.js';
 export * from './layout.js';
 export * from './panel.js';

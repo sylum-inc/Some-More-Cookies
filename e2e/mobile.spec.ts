@@ -333,7 +333,11 @@ for (const device of DEVICES) {
       await page.waitForTimeout(400);
       await shoot(page, 'settings', device);
       const panel = await page.evaluate(() => {
-        const element = document.querySelector('.sm-panel');
+        // The panel is drawn into the pixel buffer now (spec §6.2), so there is
+        // no `.sm-panel` box to measure: the canvas covers the whole viewport
+        // and would answer "does it fit" with "yes" whatever the page did. This
+        // element is the page's own rectangle, published for exactly this.
+        const element = document.querySelector('[data-testid="pixel-panel"]');
         if (!element) return null;
         const box = element.getBoundingClientRect();
         return {

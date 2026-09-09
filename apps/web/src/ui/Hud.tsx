@@ -7,9 +7,11 @@
  * and the two corner affordances (Passport, settings).
  */
 
+import { useMemo } from 'react';
 import type { RitualStage, RitualState } from '@somemore/sim';
 import { Sprite, type SpriteName } from './Sprite.js';
 import { REACH_SPRITES, fireSprite, roastSprite, timeSprite, weatherSprite } from './iconography.js';
+import { PixelNote } from './PixelPanel.js';
 import {
   describeArmful,
   describeSeat,
@@ -22,18 +24,14 @@ import {
   MAX_ARMFUL,
 } from '@somemore/sim';
 import {
-  CUT_MARK_PX,
   FONT_STACK,
   SR_ONLY,
   SURFACE,
   TOKENS,
   machineText,
-  paperPadding,
-  paperPanel,
   plate,
   px as uiPx,
   typePx,
-  useScrollCut,
 } from './styles.js';
 
 export interface HudProps {
@@ -457,9 +455,6 @@ export interface ThrowGrip {
 
 export function Hud(props: HudProps): React.ReactElement {
   const { ritual, stage, textScale, highContrast } = props;
-  // Whether the survey has more to say below its own bottom edge. It is the
-  // third of the three panels an art grade found cut with nothing to say so.
-  const surveyCut = useScrollCut<HTMLDivElement>();
   // Whole pixels. A HUD drawn over a nearest-neighbour buffer cannot afford
   // half-pixel padding any more than it can afford half-pixel type; see `px`
   // in styles.ts for what the fractions were doing to the letterforms.
@@ -692,6 +687,22 @@ export function Hud(props: HudProps): React.ReactElement {
    */
   const survey = props.survey !== null && props.survey.length > 0 ? props.survey : null;
   const surveyOpen = survey !== null;
+  /*
+   * One block a line, memoised on the survey itself.
+   *
+   * The HUD re-renders on every tick of the ritual. A fresh array here would
+   * be a fresh page layout and a repaint of the note's whole rectangle sixty
+   * times a second, to draw the same words.
+   */
+  const surveyBlocks = useMemo(
+    () =>
+      (survey ?? []).map((line, index) => ({
+        kind: 'body' as const,
+        id: `survey-${String(index)}`,
+        text: line,
+      })),
+    [survey],
+  );
 
   const noticeBox =
     props.notice !== null ? (
@@ -813,57 +824,28 @@ export function Hud(props: HudProps): React.ReactElement {
           it belongs in the Passport's material.
         */}
         {survey !== null && (
-          <div style={{ display: 'flex', padding: `${scale(4)} ${scale(12)} 0` }}>
-            {/*
-              A frame with the scrolling inside it, exactly as the two overlay
-              panels are built — and for exactly the reason those two were
-              rebuilt. This was one padded element that was both the page and
-              the scrollport, so its own bottom pad sat between the last line
-              and the edge, there was nothing at the cut to say the page went
-              on, and the shipped capture shows it stopping mid-sentence at
-              "along the path to". The frame does not scroll; the cut mark can
-              therefore be positioned against it and is always exactly at the
-              cut.
-            */}
-            <div
-              className="sm-panel-tall"
-              data-more={surveyCut.more}
-              style={{
-                ...paperPanel(textScale, true),
-                maxWidth: 'min(46ch, 78vw)',
-                // Short enough to leave the world visible under it and the
-                // bottom of the frame free, tall enough that a talkative
-                // campsite is still worth reading in one go.
-                maxHeight: 'min(46vh, 340px)',
-                lineHeight: 1.65,
-                // Enabled, unlike the rest of the HUD: a region that scrolls
-                // and cannot be scrolled is a region with content nobody can
-                // reach. It is dismissed with the same key that opened it.
-                pointerEvents: 'auto',
-              }}
-            >
-              <div
-                ref={surveyCut.ref}
-                className="sm-panel-scroll"
-                role="status"
-                aria-live="assertive"
-                aria-atomic="true"
-                data-testid="survey"
-                style={{
-                  padding: paperPadding(textScale),
-                  // The page's own bottom pad plus the mark's twenty fixed
-                  // pixels, so the last line can scroll clear of the dither
-                  // rather than ending underneath it. The mark does not scale
-                  // with the type, so neither does the allowance for it.
-                  paddingBottom: `${Math.round(9 * textScale) + CUT_MARK_PX}px`,
-                }}
-              >
-                {survey.map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
-              </div>
-            </div>
-          </div>
+          /*
+            Drawn into the pixel buffer, like the two overlays it is a sibling
+            of. It was `.sm-panel-tall` — real paper, and the right material —
+            set in anti-aliased system sans at device resolution over a
+            nearest-neighbour world, which is the whole charge §6.2 has now
+            been amended for. The material is unchanged and the medium has
+            moved; see `ui/PixelPanel.tsx`.
+
+            Still `role="status"` and still `assertive`: §12's rule is that
+            nothing may be delivered through one channel, and this is the one
+            line in the product the player explicitly asked for, so
+            interrupting whatever else was being read is correct rather than
+            rude. The drawn page and the announced page are the same words.
+          */
+          <PixelNote
+            label="What is around you"
+            testId="survey"
+            blocks={surveyBlocks}
+            textScale={textScale}
+            highContrast={highContrast}
+            {...(props.frameInset === undefined ? {} : { frameInset: props.frameInset })}
+          />
         )}
       </div>
 

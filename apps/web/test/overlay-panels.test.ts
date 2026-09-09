@@ -27,14 +27,44 @@
  *
  * None of it is about whether the panels look nice. All of it is about the
  * class of defect that a screenshot has caught three times and no test once.
+ *
+ * ## What changed when the panels moved into the buffer
+ *
+ * Settings, the Passport and the survey are drawn now (`ui/PixelPanel.tsx`),
+ * so half of what this file used to measure is measured somewhere better: the
+ * cut, the measure, the rectangles and the palette are all asserted against
+ * the real drawing in `pixelPanel.test.ts`, and there is a proof sheet a human
+ * looks at. What is left here is the half that only exists once a panel is
+ * mounted in a document — the *seam*: that the way out is still first, that
+ * every drawn control still has a real element over it with a role and a name,
+ * and that the element is over the pixels it stands for rather than near them.
+ *
+ * The stylesheet block below still runs, and it is no longer about these three
+ * panels. `.sm-panel`, `.sm-overlay` and the cut mark now serve the three CSS
+ * panels that remain — the arrival card, the terminal and the code entry —
+ * which are short, are not frames with scroll regions, and were never the
+ * thing the art grade was about. The rules are checked because they are still
+ * shipped, not because the Passport still uses them.
  */
 
 import { describe, expect, it } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Settings } from '../src/ui/Settings.js';
-import { Passport } from '../src/ui/Passport.js';
+import { Settings, settingsPage } from '../src/ui/Settings.js';
+import { Passport, passportPage } from '../src/ui/Passport.js';
+import { overlayPage, overlayView } from '../src/ui/PixelPanel.js';
 import { GLOBAL_CSS, TOKENS } from '../src/ui/styles.js';
+import { hasGlyph } from '../src/render/bitmapFont.js';
+import {
+  PanelBuffer,
+  drawStamp,
+  focusTargets,
+  layoutPanel,
+  panelTextMetrics,
+  stampSeed,
+  toScreen,
+  type PanelBlock,
+} from '../src/ui/pixel/index.js';
 import { DEFAULT_ACCESSIBILITY, DEFAULT_AUDIO, type PassportState } from '../src/state/store.js';
 import { DEFAULT_RENDER_SETTINGS } from '../src/render/ps1.js';
 
@@ -86,25 +116,42 @@ const PANELS: readonly (readonly [string, (scale?: number) => string, string])[]
 /** Every text scale the settings panel can actually be set to (0.85..1.8). */
 const TEXT_SCALES = Array.from({ length: 20 }, (_, i) => Number((0.85 + i * 0.05).toFixed(2)));
 
-describe('a panel taller than the viewport', () => {
+/** The viewport `useViewportSize` reports with no window, which is what SSR gets. */
+const SSR_VIEWPORT = { width: 1024, height: 768, inset: 0 } as const;
+
+function blocksFor(panel: string): PanelBlock[] {
+  return panel === 'Settings'
+    ? settingsPage(DEFAULT_RENDER_SETTINGS, DEFAULT_ACCESSIBILITY, DEFAULT_AUDIO, {
+        onRender: () => {},
+        onAccessibility: () => {},
+        onAudio: () => {},
+      }).blocks
+    : passportPage(PASSPORT, undefined, true).blocks;
+}
+
+/** One element's inline `left/top/width/height`, in CSS pixels. */
+function boxOf(tag: string): { left: number; top: number; width: number; height: number } | null {
+  const style = /style="([^"]*)"/.exec(tag)?.[1];
+  if (style === undefined) return null;
+  const number = (name: string): number => {
+    // `px` is optional because React writes a zero-length offset as `left:0`.
+    const found = new RegExp(`(?:^|;)\\s*${name}:\\s*(-?[\\d.]+)(?:px)?(?:;|$)`).exec(style);
+    return found === null ? Number.NaN : Number(found[1]);
+  };
+  const box = { left: number('left'), top: number('top'), width: number('width'), height: number('height') };
+  return Number.isNaN(box.left) ? null : box;
+}
+
+describe('a panel drawn into the buffer', () => {
   for (const [name, markup, closeLabel] of PANELS) {
     describe(name, () => {
-      it('is a frame with exactly one scroll region inside it', () => {
+      it('is a canvas with exactly one scroll region over it', () => {
         const html = markup();
-        expect(html).toContain('class="sm-panel sm-panel-tall"');
-        expect([...html.matchAll(/class="sm-panel-scroll"/g)]).toHaveLength(1);
-      });
-
-      /*
-       * The padding is the whole defect. On the scroller it clamps the sticky
-       * fade a pad above the cut; on the frame it would do the same thing to
-       * the absolute one.
-       */
-      it('carries no padding of its own — that belongs to the scroll region', () => {
-        const panel = /class="sm-panel sm-panel-tall"[^>]*style="([^"]*)"/.exec(markup());
-        expect(panel, 'the panel element was not found').not.toBeNull();
-        expect(panel![1]).not.toMatch(/padding/);
-        expect(markup()).toMatch(/class="sm-panel-scroll" style="[^"]*padding/);
+        expect([...html.matchAll(/<canvas/g)]).toHaveLength(1);
+        // The scroll region is the only thing in the panel that scrolls, and
+        // it is a real one: the canvas is a projection of where it has got to,
+        // not a second idea of it.
+        expect([...html.matchAll(/overflow-y:\s*auto/g)]).toHaveLength(1);
       });
 
       /*
@@ -116,63 +163,271 @@ describe('a panel taller than the viewport', () => {
         const html = markup();
         const close = html.indexOf(`aria-label="${closeLabel}"`);
         expect(close).toBeGreaterThan(-1);
-        expect(close).toBeLessThan(html.indexOf('class="sm-panel-scroll"'));
-        // And nothing else focusable comes before it: the very first thing a
-        // keyboard reaches in this panel is the way out of it.
+        expect(close).toBeLessThan(html.indexOf('overflow-y:auto'));
         const firstFocusable = /<(?:button|input|a|select|textarea)\b[^>]*>/.exec(html);
         expect(firstFocusable?.[0]).toContain(closeLabel);
       });
 
-      /*
-       * The mark at the cut is conditional, and the condition is measured from
-       * the live scroll region rather than assumed. A panel rendered on the
-       * server has not measured anything yet, so it starts at "no" — what this
-       * asserts is that the wiring exists at all, because an unwired panel is
-       * the one that ships with a permanent mark or with none.
-       */
-      it('declares whether there is more below the cut', () => {
-        expect(markup()).toMatch(/class="sm-panel sm-panel-tall" data-more="(?:yes|no)"/);
-      });
-
       /* The X in the corner was U+00D7 in the system sans at 22 points: the
-         one glyph on these panels that an art grade named outright. */
+         one glyph on these panels that an art grade named outright. It is two
+         drawn diagonals on a bevelled cap now, and the button over it is
+         empty — the mark is pixels, not type. */
       it('draws its own close mark rather than setting one in a font', () => {
-        const html = markup();
-        const close = new RegExp(`<button[^>]*aria-label="${closeLabel}"[^>]*>([^<]*)</button>`).exec(html);
+        const close = new RegExp(`<button[^>]*aria-label="${closeLabel}"[^>]*>([^<]*)</button>`).exec(markup());
         expect(close, 'the close button was not found').not.toBeNull();
         expect(close![1], 'the close button still has a glyph in it').toBe('');
-        expect(html).toMatch(new RegExp(`class="sm-focus sm-close"[^>]*aria-label="${closeLabel}"`));
+      });
+
+      /*
+       * Nothing the browser draws draws anything.
+       *
+       * The whole conversion rests on one rule: the DOM means, the canvas
+       * draws. A mirrored element that paints so much as a border is a second
+       * renderer in the window, which is the defect being fixed. Every one of
+       * them is `opacity: 0`, and none of them is `display: none`,
+       * `visibility: hidden` or clipped to a pixel — that is the other half of
+       * the same rule, and it is the half a screen reader cares about.
+       */
+      it('paints nothing itself, and hides nothing from anybody', () => {
+        const html = markup();
+        const painted = [...html.matchAll(/style="([^"]*)"/g)]
+          .map((match) => match[1] ?? '')
+          .filter((style) => /(?:^|;)(?:background|border|box-shadow|text-shadow):(?!\s*(?:transparent|0|none))/.test(style));
+        expect(painted).toEqual([]);
+        expect(html).not.toMatch(/visibility:\s*hidden/);
+        expect(html).not.toMatch(/display:\s*none/);
+        expect(html).not.toMatch(/clip(?:-path)?:/);
+        // The canvas is the picture of all of it, so it is the one node that
+        // should be hidden from the accessibility tree.
+        expect(html).toMatch(/<canvas[^>]*aria-hidden/);
       });
 
       /*
        * Whole pixels, at every scale the player can choose.
        *
-       * `12.5 * 1.15` is 14.375px, and a browser draws that by smearing the
-       * stems of the type across two device pixels. Twenty scales times two
-       * panels is the whole space, and it is cheap, so there is no reason to
-       * check one of them and hope.
+       * The old panel could ask a browser for 14.375px and get smeared stems.
+       * A five-pixel bitmap face cannot be asked for that at all, so what this
+       * checks now is the thing that replaced it: that the dial still moves
+       * something at every one of its twenty stops, and that everything it
+       * moves is a whole number of buffer pixels.
        */
-      it('sets no fractional type size at any text scale', () => {
-        const fractional: string[] = [];
+      it('lands every one of the twenty text scales on whole pixels', () => {
+        const seen = new Set<string>();
         for (const scale of TEXT_SCALES) {
-          for (const [, size] of markup(scale).matchAll(/font-size:\s*([\d.]+)px/g)) {
-            if (!Number.isInteger(Number(size))) fractional.push(`${scale}x -> ${size}px`);
+          const type = panelTextMetrics(scale);
+          expect(Number.isInteger(type.scale)).toBe(true);
+          for (const [key, value] of Object.entries(type.metrics)) {
+            expect(Number.isInteger(value), `${key} is ${String(value)} at ${scale}x`).toBe(true);
           }
+          seen.add(`${type.scale}/${String(type.metrics.leading)}/${String(type.metrics.padding)}`);
         }
-        expect([...new Set(fractional)]).toEqual([]);
+        // Two glyph sizes is all a bitmap face has. If the dial only ever
+        // produced two states it would be a control that does nothing at
+        // eighteen of its stops, which is the defect `sliderReadout` has a
+        // page of notes about — so the rest of it has to buy something.
+        expect(seen.size).toBeGreaterThan(2);
       });
 
-      /* Two pixels minimum on every rule, and no rounded corner anywhere.
-         Both were named in the same art note, and both are the tell that
-         something was styled by a web framework rather than drawn. */
-      it('draws no hairline and no rounded corner', () => {
-        const html = markup();
-        expect([...html.matchAll(/border(?:-\w+)?:\s*1px/g)].map((m) => m[0])).toEqual([]);
-        const radii = [...html.matchAll(/border-radius:\s*([^;"]+)/g)].map((m) => m[1]!.trim());
-        expect(radii.filter((r) => r !== '0' && r !== '0px')).toEqual([]);
+      /*
+       * The bezel, reaching the arithmetic rather than being remembered.
+       *
+       * `Frame` draws a nine-slice rail over every edge of the viewport, and
+       * the overlays had never heard of it: they padded themselves by `4vmin`,
+       * which clears 18 pixels at 1280 wide and does not at 393. The panel
+       * rectangle is chosen *after* the inset is converted into buffer pixels
+       * now, so a page under the rail is not a thing that can be forgotten.
+       */
+      it('never lets a page overhang the bezel the build draws over the viewport', () => {
+        for (const inset of [0, 9, 18, 40]) {
+          const { view, spec } = overlayPage(1280, 720, inset, blocksFor(name), 1);
+          expect(spec.rect.x * view.scale).toBeGreaterThanOrEqual(inset);
+          expect(spec.rect.y * view.scale).toBeGreaterThanOrEqual(inset);
+          expect((spec.rect.x + spec.rect.width) * view.scale).toBeLessThanOrEqual(1280 - inset);
+          expect((spec.rect.y + spec.rect.height) * view.scale).toBeLessThanOrEqual(720 - inset);
+        }
       });
     });
   }
+});
+
+/*
+ * The seam, measured.
+ *
+ * `ui/pixel/panel.ts` says the canvas draws and the DOM means, and the one way
+ * that arrangement fails silently is a control mirrored *near* the pixels it
+ * stands for rather than *on* them: the picture invites a click somewhere the
+ * hit target is not. Nothing about that shows up in a screenshot, in a type
+ * check or in an accessibility audit — every element is present, named and
+ * operable, and the panel is simply lying about where its buttons are.
+ */
+describe('what the DOM puts over what the canvas drew', () => {
+  const settingsBlocks = (): PanelBlock[] =>
+    settingsPage(DEFAULT_RENDER_SETTINGS, DEFAULT_ACCESSIBILITY, DEFAULT_AUDIO, {
+      onRender: () => {},
+      onAccessibility: () => {},
+      onAudio: () => {},
+    }).blocks;
+
+  it('gives every drawn control a real element with a role and a name', () => {
+    const html = settingsMarkup();
+    const { spec } = overlayPage(
+      SSR_VIEWPORT.width,
+      SSR_VIEWPORT.height,
+      SSR_VIEWPORT.inset,
+      settingsBlocks(),
+      DEFAULT_ACCESSIBILITY.textScale,
+    );
+    const targets = focusTargets(layoutPanel(spec));
+    expect(targets.length).toBeGreaterThan(15);
+    const inputs = [...html.matchAll(/<input[^>]*>/g)].map((match) => match[0]);
+    const checkboxes = inputs.filter((tag) => tag.includes('type="checkbox"')).length;
+    const ranges = inputs.filter((tag) => tag.includes('type="range"')).length;
+    expect(checkboxes).toBe(targets.filter((target) => target.role === 'checkbox').length);
+    expect(ranges).toBe(targets.filter((target) => target.role === 'slider').length);
+    // And the name comes from a real label, which is what
+    // `getByRole('checkbox', { name: /Simplified gestures/ })` resolves.
+    for (const target of targets) expect(html).toContain(`<span>${target.label}</span>`);
+  });
+
+  it('puts each of them exactly over the pixels it stands for', () => {
+    const html = settingsMarkup();
+    const { view, spec } = overlayPage(
+      SSR_VIEWPORT.width,
+      SSR_VIEWPORT.height,
+      SSR_VIEWPORT.inset,
+      settingsBlocks(),
+      DEFAULT_ACCESSIBILITY.textScale,
+    );
+    const layout = layoutPanel(spec);
+    const rows = [...html.matchAll(/<label[^>]*>/g)].map((match) => boxOf(match[0]));
+    const drawn = layout.blocks
+      .flatMap((block) => block.controls)
+      .filter((control) => control.kind !== 'button');
+    expect(rows.length).toBe(drawn.length);
+    drawn.forEach((control, index) => {
+      // The page's own coordinates: the scroller carries the offset, so at the
+      // top of an unscrolled page these are the drawn ones less the content
+      // origin. If the two ever disagree the picture and the hit target do.
+      const expected = toScreen(
+        {
+          x: control.rect.x - layout.content.x,
+          y: control.rect.y - layout.content.y + layout.scroll.top,
+          width: control.rect.width,
+          height: control.rect.height,
+        },
+        { scale: view.scale },
+      );
+      expect(rows[index], `control ${index} has no box`).not.toBeNull();
+      expect(rows[index]!.left, `control ${index} left`).toBe(expected.left);
+      expect(rows[index]!.top, `control ${index} top`).toBe(expected.top);
+      expect(rows[index]!.width, `control ${index} width`).toBe(expected.width);
+    });
+  });
+});
+
+/*
+ * The booklet's copy, which is the half of the Passport a drawing cannot check.
+ */
+describe('what the Passport prints', () => {
+  const stamped: PassportState = {
+    ...PASSPORT,
+    stamps: ['stamp-golden', 'stamp-first-light'],
+    sandwichCount: 47,
+    redeemedCodes: [{ id: 'r1', awarded: 'free_kit added to your Passport.', batchId: 'b', redeemedAt: 0 }],
+  };
+
+  it('sets every character in a glyph the font actually has', () => {
+    /*
+     * A character with no glyph draws as a hollow box — correct behaviour for
+     * a missing glyph, and a word with a box in it on the page. The booklet is
+     * the panel with the most shipped copy on it, so it is the one that finds
+     * these.
+     */
+    const { blocks } = passportPage(stamped, undefined, true);
+    const undrawable = new Set<string>();
+    for (const block of blocks) {
+      const texts: string[] = [];
+      if ('text' in block) texts.push(block.text);
+      if (block.kind === 'stamps') for (const mark of block.marks) texts.push(mark.label);
+      if (block.kind === 'controls') for (const control of block.controls) texts.push(control.label);
+      for (const text of texts) {
+        for (const character of text) {
+          if (character !== '\n' && !hasGlyph(character)) undrawable.add(character);
+        }
+      }
+    }
+    expect([...undrawable]).toEqual([]);
+  });
+
+  /*
+   * Spec §5.3. The Passport is a record of sandwiches, not a stat screen, and
+   * the easiest way to turn it into one is to print a number that is already
+   * in the state — `sandwichCount` is right there and has never been shown.
+   */
+  it('is a record rather than a total', () => {
+    const { blocks } = passportPage(stamped, undefined, true);
+    const printed = blocks.map((block) => ('text' in block ? block.text : '')).join('\n');
+    expect(printed).not.toContain('47');
+    expect(printed).not.toMatch(/\b\d+\s*\/\s*\d+\b/);
+    expect(printed.toLowerCase()).not.toMatch(/score|streak|total|complete/);
+  });
+
+  it('keeps the stub a reader can find', () => {
+    const { testIds } = passportPage(stamped, undefined, true);
+    expect(Object.values(testIds)).toContain('passport-stub');
+    expect(Object.values(testIds)).toContain('passport-add-code');
+    expect(passportMarkup(1, stamped)).toContain('data-testid="passport-stub"');
+  });
+});
+
+/*
+ * The stamp, now that it is pressed rather than declared.
+ *
+ * "As drawn it is a border-radius" — and it was: a 76px div with a 50% radius
+ * on it. The three properties the old SVG version was checked for are the same
+ * three, read off the pixels instead of off the markup.
+ */
+describe('the passport stamp', () => {
+  const mark = (id: string): PanelBuffer => {
+    const buffer = new PanelBuffer(48, 48, 'paper');
+    drawStamp(buffer, { x: 0, y: 0, width: 48, height: 48 }, { label: 'pine hollow', seed: stampSeed(id) });
+    return buffer;
+  };
+
+  const ringRow = (buffer: PanelBuffer, y: number): string => {
+    let row = '';
+    for (let x = 0; x < buffer.width; x++) row += buffer.get(x, y) === 'stamp' ? '#' : '.';
+    return row;
+  };
+
+  it('is inked rather than outlined', () => {
+    const buffer = mark('stamp-golden');
+    let inked = 0;
+    for (let y = 0; y < 48; y++) for (let x = 0; x < 48; x++) if (buffer.get(x, y) === 'stamp') inked += 1;
+    expect(inked).toBeGreaterThan(60);
+  });
+
+  it('is broken along its ring rather than closed', () => {
+    /*
+     * A closed ring is a border however it is drawn. Read across the die's own
+     * centre line: a ring with four gaps in it cannot put ink at both ends of
+     * every row it crosses, and a mottled one cannot be solid anywhere.
+     */
+    const buffer = mark('stamp-first-light');
+    const rows = [12, 24, 36].map((y) => ringRow(buffer, y));
+    expect(rows.some((row) => !row.includes('#'))).toBe(false);
+    expect(rows.every((row) => /#{6,}/.test(row))).toBe(false);
+  });
+
+  /* The same booklet, opened twice, is the same booklet. Everything variable
+     about a stamp is a hash of its own id. */
+  it('draws the same mark every time it is opened', () => {
+    const once = mark('stamp-golden');
+    const twice = mark('stamp-golden');
+    for (let y = 0; y < 48; y++) expect(ringRow(twice, y)).toBe(ringRow(once, y));
+    // And a different stamp is a different mark.
+    expect(ringRow(mark('stamp-first-light'), 24)).not.toBe(ringRow(once, 24));
+  });
 });
 
 describe('the stylesheet the cut depends on', () => {
@@ -304,44 +559,5 @@ describe('the stylesheet the cut depends on', () => {
     const wide = /@media \(min-aspect-ratio: 1\/1\)\s*\{([\s\S]*?)\n  \}/.exec(GLOBAL_CSS);
     expect(wide, 'there is no wide arrangement').not.toBeNull();
     expect(wide![1]).toContain('"words acts"');
-  });
-});
-
-describe('the passport stamp', () => {
-  const stamped: PassportState = { ...PASSPORT, stamps: ['stamp-golden', 'stamp-first-light'] };
-
-  /* "As drawn it is a border-radius" — and it was: a 76px div with a 50%
-     radius on it. A rubber die does not print a perfect circle. */
-  it('is drawn rather than rounded off a div', () => {
-    const html = passportMarkup(1, stamped);
-    expect(html).not.toMatch(/border-radius:\s*50%/);
-    expect([...html.matchAll(/<circle[^>]*stroke-dasharray/g)].length).toBeGreaterThanOrEqual(2);
-  });
-
-  it('is broken along its ring rather than closed', () => {
-    for (const [, dash] of passportMarkup(1, stamped).matchAll(/stroke-dasharray="([\d. ]+)"/g)) {
-      const [run, gap] = (dash as string).split(' ').map(Number);
-      expect(run, 'a stamp ring with no ink is not a ring').toBeGreaterThan(0);
-      expect(gap, 'a closed ring is a border however it is drawn').toBeGreaterThan(0);
-    }
-  });
-
-  it('lands between four and seven degrees off square, either way', () => {
-    const tilts = [...passportMarkup(1, stamped).matchAll(/rotate\((-?\d+)deg\)/g)]
-      .map((m) => Number(m[1]))
-      // The polaroids are rotated too, and they have their own range.
-      .filter((_, index, all) => all.length > 0);
-    const stampTilts = tilts.filter((t) => Math.abs(t) >= 1);
-    expect(stampTilts.length).toBeGreaterThan(0);
-    for (const tilt of stampTilts) {
-      expect(Math.abs(tilt), `${tilt} degrees reads as a rendering error, not a hand`).toBeGreaterThanOrEqual(4);
-      expect(Math.abs(tilt)).toBeLessThanOrEqual(7);
-    }
-  });
-
-  /* The same booklet, opened twice, is the same booklet. Everything variable
-     about a stamp is a hash of its own id. */
-  it('draws the same mark every time it is opened', () => {
-    expect(passportMarkup(1, stamped)).toBe(passportMarkup(1, stamped));
   });
 });

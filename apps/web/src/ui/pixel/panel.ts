@@ -77,6 +77,7 @@ import {
   type PaperPanelOptions,
 } from './chrome.js';
 import { controlById, type LaidOutBlock, type LaidOutLine, type PanelLayout } from './layout.js';
+import { developPhoto, drawPrintCard, drawUndeveloped, type PhotoPixels } from './photo.js';
 import type { PanelInk } from './palette.js';
 
 export interface DrawPanelOptions extends PaperPanelOptions {
@@ -91,6 +92,26 @@ export interface DrawPanelOptions extends PaperPanelOptions {
   readonly focusedId?: string | null;
   /** Hash a stamp's id to a seed. Defaults to a small FNV-style hash. */
   readonly stampSeed?: (id: string) => number;
+  /**
+   * The bytes of one photograph, if the caller has them yet.
+   *
+   * A callback rather than a field on the block, because `layoutPanel` is pure
+   * and a photograph is a runtime data URL that has to be decoded by something
+   * with a DOM in it. The layout knows how big a print is and where it goes;
+   * only paint time knows what is on it. A photograph the caller cannot supply
+   * is drawn as an undeveloped frame rather than left as a hole.
+   */
+  readonly photo?: (id: string) => PhotoPixels | undefined;
+  /**
+   * Spend the page's whole contrast budget on the type.
+   *
+   * Two things go, and both are things `styles.ts` would have called
+   * decoration: the printed screen over the paper, and the soft ink secondary
+   * type. Hints and captions are drawn in full ink instead — a hint set in
+   * `inkSoft` is the lowest-contrast thing on the panel, and it is the text a
+   * reader who reached for this setting is most likely to be squinting at.
+   */
+  readonly highContrast?: boolean;
 }
 
 /** The same shape of hash `Passport.tsx` uses, so a stamp keeps its identity. */
@@ -103,19 +124,24 @@ export function stampSeed(id: string): number {
   return hash >>> 0;
 }
 
-function inkFor(tone: LaidOutLine['tone']): PanelInk {
-  return tone === 'soft' ? 'inkSoft' : 'ink';
+function inkFor(tone: LaidOutLine['tone'], highContrast = false): PanelInk {
+  return tone === 'soft' && !highContrast ? 'inkSoft' : 'ink';
 }
 
-function paintLines(surface: PanelSurface, lines: readonly LaidOutLine[]): void {
+function paintLines(
+  surface: PanelSurface,
+  lines: readonly LaidOutLine[],
+  highContrast = false,
+): void {
   for (const line of lines) {
     if (line.text === '') continue;
-    drawText(surface, line.rect.x, line.rect.y, line.text, inkFor(line.tone), line.style);
+    drawText(surface, line.rect.x, line.rect.y, line.text, inkFor(line.tone, highContrast), line.style);
   }
 }
 
 function paintBlock(surface: PanelSurface, block: LaidOutBlock, options: DrawPanelOptions): void {
-  paintLines(surface, block.lines);
+  const high = options.highContrast === true;
+  paintLines(surface, block.lines, high);
 
   if (block.kind === 'rule') {
     const style = block.block.kind === 'rule' ? (block.block.style ?? 'solid') : 'solid';
@@ -125,7 +151,7 @@ function paintBlock(surface: PanelSurface, block: LaidOutBlock, options: DrawPan
       block.rect.y,
       block.rect.width,
       style,
-      style === 'solid' ? 'ink' : 'inkSoft',
+      style === 'solid' || high ? 'ink' : 'inkSoft',
     );
   }
 
@@ -134,11 +160,19 @@ function paintBlock(surface: PanelSurface, block: LaidOutBlock, options: DrawPan
     drawStamp(surface, mark.rect, { label: mark.label, seed: seedOf(mark.id) });
   }
 
+  for (const print of block.photos) {
+    drawPrintCard(surface, print.rect);
+    const pixels = options.photo?.(print.id);
+    if (pixels === undefined) drawUndeveloped(surface, print.image);
+    else developPhoto(surface, print.image, pixels);
+    paintLines(surface, print.lines, high);
+  }
+
   for (const control of block.controls) {
     if (control.kind === 'button') drawButtonChrome(surface, control.control);
     else if (control.kind === 'checkbox') drawCheckbox(surface, control.control, control.checked === true);
     else drawSlider(surface, control.control, control.fraction ?? 0);
-    paintLines(surface, control.lines);
+    paintLines(surface, control.lines, high);
   }
 }
 

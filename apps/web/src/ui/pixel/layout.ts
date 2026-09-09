@@ -54,7 +54,18 @@ export interface PanelMetrics {
   readonly bevel: number;
   /** Paper between the bevel and the first word. */
   readonly padding: number;
-  /** One line of body type to the next. */
+  /**
+   * Blank rows between one line's ink and the next.
+   *
+   * Here rather than baked into `lineHeight` because it is the one metric the
+   * accessibility text slider can move without changing the size of a glyph.
+   * See `panelTextMetrics`: below the point where the type doubles, the dial
+   * spends itself on this and on `padding`, which is what the font's own note
+   * about `integerTextScale` recommends and is the half of "larger text" a
+   * bitmap face can actually deliver.
+   */
+  readonly leading: number;
+  /** One line of body type to the next: `lineInk + leading`. */
   readonly lineHeight: number;
   /** Height of one line's ink. */
   readonly lineInk: number;
@@ -70,6 +81,18 @@ export interface PanelMetrics {
   readonly sliderHeight: number;
   readonly stampSize: number;
   readonly stampGap: number;
+  /**
+   * How wide the picture inside a print is.
+   *
+   * Eighty buffer pixels, sixteen to nine — the shape of the world buffer the
+   * photograph was taken out of, so a print is a crop of what was on screen
+   * rather than a squashed copy of it. It is not arbitrary at either end: a
+   * print reduced much past this stops being a picture of somewhere and
+   * becomes a grey square, and much wider than this only two fit across a
+   * 288-pixel measure, which reads as two large pictures rather than as a
+   * page of an album.
+   */
+  readonly photoWidth: number;
   /** How deep the dithered fade at a scroll cut is. */
   readonly cutMark: number;
 }
@@ -88,19 +111,21 @@ export interface PanelMetrics {
  * it survives the move into the buffer unchanged: the mark is a printed
  * dither, and a dither that grows with the type stops being a dither.
  */
-export function panelMetrics(scale = 1): PanelMetrics {
+export function panelMetrics(scale = 1, extraLeading = 1): PanelMetrics {
   // `integerTextScale` rather than a rounding of our own. It is the font's
   // rule about what the accessibility slider is allowed to mean, it has the
   // argument for the floor written next to it, and a panel that rounded the
   // same setting differently from the type inside it would be a panel whose
   // padding and whose words disagreed about how large the page is.
   const s = integerTextScale(scale);
+  const leading = Math.max(1, Math.round(extraLeading)) * s;
   return {
     scale: s,
     border: 1,
     bevel: 2,
     padding: 4 * s,
-    lineHeight: (CELL_HEIGHT + 1) * s,
+    leading,
+    lineHeight: CELL_HEIGHT * s + leading,
     lineInk: CELL_HEIGHT * s,
     paragraphGap: 4 * s,
     headingGapAbove: 6 * s,
@@ -114,6 +139,7 @@ export function panelMetrics(scale = 1): PanelMetrics {
     sliderHeight: CELL_HEIGHT * s,
     stampSize: 48 * s,
     stampGap: 6 * s,
+    photoWidth: 80 * s,
     cutMark: 8,
   };
 }
@@ -121,6 +147,57 @@ export function panelMetrics(scale = 1): PanelMetrics {
 /** Border + bevel + padding: how far the first word is from the panel's edge. */
 export function contentInset(metrics: PanelMetrics): number {
   return metrics.border + metrics.bevel + metrics.padding;
+}
+
+/**
+ * The accessibility text slider, landed on a bitmap face.
+ *
+ * The slider runs 0.85 to 1.8 in steps of 0.05 — twenty stops, designed for a
+ * browser that can set type at 14.375px. `integerTextScale` says what a 5x9
+ * cell can do with that and it is blunt: 1x, 2x, and nothing in between, so
+ * eighteen of the twenty stops would move nothing. A dial where eighteen stops
+ * do nothing is the same defect `Settings.tsx` already has a long note about,
+ * and the answer is not to throw the other eighteen away.
+ *
+ * So the dial is read twice, and this is the whole mapping:
+ *
+ *   GLYPH     `integerTextScale(setting, base)`. Two sizes at a 240-row
+ *             buffer, three at 360. Nothing else is honest.
+ *   LEADING   the fractional remainder, as whole rows between the lines.
+ *             0.85–1.15 is one row, 1.15–1.45 two, and so on up to the point
+ *             the glyph doubles and the remainder resets.
+ *   MEASURE   the same remainder, as page padding — which narrows the column.
+ *
+ * That is `integerTextScale`'s own recommendation taken literally: "leading,
+ * panel padding and — the one that actually helps a reader — the measure".
+ * Forty-six characters a line with two rows of leading is easier to read than
+ * twenty-three characters at 2x, and it does not cost half the passport.
+ *
+ * The dial is not quantised anywhere else. `textScale` still scales the HUD,
+ * the arrival card and every remaining CSS surface continuously, so nothing
+ * about the setting is lost — it is only *inside a drawn panel* that it lands
+ * on whole pixels, because inside a drawn panel there is nothing else to land
+ * on.
+ */
+export function panelTextMetrics(
+  setting: number,
+  base = 1,
+): { readonly scale: number; readonly metrics: Partial<PanelMetrics> } {
+  const scale = integerTextScale(setting, base);
+  // How far into the current glyph size the dial has climbed, 0..1. Below the
+  // floor (the slider starts at 0.85, under 1) this is 0: the bottom of this
+  // slider must never make the page *less* readable than its default.
+  const wanted = Number.isFinite(setting) && setting > 0 ? base * setting : base;
+  const remainder = Math.min(1, Math.max(0, wanted - scale + 0.5));
+  const rows = 1 + Math.round(remainder * 2);
+  return {
+    scale,
+    metrics: {
+      leading: rows * scale,
+      lineHeight: CELL_HEIGHT * scale + rows * scale,
+      padding: (4 + Math.round(remainder * 4)) * scale,
+    },
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -174,6 +251,25 @@ export interface StampsBlock {
   readonly marks: readonly StampMark[];
 }
 
+/**
+ * One photograph in the album.
+ *
+ * No pixels here, and that is the point: the layout knows how big a print is
+ * and where it goes, and nothing about what is on it. The bytes arrive at
+ * paint time through `DrawPanelOptions.photo`, because they are a runtime data
+ * URL from photo mode and a pure layout function may not go and decode one.
+ */
+export interface PhotoMark {
+  readonly id: string;
+  readonly caption: string;
+}
+
+export interface PhotosBlock {
+  readonly kind: 'photos';
+  readonly id: string;
+  readonly photos: readonly PhotoMark[];
+}
+
 export interface ButtonControl {
   readonly kind: 'button';
   readonly id: string;
@@ -214,6 +310,7 @@ export type PanelBlock =
   | RuleBlock
   | SpacerBlock
   | StampsBlock
+  | PhotosBlock
   | ControlsBlock;
 
 /* -------------------------------------------------------------------------- */
@@ -265,6 +362,17 @@ export interface LaidOutMark {
   readonly rect: Rect;
 }
 
+export interface LaidOutPhoto {
+  readonly id: string;
+  readonly caption: string;
+  /** The whole print: white border, picture, caption strip. */
+  readonly rect: Rect;
+  /** Just the picture, which is what the image is quantised into. */
+  readonly image: Rect;
+  /** The caption, already wrapped to the print and placed. */
+  readonly lines: readonly LaidOutLine[];
+}
+
 export interface LaidOutBlock {
   readonly id: string;
   readonly kind: PanelBlock['kind'];
@@ -274,6 +382,7 @@ export interface LaidOutBlock {
   readonly lines: readonly LaidOutLine[];
   readonly controls: readonly LaidOutControl[];
   readonly marks: readonly LaidOutMark[];
+  readonly photos: readonly LaidOutPhoto[];
   /** Wholly above the cut and below the top of the viewport. */
   readonly visible: boolean;
 }
@@ -340,8 +449,15 @@ export function headingStyle(metrics: PanelMetrics, level: 1 | 2): TextStyle {
   return { scale: metrics.scale, tracking: 2 * metrics.scale };
 }
 
+/**
+ * One line to the next, for a style that may not be body size.
+ *
+ * The ink is the style's own — a level-1 heading is a scale larger — and the
+ * gap under it is the panel's, so raising the leading airs out a page without
+ * the headings drifting away from the paragraphs they belong to.
+ */
 function lineHeightFor(style: TextStyle, metrics: PanelMetrics): number {
-  return (CELL_HEIGHT + 1) * (style.scale ?? metrics.scale);
+  return CELL_HEIGHT * (style.scale ?? metrics.scale) + metrics.leading;
 }
 
 function inkHeightFor(style: TextStyle, metrics: PanelMetrics): number {
@@ -365,6 +481,7 @@ interface FlowBlock {
   readonly lines: LaidOutLine[];
   readonly controls: Omit<LaidOutControl, 'visible'>[];
   readonly marks: LaidOutMark[];
+  readonly photos: LaidOutPhoto[];
 }
 
 /** Text laid out in content-relative coordinates, one atom per line. */
@@ -613,6 +730,121 @@ function flowControls(
   return { controls, height };
 }
 
+/**
+ * A shelf of prints.
+ *
+ * Laid out like the stamps and for the same reason — a row at a time, the row
+ * is the atom — but a print is not a die: it has a caption under it, and the
+ * caption is content rather than texture. So the whole print including its
+ * caption is one atom, and a row of prints is as tall as the wordiest caption
+ * in it. A photograph sliced in half by a scroll cut would be worse than a
+ * line of type sliced in half, because a reader cannot tell a cropped print
+ * from a badly taken one.
+ */
+function flowPhotos(
+  block: PhotosBlock,
+  width: number,
+  metrics: PanelMetrics,
+  top: number,
+  atoms: Atom[],
+): { photos: LaidOutPhoto[]; height: number } {
+  const photos: LaidOutPhoto[] = [];
+  if (block.photos.length === 0) return { photos, height: 0 };
+
+  const style = bodyStyle(metrics);
+  const lineHeight = lineHeightFor(style, metrics);
+  const ink = inkHeightFor(style, metrics);
+  const border = 2 * metrics.scale;
+  // Never wider than the measure: a print that hangs through the border is the
+  // one thing every rectangle out of this module promises not to do.
+  const nominal = Math.max(1, Math.min(metrics.photoWidth, width - border * 2));
+  const perRow = Math.max(1, Math.floor((width + metrics.stampGap) / (nominal + border * 2 + metrics.stampGap)));
+  /*
+   * One print to a row takes the whole measure.
+   *
+   * A narrow column — a phone held upright — fits one print beside nothing,
+   * and an eighty-pixel print half way across a hundred and sixty pixel page
+   * reads as a layout that ran out of room rather than as an album. When
+   * there is only one, it is the page's width, which is what a photograph in a
+   * pocket album is.
+   */
+  const pictureWidth = perRow === 1 ? Math.max(1, width - border * 2) : nominal;
+  const pictureHeight = Math.round((pictureWidth * 9) / 16);
+  const printWidth = pictureWidth + border * 2;
+  const step = printWidth + metrics.stampGap;
+
+  /*
+   * Every card in the block is the same height, and it is decided before any
+   * of them is placed.
+   *
+   * A shelf of prints where one card is a line taller than the one beside it
+   * reads as a layout accident rather than as a page of an album — the same
+   * argument `flowControls` makes about a row of buttons. So the captions are
+   * wrapped first and the tallest one sets the card.
+   */
+  const captions = block.photos.map((photo) => captionFor(photo.caption, pictureWidth, style));
+  const captionLines = Math.max(0, ...captions.map((lines) => lines.length));
+  const captionHeight = captionLines === 0 ? 0 : captionLines * lineHeight - (lineHeight - ink);
+  const cardHeight = border * 2 + pictureHeight + (captionLines === 0 ? 0 : border + captionHeight) + border;
+
+  let y = top;
+  let rowHeight = 0;
+  for (let index = 0; index < block.photos.length; index++) {
+    const photo = block.photos[index];
+    if (photo === undefined) continue;
+    const column = index % perRow;
+    if (column === 0 && index > 0) {
+      atoms.push({ top: y, bottom: y + rowHeight });
+      y += rowHeight + metrics.stampGap;
+      rowHeight = 0;
+    }
+    const x = column * step;
+    const image: Rect = { x: x + border, y: y + border, width: pictureWidth, height: pictureHeight };
+    const lines: LaidOutLine[] = [];
+    let textY = bottom(image) + border;
+    for (const text of captions[index] ?? []) {
+      lines.push({
+        text,
+        rect: { x: image.x, y: textY, width: measureText(text, style).width, height: ink },
+        tone: 'ink',
+        style,
+      });
+      textY += lineHeight;
+    }
+    photos.push({
+      id: photo.id,
+      caption: photo.caption,
+      rect: { x, y, width: printWidth, height: cardHeight },
+      image,
+      lines,
+    });
+    rowHeight = Math.max(rowHeight, cardHeight);
+  }
+  atoms.push({ top: y, bottom: y + rowHeight });
+  return { photos, height: y + rowHeight - top };
+}
+
+/**
+ * A caption, wrapped to the print and told when it has been cut short.
+ *
+ * Two lines at most: a caption is a note in a margin, not a paragraph, and a
+ * third line turns a shelf of prints into a wall of type. The ellipsis is not
+ * decoration — the first proof sheet printed "Something moved by the" and
+ * stopped, which is not a shortened caption, it is a caption with a rendering
+ * fault in it. The font draws `…` as one glyph for exactly this reason.
+ */
+function captionFor(caption: string, width: number, style: TextStyle): string[] {
+  const wrapped = wrapText(caption, width, style);
+  if (wrapped.length <= 2) return wrapped;
+  const kept = wrapped.slice(0, 2);
+  let last = `${kept[1] ?? ''}…`;
+  while (last.length > 1 && measureText(last, style).width > width) {
+    last = `${last.slice(0, -2)}…`;
+  }
+  kept[1] = last;
+  return kept;
+}
+
 function flowStamps(
   block: StampsBlock,
   width: number,
@@ -682,6 +914,7 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
     let lines: LaidOutLine[] = [];
     let controls: Omit<LaidOutControl, 'visible'>[] = [];
     let marks: LaidOutMark[] = [];
+    let photos: LaidOutPhoto[] = [];
     let height = 0;
 
     switch (block.kind) {
@@ -738,6 +971,12 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
         height = laid.height;
         break;
       }
+      case 'photos': {
+        const laid = flowPhotos(block, content.width, metrics, top, atoms);
+        photos = laid.photos;
+        height = laid.height;
+        break;
+      }
       case 'controls': {
         const laid = flowControls(block, content.width, metrics, top, atoms);
         controls = laid.controls;
@@ -754,6 +993,7 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
       lines,
       controls,
       marks,
+      photos,
     });
     y = top + height;
     previous = block.kind;
@@ -841,6 +1081,12 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
         };
       }),
       marks: item.marks.map((mark) => ({ ...mark, rect: offset(mark.rect, content.x) })),
+      photos: item.photos.map((photo) => ({
+        ...photo,
+        rect: offset(photo.rect, content.x),
+        image: offset(photo.image, content.x),
+        lines: photo.lines.map((line) => ({ ...line, rect: offset(line.rect, content.x) })),
+      })),
       visible,
     };
   });

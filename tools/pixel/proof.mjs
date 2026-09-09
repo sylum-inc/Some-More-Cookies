@@ -259,12 +259,14 @@ function settingsBlocks() {
         {
           /*
            * The readout is `sliderReadout()`'s real output — "×1.00" — and it
-           * is here on purpose, because the sheet is the only place the
-           * problem with it shows. There is no U+00D7 in the font. The panel
-           * draws the hollow box `bitmapFont.ts` reserves for a glyph nobody
-           * has authored, which is exactly what `Settings.tsx` would print the
-           * day it is converted, and exactly the kind of defect this proof
-           * exists to catch before a player does.
+           * is here because this sheet is where the problem with it showed.
+           * There was no U+00D7 in the font, so the panel drew the hollow box
+           * `bitmapFont.ts` reserves for a glyph nobody has authored: a
+           * multiplier printed as a missing character, caught here rather than
+           * by a player. The conversion resolved it in the font — that readout
+           * took three rounds of art grading and was not going to lose to a
+           * missing glyph — and the row stays on the sheet so the mark is
+           * looked at every run rather than assumed.
            */
           kind: 'slider',
           id: 'text-size',

@@ -2439,6 +2439,17 @@ export function App({ store }: AppProps): React.ReactElement {
           passport={state.passport}
           campsiteSeed={state.campsiteSeed}
           textScale={state.accessibility.textScale}
+          highContrast={state.accessibility.highContrast}
+          /*
+            The bezel, in screen pixels.
+
+            The drawn panels lay themselves out in buffer pixels and have to
+            inset by the rail before they choose a rectangle, or the page is
+            drawn partly under the steel. `Frame` also publishes it as
+            `--sm-frame-inset` for the CSS panels that are left; this is the
+            same number by the route that cannot be missed.
+          */
+          frameInset={bezelInset(viewport.width, showFrame)}
           onClose={() => store.setOverlay('none')}
           onAddCode={() => store.setOverlay('scan')}
           onLink={(provider) => {
@@ -2515,6 +2526,7 @@ export function App({ store }: AppProps): React.ReactElement {
           render={state.render}
           accessibility={state.accessibility}
           audio={state.audio}
+          frameInset={bezelInset(viewport.width, showFrame)}
           onRender={(partial) => store.updateRender(partial)}
           onAccessibility={(partial) => store.updateAccessibility(partial)}
           onAudio={(partial) => store.updateAudio(partial)}

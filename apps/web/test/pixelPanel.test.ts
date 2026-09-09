@@ -701,17 +701,27 @@ describe('the copy the overlays already ship', () => {
   /*
    * A guard, not a feature.
    *
-   * `Settings.tsx` prints its multiplier as "×1.00" — U+00D7, which the font
-   * has no glyph for and draws as a hollow box. That is the correct behaviour
-   * for a missing glyph and the wrong thing to ship, and a panel full of
-   * shipped copy is going to hit more of these. Anything a converted overlay
-   * hands the kit should go past this shape of check first.
+   * This check was written against `Settings.tsx`'s multiplier — "×1.00",
+   * U+00D7, which the font had no glyph for and drew as a hollow box. The
+   * conversion resolved that in the font rather than in the panel: the readout
+   * took three rounds of art grading to arrive at and was not going to be
+   * transliterated to an "x" to suit a missing character, so `bitmapFont.ts`
+   * grew the multiplication sign. It is checked here now as *drawable*, which
+   * is the half of that decision this file can hold.
+   *
+   * The guard itself outlives its first example. A panel full of shipped copy
+   * will hit more of these, and anything a converted overlay hands the kit
+   * should go past this shape of check first.
    */
   it('names the characters a converted panel cannot draw', () => {
     const undrawable = (text: string): string[] =>
       [...text].filter((character) => character !== '\n' && !hasGlyph(character));
     expect(undrawable('Campfire Passport · issued 12 May 2026 — kept')).toEqual([]);
-    expect(undrawable('×1.00')).toEqual(['×']);
+    expect(undrawable('×1.00')).toEqual([]);
+    // An accented letter is the shape of thing still missing, and it is the
+    // one that arrives with a localisation rather than with a rendering
+    // change: the font grows the glyphs before the copy does.
+    expect(undrawable('café')).toEqual(['é']);
     // A non-breaking space is the other one, and it is worse: it is invisible
     // in the source and prints as a box in the middle of a sentence.
     expect(undrawable('Site 14')).toEqual([' ']);

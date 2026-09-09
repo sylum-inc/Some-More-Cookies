@@ -212,6 +212,24 @@ export const GLYPHS: Readonly<Record<string, string>> = {
 
   // ° degree
   '°': '.##../#..#./.##../...../...../...../...../...../.....',
+  /*
+   * × multiplication sign.
+   *
+   * Added when the overlays moved into the buffer, for one string:
+   * `Settings.tsx` prints a multiplier as "×1.00" and the panel drew it as the
+   * hollow missing-glyph box. That readout took three rounds of art grading to
+   * arrive at — a percentage beside a handle that is not at that percentage is
+   * the defect it exists to prevent — so the font grew the character rather
+   * than the panel losing the mark.
+   *
+   * Three pixels across rather than a copy of `x`: at five pixels a lowercase
+   * `x` and a multiplication sign have the same skeleton, and a font where two
+   * characters are the same drawing is the exact bug `bitmapFont.test.ts`
+   * spends its most valuable assertion on. It sits on rows 2 to 4 so that its
+   * centre is the figures' centre — the proof sheet had it a row lower and
+   * "×1.00" read as a subscript rather than as a multiplier.
+   */
+  '×': '...../...../.#.#./..#../.#.#./...../...../...../.....',
   // · middle dot — the separator in the stamped stickers
   '·': '...../...../...../...../..#../...../...../...../.....',
   /*

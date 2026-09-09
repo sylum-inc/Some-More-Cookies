@@ -303,6 +303,17 @@ The persistent player identity is the **Campfire Passport**: a hybrid of field j
 
 **Boot goes toward the world,** not toward the Passport. The Passport is opened, not landed on.
 
+**Amendment — the overlays are drawn, not styled.** This section previously described the Passport, Settings and the spoken survey as a *warm paper field journal* and left the medium implicit, and the build read that as licence to style them in the browser: anti-aliased Georgia and system sans at device resolution, `rgba()` washes the compositor invents colours for, `border-radius`, `linear-gradient`, `box-shadow`. The world behind them is a 426x240 internal buffer upscaled by a whole number, quantised against a 4x4 Bayer matrix, with a hand-authored 5x9 bitmap face. Two rendering languages in one window: the shipped captures (`artifacts/gallery/overlay-*.png`) read as a browser dialog dropped on top of a game, which is a stronger signal to a player than anything either half was trying to say.
+
+So the *material* stands and the *medium* changes. The overlays are drawn into the pixel buffer, in the game's own eleven colours, in the game's own font, with ordered dithering instead of gradients — the field journal, the campground booklet, the stamps, the polaroids and the weathered paper are all still there, made of pixels this time. The one visual language wins over the one metaphor, because a metaphor a player cannot see past is not doing any work.
+
+Four consequences are binding, not incidental:
+
+- **The DOM is not optional.** A canvas has one node in the accessibility tree. Every heading, paragraph, stamp, photograph and control on a drawn panel is also a real element, positioned exactly over the pixels that stand for it and painted out with `opacity: 0` — never `display: none`, `visibility: hidden`, `aria-hidden` or a one-pixel clip. Focus lives in the DOM; the canvas draws a ring around whatever the DOM says has it (§12).
+- **Photographs are developed, not displayed.** A photograph is a runtime capture with no palette. It is box-filtered down to a print about eighty pixels across and ordered-dithered onto the panel's own paper-to-ink ramp — a halftone print in the booklet's ink, which is what a photograph in a campground scrapbook is. It is never an `<img>` floating over the buffer.
+- **Type has two sizes, and the text slider still has twenty stops.** A five-pixel bitmap face has 1x and 2x and nothing between. Inside a drawn panel the accessibility dial lands on those; the rest of its range buys line spacing and page margin, which is the half of "larger text" a bitmap face can actually deliver. Everywhere else in the interface it still scales continuously, so nothing about the setting is lost.
+- **§5.3 is unchanged and unrelaxed.** The Passport is a record of sandwiches. Moving it into the buffer is not an invitation to add a number to it.
+
 ### 6.3 Persistent campsites
 
 Campsites remember: moved objects · photos taken · discoveries · notes left · machine history · wildlife relationships · environmental traces · sandwich memories.

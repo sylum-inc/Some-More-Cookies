@@ -1186,18 +1186,65 @@ function pushTriangle(
 }
 
 /** An irregular low-poly rock. */
+/**
+ * A rock, and the bug that made every one of them a pile of loose triangles.
+ *
+ * `IcosahedronGeometry` is **non-indexed**: twenty faces are stored as sixty
+ * separate corners, so the twelve corners of the solid appear five times each.
+ * This function used to draw a fresh random scale per *index* — sixty draws for
+ * twelve corners — which moved all three corners of every face independently
+ * and burst the solid into twenty free-floating triangles. `computeVertexNormals`
+ * then gave each shard a flat normal pointing wherever it happened to end up,
+ * and about half of them faced away from whatever was lighting the scene and
+ * shaded to nothing.
+ *
+ * That is every rock in the game: the fire ring, the four scatter rocks in the
+ * clearing, the curio stones, and the stumps, rootballs and cairn stones in
+ * `landmarks.ts`. An art director described the result without seeing any code
+ * — "hard-edged angular wedges whose undersides are solid near-black, reading
+ * as z-fighting shards or folded card, silhouette all sharp points" — which is
+ * exactly what twenty disconnected triangles look like.
+ *
+ * The fix is one line of principle: **displace by direction, not by index.**
+ * Corners that share a position share a direction, so they get the same draw
+ * and stay welded, and the hull stays closed. Same rng, same sequence, same
+ * character of lump — a rock is still irregular, it is just still a rock.
+ */
 export function createRockGeometry(seed: number, size = 0.4): THREE.BufferGeometry {
   const rng = mulberry(seed);
   const geometry = new THREE.IcosahedronGeometry(size, 0);
   const position = geometry.getAttribute('position') as THREE.BufferAttribute;
+
+  /*
+   * One draw per distinct corner, keyed by its direction.
+   *
+   * Rounded to three decimals before it is used as a key, because the corner
+   * coordinates are computed rather than tabulated and the five copies of a
+   * corner are equal to within floating-point noise rather than exactly equal.
+   * Three decimals on a unit vector is about a fifth of a degree — far finer
+   * than the gap between any two icosahedron corners, and far coarser than the
+   * noise.
+   */
+  const scales = new Map<string, number>();
+  const scaleFor = (x: number, y: number, z: number): number => {
+    const length = Math.hypot(x, y, z) || 1;
+    const key = `${(x / length).toFixed(3)},${(y / length).toFixed(3)},${(z / length).toFixed(3)}`;
+    let scale = scales.get(key);
+    if (scale === undefined) {
+      scale = 0.65 + rng() * 0.6;
+      scales.set(key, scale);
+    }
+    return scale;
+  };
+
   for (let i = 0; i < position.count; i++) {
-    const scale = 0.65 + rng() * 0.6;
-    position.setXYZ(
-      i,
-      position.getX(i) * scale,
-      position.getY(i) * scale * 0.7,
-      position.getZ(i) * scale,
-    );
+    const x = position.getX(i);
+    const y = position.getY(i);
+    const z = position.getZ(i);
+    const scale = scaleFor(x, y, z);
+    // Squat, because a stone that has been sitting somewhere is wider than it
+    // is tall and a tall one reads as a shard.
+    position.setXYZ(i, x * scale, y * scale * 0.7, z * scale);
   }
   position.needsUpdate = true;
   geometry.computeVertexNormals();

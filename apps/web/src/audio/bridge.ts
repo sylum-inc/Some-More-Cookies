@@ -28,6 +28,8 @@ import type { RadioProgramme } from './radio.js';
 import type { WildlifeAnimalAudio } from './wildlife.js';
 import type { AudioSettings } from '../state/store.js';
 
+import type { FootstepMaterial } from './foley.js';
+
 export type FoleySound = 'blow-out' | 'graham-snap' | 'chocolate-fracture' | 'squish' | 'bite' | 'stick';
 
 /** Structural: `Vec3` from the simulation and a THREE.Vector3 both satisfy it. */
@@ -604,6 +606,27 @@ export class AudioBridge {
       default:
         break;
     }
+  }
+
+  /**
+   * A footstep, which the game has been computing and not playing.
+   *
+   * `FoleyKit.footstep` has always existed, with five materials and their own
+   * grain specs, and nothing ever called it. `cameraMotion.ts` reports a
+   * `footfall` on the frame a stride bottoms out, under a comment reading
+   * "Reported rather than acted on, so the audio layer can put a footstep
+   * exactly there" — and no code outside that file read the flag. Measured
+   * before this: a fifteen-second render of a player walking at 1.4 m/s put
+   * the foley bus at exact digital silence and the whole mix within 0.01 dB of
+   * standing still.
+   *
+   * Separate from `playFoley` rather than another member of its union, because
+   * a footstep is the one foley sound that takes arguments: what you are
+   * walking on and how hard you landed. Flattening those into a name would
+   * have meant five names and no intensity.
+   */
+  playFootstep(material: FootstepMaterial, intensity = 1): void {
+    this.engine?.foley?.footstep(material, intensity);
   }
 
   playFoley(sound: FoleySound): void {

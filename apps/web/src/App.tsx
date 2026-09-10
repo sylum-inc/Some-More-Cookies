@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Canvas } from '@react-three/fiber';
+import type { FootstepMaterial } from './audio/foley.js';
 import type * as THREE from 'three';
 import { Vector3 as ThreeVector3 } from 'three';
 import {
@@ -2014,6 +2015,29 @@ export function App({ store }: AppProps): React.ReactElement {
     store.touch();
   }, [ritual, store]);
 
+  /*
+   * What the ground under the player is made of.
+   *
+   * Derived from the weather rather than from the terrain, because the terrain
+   * does not carry a material and inventing one per campsite would be a
+   * content change wearing an audio change's clothes. Snow underfoot when
+   * there is snow lying, wet grass when it has been raining, pine needles
+   * otherwise — which is what the manifests describe the floor as anyway.
+   */
+  const footstepMaterial = useCallback((): FootstepMaterial => {
+    const weather = ritual.weather;
+    if (weather.kind === 'snow' || weather.kind === 'snow-squall') return 'snow';
+    if (weather.precipitation > 0.2) return 'wetGrass';
+    return 'pineNeedles';
+  }, [ritual.weather]);
+
+  const handleFootfall = useCallback(
+    (weight: number) => {
+      audioRef.current?.playFootstep(footstepMaterial(), weight);
+    },
+    [footstepMaterial],
+  );
+
   const handleBite = useCallback(
     (position: number) => {
       takeBiteAction(ritual, position);
@@ -2238,6 +2262,7 @@ export function App({ store }: AppProps): React.ReactElement {
           roastControl={roastControl}
           onLiftSandwich={handleTakeSandwich}
           onBite={handleBite}
+          onFootfall={handleFootfall}
           quality={quality}
           inspectingRef={inspectingRef}
           onFrame={onFrame}

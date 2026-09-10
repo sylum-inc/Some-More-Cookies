@@ -689,6 +689,17 @@ export interface WorldProps {
    * which is this codebase's favourite shape of bug.
    */
   onBite?: (position: number) => void;
+  /**
+   * The frame a stride bottoms out, so a footstep can be put exactly there.
+   *
+   * `cameraMotion` has reported this since the camera got a body, under a
+   * comment saying it was reported rather than acted on so the audio layer
+   * could use it. Nothing read it. An offline render of a player walking
+   * measured the foley bus at exact digital silence, indistinguishable from
+   * standing still — the footstep synthesiser exists, with five materials, and
+   * had never once been called.
+   */
+  onFootfall?: (weight: number) => void;
   /** Acting on a thing by touching it, when it is within reach. Same path as the reach button. */
   onUse?: (id: string) => void;
   /**
@@ -727,6 +738,7 @@ export function World({
   walkable,
   onReachChange,
   onBite,
+  onFootfall,
   onUse,
   grabbedFuelRef,
 }: WorldProps): React.ReactElement {
@@ -1466,6 +1478,9 @@ export function World({
         perspective.updateProjectionMatrix();
       }
       publishVignette(lastVignette, sway.vignette);
+      // Weight, not just timing: creeping up on something should not thud, and
+      // `moving` is already the term the dip is scaled by.
+      if (sway.footfall) onFootfall?.(Math.min(1, player.speed / 1.4));
       // Handed to next frame's hand placement. See `heldSwing`'s comment for
       // why this is a ref and not a local.
       heldSwing.current = heldSwingOf(sway);

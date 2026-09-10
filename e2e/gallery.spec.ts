@@ -152,6 +152,57 @@ async function setSky(page: Page, hour: ActivityWindow, weather: WeatherKind): P
   await page.waitForTimeout(2600);
 }
 
+/**
+ * Stand a given distance from whatever the scene calls `match`, looking at it.
+ *
+ * The contact sheet used to reach the treeline by writing two hard-coded
+ * coordinates into the player, which works exactly as long as nobody moves the
+ * treeline. Everything worth photographing out here already has a name in the
+ * scene graph — `woodpile`, `shore`, `radio`, `sm-01`, each landmark by its own
+ * id, each curio as `look:<secret>` — so the frame can be composed from the
+ * world rather than from a guess about it, and a capture that finds nothing
+ * says so instead of quietly photographing a patch of dirt.
+ *
+ * Returns false when there is no such thing in this campsite, because the
+ * catalogue does not put every landmark in every clearing and a sheet that
+ * demanded one would fail on the seed rather than on the game.
+ */
+async function standNear(
+  page: Page,
+  match: string,
+  options: { distance?: number; pitch?: number; height?: number } = {},
+): Promise<boolean> {
+  return page.evaluate(
+    ([pattern, distance, pitch]) => {
+      const scene = window.__someMore!.three!.scene as unknown as {
+        traverse(fn: (o: Record<string, unknown>) => void): void;
+      };
+      const player = window.__someMore!.player!;
+      const wanted = new RegExp(pattern as string);
+      let best: { x: number; z: number } | null = null;
+      scene.traverse((o) => {
+        if (best !== null || o['visible'] !== true) return;
+        if (!wanted.test(String(o['name'] ?? ''))) return;
+        const e = (o['matrixWorld'] as { elements: number[] } | undefined)?.elements;
+        if (e === undefined) return;
+        best = { x: e[12]!, z: e[14]! };
+      });
+      if (best === null) return false;
+      const target = best as { x: number; z: number };
+      // Approached from the fire's side, so the campsite is behind the camera
+      // and the thing being looked at is lit the way a player walking out to
+      // it would find it.
+      const bearing = Math.atan2(target.z, target.x);
+      player.position.x = target.x - Math.cos(bearing) * (distance as number);
+      player.position.z = target.z - Math.sin(bearing) * (distance as number);
+      player.facing = bearing;
+      player.pitch = pitch as number;
+      return true;
+    },
+    [match, options.distance ?? 2.4, options.pitch ?? -0.08] as const,
+  );
+}
+
 test.describe('gallery', () => {
   test('captures every screen', async ({ page }) => {
     const shot = async (name: string): Promise<void> => {
@@ -287,14 +338,109 @@ test.describe('gallery', () => {
       await shot(`weather-${kind}`);
     }
 
-    // --- a phone ----------------------------------------------------------
-    // Where a HUD is actually hard, and the size this art direction is for.
-    await page.setViewportSize({ width: 393, height: 852 });
+    /* --- the half of the game that is not the sandwich ---------------------
+     *
+     * Five frames out of forty-seven covered everything a player does between
+     * fires: walking out, the treeline, the curios, the wildlife, the wood
+     * trip, the landmarks, the radio, the creek. That is a whole half of the
+     * product graded by five pictures, which is the same gap the motion strips
+     * were built to close and has the same consequence — an ungraded half
+     * looks exactly like an unbuilt one.
+     *
+     * Composed from the scene graph rather than from coordinates, so these
+     * survive the campsite being rearranged. Where a campsite genuinely does
+     * not contain the thing, the frame is skipped and said out loud rather
+     * than captured as an empty patch of dirt with a confident filename.
+     */
+    await setSky(page, 'early-night', 'clear');
+    // The shot that says whether this is a place: eight metres out, looking
+    // back at your own fire with the dark behind you.
+    await page.evaluate(() => {
+      const p = window.__someMore!.player!;
+      p.position.x = 6.4;
+      p.position.z = 5.2;
+      p.facing = Math.atan2(-p.position.z, -p.position.x);
+      p.pitch = -0.05;
+    });
     await page.waitForTimeout(900);
-    await shot('phone-portrait');
-    await page.setViewportSize({ width: 852, height: 393 });
+    await shot('explore-looking-back');
+
+    for (const [name, match, options] of [
+      ['woodpile', 'woodpile', { distance: 2.2 }],
+      ['creek', 'shore', { distance: 1.6, pitch: -0.2 }],
+      ['radio', 'radio', { distance: 1.2, pitch: -0.3 }],
+      ['machine', 'sm-01', { distance: 2.6 }],
+      ['curio', '^look:', { distance: 1.4, pitch: -0.35 }],
+      ['landmark', '^(?!look:|sm-01|shore|radio|woodpile|torch|sandwich|wildlife|night-sky|milky-way|offering|placed-stack|assembly-table|campfire-people$)[a-z][a-z0-9-]{3,}$', { distance: 4.5 }],
+      ['wildlife', 'wildlife', { distance: 3.5, pitch: -0.1 }],
+    ] as const) {
+      const found = await standNear(page, match, options);
+      if (!found) {
+        // eslint-disable-next-line no-console
+        console.log(`  no "${name}" in this campsite; frame skipped rather than faked`);
+        continue;
+      }
+      await page.waitForTimeout(800);
+      await shot(`explore-${name}`);
+    }
+
+    // The ground itself, close, in daylight — the largest surface in the game
+    // and the one an art director called "one flat colour with one dither
+    // pattern on it".
+    await setSky(page, 'midday', 'clear');
+    await page.evaluate(() => {
+      const p = window.__someMore!.player!;
+      p.position.x = 3.2;
+      p.position.z = 2.4;
+      p.facing = 2.1;
+      p.pitch = -0.55;
+    });
     await page.waitForTimeout(900);
-    await shot('phone-landscape');
+    await shot('explore-ground-close');
+    // And up into the canopy from under it.
+    await page.evaluate(() => {
+      window.__someMore!.player!.pitch = 0.7;
+    });
+    await page.waitForTimeout(700);
+    await shot('explore-canopy');
+
+    /* --- a phone -----------------------------------------------------------
+     *
+     * Two frames out of forty-seven, on a build that ships as an installable
+     * PWA and whose risk register targets four-to-five-year-old phones. The
+     * one portrait frame that existed was graded "letterboxes the world down
+     * to a strip in which the fire is the only content", and nobody has looked
+     * at it since. The drawn overlays and the whole HUD were sized for this
+     * screen and have never been graded on one.
+     */
+    await setSky(page, 'early-night', 'clear');
+    for (const [name, width, height] of [
+      ['portrait', 393, 852],
+      ['landscape', 852, 393],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(900);
+      await page.evaluate(() => {
+        const p = window.__someMore!.player!;
+        p.position.x = 1.5;
+        p.position.z = 1.2;
+        p.facing = Math.atan2(-p.position.z, -p.position.x);
+        p.pitch = -0.08;
+      });
+      await page.waitForTimeout(700);
+      await shot(`phone-${name}`);
+      // The overlays at the size they were designed for and never seen at.
+      await page.getByRole('button', { name: /settings/i }).click();
+      await page.waitForTimeout(700);
+      await shot(`phone-${name}-settings`);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+      await page.getByRole('button', { name: /passport/i }).click();
+      await page.waitForTimeout(700);
+      await shot(`phone-${name}-passport`);
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(400);
+    }
   });
   /**
    * The half of this build a still frame cannot show.

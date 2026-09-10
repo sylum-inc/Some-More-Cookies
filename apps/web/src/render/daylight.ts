@@ -363,7 +363,72 @@ export function skyLook(
    * ground the player is standing on does not, and there is no elevation at
    * which a fogged tree can end up brighter than the sky behind it.
    */
-  const haze = mix(horizon, flat, HAZE_LIFT * airlight);
+  /*
+   * How much the sky changes with elevation, which is NOT how much light is
+   * scattering.
+   *
+   * `airlight` is derived from `surfaceLift` — how much sun is on the world —
+   * and the comment above it claims that also decides "how fast the sky changes
+   * colour with elevation". Those are two different quantities and at dusk they
+   * point in opposite directions: there is very little light on the ground and
+   * the sky has more vertical structure than at any other hour, because that is
+   * what a sunset *is*.
+   *
+   * Measured on the shipped ramp at sun altitude 0: horizon luminance 0.497,
+   * haze 0.482, zenith 0.228. The haze had collapsed to within three per cent
+   * of the horizon exactly when the two stops were furthest apart, and since
+   * the dome only reaches the zenith well above the top of the frame, the
+   * entire visible sky was painted the horizon colour. An art director had
+   * called dusk "the most beautiful image in the pack" when it was a red band
+   * under an indigo one; it had become a flat salmon wash.
+   *
+   * So the gradient gets its own term, zero through true night and full by the
+   * time the sun is up — which keeps the contract twelve environments depend
+   * on (at night the haze *is* the horizon, exactly, and `daylight.test.ts`
+   * asserts it) while giving the sunset back its structure.
+   */
+  /*
+   * A twilight phenomenon, and shaped like one.
+   *
+   * The first version of this rose through twilight and then stayed at full
+   * for the rest of the day, which put a second pull toward the zenith on top
+   * of the noon haze's existing half-pull toward the flat sky — and the two
+   * compounded until the fog was nearer the zenith than the horizon, which
+   * `daylight.test.ts` forbids. That was a constant being tuned against a test
+   * instead of a model being written down.
+   *
+   * The model: the sky's colour changes fastest with elevation when the sun is
+   * near the horizon, which is what makes a sunset a band rather than a wash.
+   * Overhead it is close to uniform. So this rises through twilight, holds
+   * across the hours either side of the horizon, and falls away as the sun
+   * climbs — reaching zero well before noon, where the old model was already
+   * right and does not need help.
+   */
+  const structure = clamp01((sunAltitudeDeg + 12) / 14) * (1 - clamp01((sunAltitudeDeg - 6) / 30));
+  /*
+   * Computed once, applied to both, because the first version of this moved
+   * the haze and left the fog where it was.
+   *
+   * The fog is what a tree at the treeline is seen *against*, so it has to be
+   * the same colour as the sky at that elevation or §4.1e's law breaks — and
+   * it broke immediately: pulling the haze toward the zenith without pulling
+   * the fog with it put the fog 2.1/255 above the sky behind it at six degrees
+   * of elevation, which `daylight.test.ts` caught on the first run. Two
+   * expressions that must agree, written twice, is the shape of that mistake.
+   */
+  const towardAloft = HAZE_TOWARD_ZENITH * structure;
+  /*
+   * Toward the UNGLOOMED sky, which the comment above already insists on and
+   * the first version of this ignored.
+   *
+   * Pulling the haze and the fog toward `zenith` reached for the colour *after*
+   * a storm lid has come down on it, so raising the gloom moved the fog — and
+   * "the lid darkens the ceiling without touching the strip under it" is not a
+   * preference, it is what keeps the darkest weather in the set above the D7
+   * legibility floor. `daylight.test.ts` asserts `lid.fog === calm.fog` and
+   * caught it on the first run. A storm is a roof over a lit band, not night.
+   */
+  const haze = mix(mix(horizon, flat, towardAloft), flat, HAZE_LIFT * airlight);
   return {
     // A lid is a lid: thickness comes off the ceiling and leaves the strip
     // under it alone. That strip is also the only thing keeping the far side of
@@ -414,7 +479,11 @@ export function skyLook(
       // luminance steps under partial cover. Two steps is invisible and it is
       // still the wrong sign, and the whole reason this module is being rebuilt
       // is that nobody could see the last one either.
-      mix(mix(blended.horizon, blended.fog, 0.25 * (1 - airlight)), flat, cloud * 0.82),
+      mix(
+        mix(mix(blended.horizon, blended.fog, 0.25 * (1 - airlight)), flat, cloud * 0.82),
+        flat,
+        towardAloft,
+      ),
       flat,
       HAZE_LIFT * airlight,
     ),
@@ -452,6 +521,18 @@ export function skyLook(
  * previous round corrected — and `daylight.test.ts` holds the line.
  */
 const HAZE_LIFT = 0.5;
+/**
+ * How far the air a little way up sits from the horizon toward the zenith.
+ *
+ * Well under a half, and bounded by a law rather than by taste: the fog tracks
+ * the haze (a tree at the treeline is seen against the air at treeline height,
+ * not against the horizon strip below it), and `daylight.test.ts` requires the
+ * fog to stay nearer the horizon than the zenith. At 0.45 the dusk fog crossed
+ * that line. This is the largest value that keeps it, and it still turns
+ * 0.497 / 0.482 / 0.228 at dusk — a horizon, a haze three per cent under it,
+ * and a zenith less than half of either — into a ramp with a real middle.
+ */
+const HAZE_TOWARD_ZENITH = 0.28;
 
 /**
  * The top of the treeline, on the dome's `sin(elevation)` scale.
@@ -484,7 +565,15 @@ const TREELINE_TOP = 0.309;
  * above eight degrees was flat zenith with no haze in it at all.
  */
 export const DOME_BAND = Object.freeze({ from: 0, to: 0.09 });
-export const DOME_ALOFT = Object.freeze({ from: TREELINE_TOP, to: 0.85 });
+/*
+ * `to` was 0.85 — `asin(0.85)` is fifty-eight degrees, which at this lens is
+ * above the top of the frame at every pitch a player actually stands at. So
+ * the zenith colour existed and was never in shot, and the sky the game
+ * showed ran from the horizon to the haze and stopped. Thirty-three degrees
+ * puts the whole ramp on screen while still being slow enough not to be the
+ * eight-degree wash this replaced.
+ */
+export const DOME_ALOFT = Object.freeze({ from: TREELINE_TOP, to: 0.55 });
 
 function smoothstep(from: number, to: number, x: number): number {
   const t = clamp01((x - from) / (to - from));

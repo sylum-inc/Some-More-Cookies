@@ -354,6 +354,56 @@ Density is the other half. Fog starting at 2.5 m washes a clearing you can see
 across; it starts at about a third of the draw distance, which leaves the
 campsite unfogged and a tree at the treeline around forty per cent hazed.
 
+### 4.1e-i What the sky bug actually cost, and what it did not
+
+The dome is a `ShaderMaterial` that writes `gl_FragColor` itself, so it never
+received `<colorspace_fragment>`, and its `Color` uniforms upload in the
+renderer's linear working space. Every sky colour went into an sRGB framebuffer
+as a linear number. The commit that fixed it said the ramp "had been retuned
+twice against those frames, so two rounds of art direction were spent
+compensating for five missing words". **The history does not support that, and
+the narrower truth is more useful.**
+
+Every `sky` stop was last changed in `2af69df`. The dome was introduced in
+`84545ce`. Nothing in that table has moved since — so the sky stops were never
+tuned against the broken picture and are not contaminated. `dc2cc5e`, the other
+suspected retune, changed only the *blending* (`fog: mix(horizon, blended.fog,
+0.25)`), which is the aerial-perspective law and not a colour choice.
+
+What **is** contaminated is the six `horizon` stops, and they cannot be
+recovered, because they were authored in `84545ce` — the same commit that
+introduced the bug. They were born under it. There is no earlier version to go
+back to; they can only be re-judged.
+
+And the damage was never a uniform halving. `sRGBToLinear` is steepest near
+black, so the loss ran with the value:
+
+| stop | authored | what arrived | luminance kept |
+| --- | --- | --- | --- |
+| night | `#0c1119` | `#010102` | 6.5 % |
+| astronomical | `#18202e` | `#020407` | 12.1 % |
+| civil | `#36405e` | `#090d1d` | 20.8 % |
+| sunset | `#d4703a` | `#a8290b` | 50.9 % |
+| golden | `#c99a6e` | `#955228` | 58.0 % |
+| day | `#bcc6cf` | `#80909f` | 72.1 % |
+
+Two consequences, in opposite directions.
+
+**The night horizon never existed.** `#0c1119` arrived as `#010102`, which is
+black. §4.1e's whole argument — that fog resolves to the horizon so a fogged
+tree cannot overshoot the sky it is seen against — was being applied at night
+against a horizon that had been crushed out of the frame entirely. The law was
+right and the value it resolved to was zero.
+
+**And the best frame in the build has just changed.** An art director called
+dusk and dawn "the most beautiful image in the pack". The sunset horizon they
+were looking at was `#a8290b`, a deep ember red; the authored value that will
+now appear is `#d4703a`, twice the luminance and considerably less saturated.
+Nobody has yet looked at the frame that praise was about. Where the arrived
+colour was black nobody can have approved it, so the authored intent stands;
+where it was a real colour on a real screen, somebody looked at it and said yes,
+and the authored name is not evidence of what they wanted.
+
 ### 4.1f Near-plane geometry has to be looked at through the lens it is seen through
 
 The first-person hand is the only object in this game guaranteed to be within

@@ -1,6 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { analyse, averageSpectrum, bandEnergy, envelopeShape, fft, spectralCentroid, spectralFlatness } from './analysis.js';
+import {
+  analyse,
+  averageSpectrum,
+  bandEnergy,
+  envelopeShape,
+  fft,
+  bufferLoopEstimate,
+  loopEstimate,
+  spectralCentroid,
+  spectralFlatness,
+  spectrogram,
+  transients,
+} from './analysis.js';
 
 /**
  * Tests for the analyser, not for the game.
@@ -165,5 +177,180 @@ describe('analyse', () => {
     const result = analyse([samples], SR);
     expect(result.spectralCentroidHz).toBeGreaterThan(2500);
     expect(result.spectralCentroidHz).toBeLessThan(3600);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/** Noise whose *envelope* repeats every `periodSeconds`, but whose samples never do. */
+function loopingEnvelopeNoise(seconds, periodSeconds, sampleRate = SR) {
+  const out = noise(seconds, 1, sampleRate);
+  for (let i = 0; i < out.length; i += 1) {
+    const phase = ((i / sampleRate) % periodSeconds) / periodSeconds;
+    out[i] *= 0.05 + 0.95 * (phase < 0.25 ? 1 : 0.05);
+  }
+  return out;
+}
+
+describe('loopEstimate', () => {
+  it('finds the period of material whose envelope repeats', () => {
+    const result = loopEstimate(loopingEnvelopeNoise(12, 1.5), SR, 0.25, 6);
+    expect(result.conclusive).toBe(true);
+    expect(result.lagSeconds).toBeCloseTo(1.5, 1);
+    expect(result.correlation).toBeGreaterThan(0.8);
+  });
+
+  it('scores prominence high for a real loop and near zero for stationary noise', () => {
+    /*
+     * The regression this metric exists for.
+     *
+     * Raw correlation alone called a single non-looping noise buffer a loop at
+     * 0.95, because a slowly-varying envelope correlates with itself at every
+     * lag. Prominence — the best lag's height over the median across lags —
+     * is what actually separates the two, so both halves are asserted here.
+     */
+    const looped = loopEstimate(loopingEnvelopeNoise(12, 1.5), SR, 0.25, 6);
+    const stationary = loopEstimate(noise(12), SR, 0.25, 6);
+    expect(looped.prominence).toBeGreaterThan(0.5);
+    expect(stationary.prominence).toBeLessThan(0.2);
+    expect(looped.prominence).toBeGreaterThan(stationary.prominence * 4);
+  });
+
+  it('reports the shortest period, not one of its multiples', () => {
+    // A 1.5 s loop correlates just as well at 3 s and 4.5 s. The shortest is
+    // the one a listener hears, so it is the one that must come back.
+    const result = loopEstimate(loopingEnvelopeNoise(20, 1.5), SR, 0.25, 8);
+    expect(result.lagSeconds).toBeGreaterThan(1.4);
+    expect(result.lagSeconds).toBeLessThan(1.6);
+  });
+
+  it('sees a literal buffer repeat, at the period or a multiple of it', () => {
+    /*
+     * The regression that the `control-pink-noise` scene exposed.
+     *
+     * A 3.75 s buffer looped for 30 s was reported as a 15 s loop, because the
+     * old search shrank its overlap as the lag grew and a quarter-length
+     * window at 15 s beat a full-length one at 3.75 s on variance alone.
+     *
+     * The lag is asserted as a multiple rather than the period itself because
+     * an envelope correlation genuinely cannot resolve better than that here:
+     * 3.75 s is 351.6 frames of a 512-sample envelope, and a lag quantised
+     * half a frame off decorrelates noise completely, so the two-period lag
+     * (which happens to land closer to a frame boundary) scores higher.
+     * `bufferLoopEstimate` is the instrument for the exact period.
+     */
+    const period = 3.75;
+    const cell = noise(period, 0.5);
+    const out = new Float32Array(Math.round(30 * SR));
+    for (let i = 0; i < out.length; i += 1) out[i] = cell[i % cell.length];
+    const result = loopEstimate(out, SR, 0.25, 15);
+    expect(result.correlation).toBeGreaterThan(0.8);
+    expect(result.prominence).toBeGreaterThan(0.7);
+    const multiple = result.lagSeconds / period;
+    expect(Math.abs(multiple - Math.round(multiple))).toBeLessThan(0.05);
+  });
+
+  it('says so rather than guessing when the render is too short to search', () => {
+    const result = loopEstimate(noise(0.2), SR, 0.25, 6);
+    expect(result.conclusive).toBe(false);
+    expect(result.correlation).toBe(0);
+  });
+});
+
+describe('bufferLoopEstimate', () => {
+  it('finds the exact period of a looped buffer, where the envelope cannot', () => {
+    const period = 3.75;
+    const cell = noise(period, 0.5);
+    const out = new Float32Array(Math.round(30 * SR));
+    for (let i = 0; i < out.length; i += 1) out[i] = cell[i % cell.length];
+    const result = bufferLoopEstimate(out, SR, 0.5, 15);
+    expect(result.conclusive).toBe(true);
+    expect(result.lagSeconds).toBeCloseTo(period, 2);
+    expect(result.correlation).toBeGreaterThan(0.9);
+  });
+
+  it('finds nothing in noise that never repeats', () => {
+    // The same length and colour, generated once rather than looped. Anything
+    // much above zero here would make every loop finding worthless.
+    const result = bufferLoopEstimate(noise(30, 0.5), SR, 0.5, 15);
+    expect(result.correlation).toBeLessThan(0.2);
+  });
+
+  it('is not fooled by a repeating envelope over fresh samples', () => {
+    // A pattern repeat is not a buffer repeat: the events recur, the PCM does
+    // not. `loopEstimate` is the instrument that should see this one.
+    const result = bufferLoopEstimate(loopingEnvelopeNoise(20, 1.5), SR, 0.5, 8);
+    expect(result.correlation).toBeLessThan(0.4);
+    expect(loopEstimate(loopingEnvelopeNoise(20, 1.5), SR, 0.25, 8).correlation).toBeGreaterThan(0.8);
+  });
+});
+
+describe('transients', () => {
+  it('counts discrete impulses and misses none of them', () => {
+    const samples = new Float32Array(4 * SR);
+    // Ten clicks a second, evenly spaced, on a quiet noise bed.
+    const bed = noise(4, 0.01);
+    samples.set(bed);
+    for (let n = 0; n < 40; n += 1) {
+      const at = Math.round((n / 10) * SR);
+      for (let i = 0; i < 120; i += 1) samples[at + i] += 0.6 * Math.exp(-i / 30) * (i % 2 ? 1 : -1);
+    }
+    const result = transients(samples, SR);
+    expect(result.count).toBeGreaterThanOrEqual(38);
+    expect(result.perSecond).toBeGreaterThan(9);
+    expect(result.perSecond).toBeLessThan(11);
+    // Every gap is 100 ms, so every measured interval must be too.
+    for (const interval of result.intervals) expect(interval).toBeCloseTo(0.1, 2);
+  });
+
+  it('finds almost nothing in flat noise, which is the whole point', () => {
+    // The control the fire bed is compared against: no events at all, so the
+    // onset count has to stay low or every finding built on it is worthless.
+    expect(transients(noise(4, 0.3), SR, 0.003, 3).perSecond).toBeLessThan(2);
+  });
+
+  it('returns zero for digital silence rather than dividing by it', () => {
+    const result = transients(new Float32Array(SR), SR);
+    expect(result.count).toBe(0);
+    expect(result.perSecond).toBe(0);
+    expect(result.medianFloor).toBe(0);
+  });
+});
+
+describe('spectrogram', () => {
+  it('puts a sine in the right bin, in every column', () => {
+    const spec = spectrogram(sine(1000, 1), SR, 1024, 512);
+    expect(spec.columns.length).toBeGreaterThan(30);
+    const expected = Math.round(1000 / spec.binHz);
+    for (const column of spec.columns) {
+      let loudest = 0;
+      let at = 0;
+      for (let bin = 1; bin < column.length; bin += 1) {
+        if (column[bin] > column[at] || at === 0) {
+          if (column[bin] > loudest || at === 0) {
+            loudest = column[bin];
+            at = bin;
+          }
+        }
+      }
+      expect(Math.abs(at - expected)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('tracks a sound that changes over time, which a whole-file FFT cannot', () => {
+    // Silence, then a tone: the first columns must be far quieter than the last.
+    const samples = new Float32Array(2 * SR);
+    samples.set(sine(2000, 1), SR);
+    const spec = spectrogram(samples, SR, 1024, 512);
+    const loudestOf = (column) => Math.max(...column);
+    expect(loudestOf(spec.columns[5])).toBeLessThan(-60);
+    expect(loudestOf(spec.columns[spec.columns.length - 5])).toBeGreaterThan(-10);
+  });
+
+  it('reports dB relative to its own loudest bin, so the ceiling is 0', () => {
+    const spec = spectrogram(sine(1000, 1), SR, 1024, 512);
+    let loudest = -Infinity;
+    for (const column of spec.columns) for (const value of column) if (value > loudest) loudest = value;
+    expect(loudest).toBeCloseTo(0, 6);
   });
 });

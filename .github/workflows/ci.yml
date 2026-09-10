@@ -444,6 +444,8 @@ jobs:
           - subpath      # it works everywhere except where it is published
           - fire         # the fire stopped being a thing you tend
           - place        # the campsite stopped being anywhere in particular
+          - invariants   # the renderer is quietly drawing something else
+          - daylight     # the sun stopped reaching the ground
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

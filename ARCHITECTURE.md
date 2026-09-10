@@ -401,6 +401,69 @@ hand leaves world-aligned buckets empty and empty buckets read as gaps. It now
 projects onto `handAxes()`. A test that passes for the wrong reason is worse
 than one that fails.
 
+### 4.1g The same bug, in the audio layer, three more times
+
+`ARCHITECTURE §4.1d` recorded five render features that were computed and never
+reached a pixel. The count reached ten before anybody thought to ask whether
+the audio engine — never assessed by anyone, in a game whose tone is at least
+half sound — had the same disease. It does.
+
+- **Footsteps never played.** `FoleyKit.footstep` exists with five materials
+  and their own grain specs. Nothing called it. `cameraMotion.ts` reports a
+  `footfall` on the frame a stride bottoms out, under a comment reading
+  *"Reported rather than acted on, so the audio layer can put a footstep
+  exactly there"*, and no code outside that file read the flag. Measured: a
+  fifteen-second render of a player walking at 1.4 m/s put the foley bus at
+  **exact digital silence**, and the whole mix within 0.01 dB of standing still.
+- **The `ui` bus has a volume slider and no sources.** `BUS_DESCRIPTIONS` calls
+  it "Interface beeps and confirmations"; the beeps render on `machine`. The
+  fader moves a `GainNode` nothing reaches.
+- **Rain and snow have no sound at all.** The ambience builds wind, leaf,
+  water, room-tone, insect and bird layers and no precipitation layer;
+  `wetness` reaches exactly one term, the insect activity.
+
+In every one of twenty gameplay scenes, `foley`, `ui` and `voice` render exact
+digital silence.
+
+**The pictures and the sound gave the same answer to the same question, which
+is worth more than either finding alone.** Nine weather states were graded as
+two images; measured, they are one sound — the ambience level spans 8.8 dB
+across ten kinds and the spectral centroid spans 4369–4478 Hz, a 2.5 % spread,
+because there is one wind layer and nothing else changes. A storm measures
+**1.1 dB louder than a clear night** in the full mix, has *less* low end and
+*fewer* transients, because the fire bus sits 13 dB above ambience and dominates
+whatever the sky is doing. When a system fails identically in two independent
+modalities, the fault is in the model and not in either renderer.
+
+### 4.1h Grading a soundscape without ears
+
+`tools/audio/soundscape.mjs` renders the game's real audio offline — a real
+`AudioBridge` over a real `RitualState`, the shipping path rather than isolated
+voices — into twenty-one named scenes, each producing a WAV, a log-frequency
+spectrogram, an envelope plot and a JSON of measurements. It needs no browser:
+`apps/web/src/audio/offline.ts` is a pure-TS WebAudio simulator.
+
+**What it cannot do is listen**, and that limit has to travel with every number
+it produces. It reads spectra, envelopes, autocorrelations and synthesis
+parameters. A looping tail, a missing low end, a click at a buffer boundary,
+two layers fighting for the same octave — those are plainly visible. Whether the
+campsite *sounds* cozy is not, and a report that implied otherwise would be the
+same category of lie as a screenshot captioned with the wrong weather.
+
+Two limits are structural and apply to every figure: the simulator renders
+`ConvolverNode` as silence, so **nothing measured has been through a reverb**,
+and it renders HRTF as equal-power panning. Rendered at 24 kHz, so nothing above
+12 kHz is measured at all.
+
+One methodological result is worth more than any single measurement. The loop
+detector scored **0.95 on a single non-looping noise buffer** — a stationary
+envelope correlates with itself at every lag — and was only caught because the
+run included a control scene with a known answer. Without it the report would
+have said the fire loops, at a moment when the instrument could not tell. **An
+instrument used on a question it has never been calibrated against is not
+evidence.** Every scene set now carries controls: a single non-repeating buffer
+as a floor and a deliberately looped one as a ceiling.
+
 ### 4.2 The fidelity bump
 
 Implemented as a **material tier** rather than a separate renderer, so the world stays cohesive:

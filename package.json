@@ -33,6 +33,7 @@
     "visual:update": "playwright test --project=visual --update-snapshots",
     "visual:measure": "node tools/visual/measure.mjs",
     "audio:analyse": "node tools/audio/analyse.mjs",
+    "audio:soundscape": "node tools/audio/soundscape.mjs",
     "ci:local": "node tools/ci/local.mjs"
   },
   "devDependencies": {

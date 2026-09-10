@@ -68,8 +68,20 @@ describe('the suites CI actually runs', () => {
     // by finding nothing to check, which is the failure mode it exists to stop.
     expect(defined.length).toBeGreaterThanOrEqual(15);
 
+    /*
+     * The one project that is deliberately not a gate.
+     *
+     * `gallery` asserts nothing — it is a contact sheet, sixty-one frames and
+     * five motion strips produced for a person to grade — so there is no
+     * failure for CI to catch and a job running it would burn four minutes to
+     * report success unconditionally. It is exempt by name rather than by the
+     * regex quietly missing it, so that the exemption is a decision somebody
+     * made and can be argued with.
+     */
+    const notAGate = new Set(['gallery']);
+
     const run = projectsCiRuns();
-    const unenforced = defined.filter((project) => !run.has(project));
+    const unenforced = defined.filter((project) => !run.has(project) && !notAGate.has(project));
     expect(unenforced, `no CI job runs: ${unenforced.join(', ')}`).toEqual([]);
   });
 

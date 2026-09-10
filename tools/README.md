@@ -23,10 +23,13 @@ tools/
 │   └── measure.mjs        Re-measures the run-to-run pixel noise floor
 ├── audio/
 │   ├── lab.ts             Renders the real synthesis graph in an OfflineAudioContext
-│   ├── analysis.js        FFT, spectral measures, envelope, level, DC (no deps)
+│   ├── analysis.js        FFT, spectral measures, envelope, level, DC, loops, onsets
 │   ├── analysis.test.js   Proof the analyser is correct, on signals with known answers
 │   ├── sounds.mjs         What is rendered, and what must be true of each
-│   └── analyse.mjs        Build → browser → render → measure → report
+│   ├── analyse.mjs        One sound at a time: build → browser → render → measure
+│   ├── scenes.ts          Whole scenes, driven through the real bridge and simulation
+│   ├── plot.mjs           Spectrograms, envelope plots and WAVs
+│   └── soundscape.mjs     Scene → render → WAV + spectrogram + envelope + JSON
 └── ci/local.mjs           The local equivalent of .github/workflows/ci.yml
 ```
 
@@ -370,9 +373,60 @@ at only ~15 Hz and a four-second loop's mean is not exactly zero. Inaudible, and
 inside the conventional 1 %-of-full-scale line, but it is real, it is the
 largest offset in the engine, and it is recorded rather than rounded away.
 
+### `npm run audio:soundscape` — the whole soundscape, scene by scene
+
+`audio:analyse` measures one sound at a time through a unit gain. That is the
+right instrument for "is the latch clunk well-formed" and the wrong one for
+every question a player's experience actually turns on, all of which are about
+sounds *together*: does the storm read as louder than the clear night, is the
+fire audible under the wind, does the crackle survive the bed it sits in, and —
+the one nothing had ever asked — does each sound reach the output bus at all.
+
+So this renders **scenes**, not sounds. Each one drives a real `AudioBridge`
+over a real `AudioEngine` with a real `RitualState` that `stepRitual` advanced,
+with `bridge.update` doing the mapping exactly as `App.tsx` does it. What comes
+out is what a player would hear, which is why `footsteps-walking` is a scene:
+it renders a player walking, and the foley bus renders digital silence.
+
+For each scene, into `artifacts/audio/`:
+
+| File | What it is for |
+| --- | --- |
+| `<id>.wav` | 16-bit PCM, so a person can eventually put headphones on |
+| `<id>.spectrogram.png` | Log frequency, dB, labelled axes — where a repeating column pattern, a hole in the low end and three layers in one octave show up |
+| `<id>.envelope.png` | RMS and peak over time in dBFS; the gap between the traces is the crest factor, drawn |
+| `<id>.json` | Level, band split, centroid, crest, DC, onsets, loops, per-bus RMS, scheduling cost |
+
+**No browser.** `analyse.mjs` needs Chromium for a real `OfflineAudioContext`;
+this does not, because `apps/web/src/audio/offline.ts` is a WebAudio simulator
+in plain TypeScript that evaluates the same `FakeAudioContext` the engine is
+built against. Vite's `ssrLoadModule` is used purely as a TypeScript loader, so
+the engine, the simulation, the PNG codec in `e2e/strip.ts` and the 5×9 bitmap
+face in `apps/web/src/render/bitmapFont.ts` all load unmodified. The plots are
+drawn in the game's own typeface with the repo's own codec; there is no image
+dependency here for the same reason `tools/sprites/canvas.mjs` has none.
+
+**The two instruments worth understanding before reading any number:**
+
+- `bufferLoopEstimate` is sample-exact autocorrelation (Wiener–Khinchin) and
+  answers "does the same PCM come round again" — which is what a looping
+  `AudioBuffer` is, and every continuous bed here is one.
+- `loopEstimate` correlates the *envelope* and answers "does the same pattern
+  come round again". Read its `prominence`, never its raw `correlation`: a
+  stationary bed correlates with itself at every lag and scores 0.95 while
+  repeating nothing. The `control-pink-noise` scene exists to keep both honest —
+  it is a single non-looping noise band with no events in it, so it is the
+  floor every claim about structure has to clear.
+
+**Cannot answer.** The same list as `audio:analyse`, minus the mix caveat, which
+this closes, and plus one it adds: `ConvolverNode` renders silence in the
+simulator, so the reverb return is switched off and every level here is the
+**dry** mix. HRTF is equal-power panning, so direction survives and a real
+HRTF's colouring does not. And it still cannot listen.
+
 ### `npm run test:tools`
 
-The tests for the measuring instruments: `tools/audio/analysis.test.js` (16) and
+The tests for the measuring instruments: `tools/audio/analysis.test.js` (30) and
 `tools/visual/rules.test.js` (11). These run in CI's `verify` job alongside the
 product's own suite, deliberately not merged into `npm test` — that script is
 the product's suite and should stay that.
@@ -389,6 +443,8 @@ the product's suite and should stay that.
 | `artifacts/visual/frame-metrics.json` | `npm run visual` |
 | `artifacts/visual/pixel-noise.json` | `npm run visual:measure` |
 | `artifacts/audio/report.json` · `report.md` | `npm run audio:analyse` |
+| `artifacts/audio/soundscape.json` · `soundscape.md` | `npm run audio:soundscape` |
+| `artifacts/audio/*.wav` · `*.png` · `<scene>.json` | `npm run audio:soundscape` — renders and plots, gitignored |
 | `artifacts/ci/local-run.json` | `npm run ci:local` |
 | `e2e/__screenshots__/*.png` | `npm run visual:update` — **committed**, they are the baselines |
 | `artifacts/screenshots/*.png` | the acceptance suite (already gitignored) |

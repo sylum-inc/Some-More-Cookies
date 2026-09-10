@@ -13,8 +13,9 @@
       "@somemore/protocol": ["../packages/protocol/src/index.ts"]
     }
   },
-  "include": ["**/*.ts", "../tools/**/*.mjs"],
-  "exclude": ["dist-types"],
+  "//": "The tools live here because they are checked, not because they are e2e. `.js` joined `.mjs` when tools/audio/soundscape.mjs imported analysis.js: a file a checked file imports has to be in the same project or `tsc -b` refuses the import outright (TS6307). Test files are excluded — they are run, not built, and vitest's globals are not in this project's `types`.",
+  "include": ["**/*.ts", "../tools/**/*.ts", "../tools/**/*.mjs", "../tools/**/*.js"],
+  "exclude": ["dist-types", "../tools/**/*.test.js"],
   "references": [
     { "path": "../apps/web" },
     { "path": "../packages/sim" },

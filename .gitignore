@@ -30,5 +30,15 @@ artifacts/**/*.md
 !e2e/__screenshots__/**
 artifacts/font/
 
+# Offline audio renders, written by `npm run audio:soundscape`.
+#
+# ADR-0002 says no audio assets — nothing here is one. These are *outputs*: the
+# engine's own synthesis, captured so a person can eventually put headphones on
+# and answer the questions no measurement can. They are regenerated from source
+# in a couple of minutes and a thirty-second stereo WAV is 1.4 MB, so they are
+# looked at and thrown away, never versioned.
+artifacts/audio/*.wav
+artifacts/audio/*.png
+
 # Agent worktrees, created by isolation runs.
 .claude/worktrees/

@@ -1240,6 +1240,62 @@ frequency, so the eyes settle in a tenth of a second and the hand is still
 coming back half a second later.
 
 
+### Session 19: what nobody was looking at
+
+Four gaps were closed this session, and all four were the same gap: something
+real that no judgement was being applied to. The dominant finding of the
+previous session — a feature that is computed and never reaches the output
+looks exactly like one that was never written — turned out to be a statement
+about *measurement*, not about rendering.
+
+**Motion was ungraded.** The art director grades PNGs, and a PNG cannot show a
+camera with a neck. Every term the camera learned — the head trailing a turn on
+a spring and coming back past where it stopped, the arm lagging half a second
+behind the eyes, a flame bending into a gale — was invisible to the only
+judgement being applied. Five contact strips now capture eight frames each,
+*after* the input stops, because the interesting part of a spring is what it
+does when you let go.
+
+**Half the game was ungraded.** Five frames out of forty-seven covered
+everything a player does between fires. Ten exploration frames and six phone
+frames took the sheet to sixty-one, composed from the scene graph rather than
+from coordinates so they survive the campsite being rearranged.
+
+**The sound had never been assessed by anybody**, in a game whose tone is at
+least half sound. `tools/audio/soundscape.mjs` renders twenty-one scenes
+offline with spectrograms, envelopes and measurements — and found the same
+disease as the render layer, three more times: footsteps that were synthesised
+and never called, a mixer fader for a bus with no sources, and no precipitation
+layer at all. Written up as ARCHITECTURE §4.1g and §4.1h.
+
+The single most useful thing it produced was not a finding but a correction to
+itself. **The loop detector scored 0.95 on a single non-looping noise buffer**,
+and was caught only because the run included a control with a known answer. An
+instrument used on a question it has never been calibrated against is not
+evidence — which is the same lesson as the weather harness two sessions ago,
+arrived at from the other direction.
+
+**And the grading instrument itself was unexamined.** Five gradings had come
+back 6.1, 6.4, 6.3, 6.5, 6.2 — a flat line across an enormous amount of change.
+A single critic's absolute number on an undefined scale is close to
+meaningless, so grading moves to a panel of three with the median as the score
+and the spread reported, because a wide spread is the signal that the scale is
+ill-defined rather than the build ambiguous.
+
+Two defects the new frames exposed and nobody had seen: portrait puts the fire
+half off the bottom edge with two-thirds empty sky — the game does not adapt
+pitch or field of view to a tall aspect at all, on the device most people would
+play on — and thin pale diagonal streaks cross the sky in clear weather, still
+unidentified.
+
+`e2e/invariants.spec.ts` is the net under all of this: five rules walked over
+the live scene graph at every stage. It went in as a ratchet with ten recorded
+findings rather than a wall, because a guard that starts red is a guard people
+delete — and it was watched catching a deliberately broken material before it
+was trusted, because a net nobody has seen catch anything might have a hole in
+it.
+
+
 ## What the tools measured
 
 Automated verification now produces numbers rather than a tick. The full

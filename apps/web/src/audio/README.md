@@ -496,3 +496,40 @@ input, and the mixer state machine), and drives the engine end-to-end against
 `FakeAudioContext` for graph construction, bus routing, mute, reduced intensity,
 crackle scheduling rates, the latch's two-stage timing, relay distinguishability,
 compressor spin-up, fan geometry, spatial placement and determinism.
+
+---
+
+## Measured gaps, found by rendering the shipping path
+
+`npm run audio:soundscape` renders whole scenes through the real `AudioBridge`
+and measures each submix bus on its own. Three things it found are recorded
+here rather than in a report nobody will re-run, because each is a sound that
+exists in this directory and never reaches a player.
+
+**Footsteps are synthesised and never played.** `FoleyKit.footstep` works —
+called directly it puts a peak of 0.15 on the `foley` bus — and
+`FOOTSTEP_SPECS` describes five materials. Nothing calls it. `bridge.ts` has a
+`playFoley` switch covering every other one-shot and `FoleySound` has no
+`'footstep'` member; `cameraMotion.ts` computes a per-frame `footfall` flag
+under a comment saying it is "reported rather than acted on, so the audio layer
+can put a footstep exactly there", and nothing outside that file reads it. A
+fifteen-second render of a player walking at 1.4 m/s puts the `foley` bus at
+exact digital silence.
+
+**The `ui` bus carries nothing.** `BUS_DESCRIPTIONS` calls it "Interface beeps
+and confirmations" and `Settings.tsx` gives it a slider, but every beep is a
+`MachineKit` method and `MachineKit` is built on the `machine` bus. Rendered:
+`beep('confirm')` puts 0.245 on `machine` and 0.000 on `ui`. The slider is
+connected to a `GainNode` that no source ever reaches, so moving it changes
+nothing a player can hear. Either route the beeps to `ui` or drop the fader.
+
+**`wetness` has no layer to drive.** `AmbienceConditions.wetness` is mapped
+faithfully from `weather.precipitation` by the bridge, and the only thing it
+does is scale insect activity by `1 − 0.65·wetness` — which is documented in
+the mapping table below and is not a bug on its own. The consequence is: there
+is no rain and no snow in this engine. `NightAmbience` builds wind, leaf, water,
+water-detail, room-tone, insect and bird layers and no precipitation layer at
+all, so heavy rain differs from a clear night only by wind level and quieter
+crickets. Measured across the ten `WeatherKind`s, the ambience bus moves 8.8 dB
+from clear to storm, and the spectral centroid moves 2.5 % — one sound at ten
+volumes.

@@ -169,6 +169,16 @@ export default defineConfig({
      */
     { name: 'gallery', testMatch: /gallery\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*
+     * The net under the whole render layer.
+     *
+     * Ten features in one session were computed and never reached a pixel, all
+     * of them a declaration whose precondition was not met. Its own project
+     * because it fails on a different thing from everything else here: not
+     * "the game broke" but "the game is quietly drawing something other than
+     * what it was told to".
+     */
+    { name: 'invariants', testMatch: /invariants\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
      * Two browser contexts at one campfire, against a real service.
      *
      * Its own project because it fails on a different thing again: not "the

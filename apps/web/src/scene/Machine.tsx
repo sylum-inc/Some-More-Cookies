@@ -2,12 +2,20 @@
  * The Some More SM-01 transformation freezer (spec §3).
  *
  * Late-1990s industrial refrigeration, early-Y2K technology, restrained
- * functional minimalism. Silver aluminium, industrial white enamel, smoked
- * translucent plastic, dark rubber. Colour is functional only: amber while
- * hot and processing, icy blue while freezing and transforming.
+ * functional minimalism. Silver aluminium, chipped institutional enamel,
+ * smoked translucent plastic, dark rubber. Colour is functional only: amber
+ * while hot and processing, icy blue while freezing and transforming.
  *
  * Every control is a real object the player operates. There is no "run" button
- * anywhere in this file.
+ * anywhere in this file, and there is no readout of anything countable: the
+ * machine says what it is doing in words for a screen reader, and in light and
+ * motion for everybody else (spec §5.3).
+ *
+ * The cabinet's shape and its unwrap live in `render/machineShell.ts`, which
+ * has no React in it and can therefore be built and photographed offline. That
+ * is deliberate: the unwrap is the part of this object most likely to be
+ * silently wrong, and a render feature that is silently discarded looks
+ * exactly like one that was never written.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -21,9 +29,29 @@ import {
   type MachineAction,
   type MachineState,
 } from '@somemore/sim';
-import { createPs1Material, type RenderSettings } from '../render/ps1.js';
-import { mergePlaced, type PlacedPart } from '../render/geometry.js';
-import { createMachineDecal, getTexture } from '../render/textures.js';
+import { createPs1Material, probeQualityTier, type QualityTier, type RenderSettings } from '../render/ps1.js';
+import {
+  BODY,
+  CHAMBER,
+  GASKET,
+  PANEL,
+  WINDOW,
+  buildAluminiumTrim,
+  buildDoorLeaf,
+  buildEnamelShell,
+  buildGrilleSlats,
+  buildRubberTrim,
+  buildSlabFrame,
+} from '../render/machineShell.js';
+import {
+  MACHINE_ATLAS_SIZE,
+  MACHINE_DOOR_ATLAS_SIZE,
+  createMachineBodyEmissive,
+  createMachineBodyTexture,
+  createMachineDecal,
+  createMachineDoorTexture,
+  getTexture,
+} from '../render/textures.js';
 
 export interface MachineProps {
   machine: MachineState;
@@ -31,201 +59,49 @@ export interface MachineProps {
   onAction: (action: MachineAction) => void;
   /** Highlights whichever control the player should operate next. */
   hintEnabled?: boolean;
+  /**
+   * The quality tier, for sizing the skin.
+   *
+   * Optional and probed when absent, because the tier lives in `App` and
+   * reaches the scene through `World`, which this change is not allowed to
+   * touch. The probe is the same one `App` starts from, so a `low` device gets
+   * the half-size atlas either way; what it does *not* get is the adaptive
+   * downgrade, so if `World` ever passes its tier down this prop is where it
+   * goes.
+   */
+  quality?: QualityTier;
 }
 
-/** Body dimensions in metres — roughly an upright freezer on rubber feet. */
-const BODY = { width: 0.86, height: 1.02, depth: 0.62 };
-
-/** The chamber mouth cut into the front face, and the shell around it. */
-const CHAMBER = {
-  width: 0.52,
-  height: 0.42,
-  /** Height of the opening's centre above the floor. */
-  centreY: 0.56,
-  /** Wall thickness of the cabinet shell. */
-  shell: 0.06,
-  /** Depth of the front frame. */
-  frontDepth: 0.06,
+/**
+ * How big the painted skin is drawn, by tier.
+ *
+ * `low` halves it, which halves the texel density to about 71 px/m — still
+ * inside the PS1 range this renderer targets, and the tier is already at
+ * 180 lines internal so nothing on the cabinet resolves past it anyway.
+ */
+const ATLAS_SIZE: Record<QualityTier, number> = {
+  low: MACHINE_ATLAS_SIZE / 2,
+  mid: MACHINE_ATLAS_SIZE,
+  high: MACHINE_ATLAS_SIZE,
+};
+const DOOR_ATLAS_SIZE: Record<QualityTier, number> = {
+  low: MACHINE_DOOR_ATLAS_SIZE / 2,
+  mid: MACHINE_DOOR_ATLAS_SIZE,
+  high: MACHINE_DOOR_ATLAS_SIZE,
 };
 
-/** A rectangle in the door's own frame: centre, extent, and where it sits in depth. */
-interface Slab {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  z: number;
-  depth: number;
-}
-
-/** The door leaf, hinged at the group origin on its left edge. */
-const DOOR: Slab = { x: 0.29, y: 0, width: 0.58, height: 0.48, z: 0.012, depth: 0.055 };
-/** The rubber seal on its inner face. */
-const GASKET: Slab = { x: 0.29, y: 0, width: 0.56, height: 0.46, z: -0.016, depth: 0.012 };
-/** The smoked window cut through both. */
-const WINDOW = { x: 0.29, y: 0.03, width: 0.34, height: 0.24 };
-
-/* -------------------------------------------------------------------------- */
-/* The static shell                                                           */
-/*                                                                            */
-/* Built once and merged by material. Nothing below moves, nothing below is    */
-/* a raycast target, and everything below is flat-shaded — which is why the    */
-/* merge is expected to be pixel-identical (see `mergePlaced`).                */
-/* -------------------------------------------------------------------------- */
-
-const box = (w: number, h: number, d: number): THREE.BufferGeometry => new THREE.BoxGeometry(w, h, d);
-
-/** Merges the parts and disposes the sources, which exist only to be merged. */
-function bake(parts: readonly PlacedPart[]): THREE.BufferGeometry {
-  const merged = mergePlaced(parts);
-  for (const part of parts) part.geometry.dispose();
-  return merged;
-}
-
 /**
- * The enamel cabinet: back, sides, top, bottom, and the front face built as a
- * frame around the chamber mouth.
+ * The two colours light leaks from the vents in, per §3.1's table.
  *
- * Built as a shell with a real opening rather than one solid box. A single box
- * has no hole in it, so opening the door revealed the machine's own front
- * panel with the sandwich sealed inside the geometry — the reveal could not
- * work until the chamber had a mouth.
+ * Built once from hex, which `THREE.Color` reads as sRGB and converts into the
+ * renderer's linear working space. Setting `.setRGB` with hand-mixed sRGB
+ * ratios instead is the mistake this codebase has now made twice: the numbers
+ * look right in the source and arrive about a stop and a half too dark.
  */
-function buildEnamelShell(): THREE.BufferGeometry {
-  const z = BODY.depth / 2 - CHAMBER.frontDepth / 2;
-  const sideWidth = (BODY.width - CHAMBER.width) / 2;
-  const above = BODY.height - (CHAMBER.centreY + CHAMBER.height / 2);
-  const below = CHAMBER.centreY - CHAMBER.height / 2;
-  const parts: PlacedPart[] = [
-    { geometry: box(BODY.width, BODY.height, CHAMBER.shell), position: [0, BODY.height / 2, -BODY.depth / 2 + CHAMBER.shell / 2] },
-    { geometry: box(BODY.width, CHAMBER.shell, BODY.depth), position: [0, BODY.height - CHAMBER.shell / 2, 0] },
-    { geometry: box(BODY.width, CHAMBER.shell, BODY.depth), position: [0, CHAMBER.shell / 2, 0] },
-    { geometry: box(CHAMBER.width, above, CHAMBER.frontDepth), position: [0, BODY.height - above / 2, z] },
-    { geometry: box(CHAMBER.width, below, CHAMBER.frontDepth), position: [0, below / 2, z] },
-  ];
-  for (const side of [-1, 1]) {
-    parts.push({ geometry: box(CHAMBER.shell, BODY.height, BODY.depth), position: [side * (BODY.width / 2 - CHAMBER.shell / 2), BODY.height / 2, 0] });
-    parts.push({ geometry: box(sideWidth, BODY.height, CHAMBER.frontDepth), position: [side * (BODY.width / 2 - sideWidth / 2), BODY.height / 2, z] });
-  }
-  return bake(parts);
-}
+const VENT_AMBER = new THREE.Color(0xff8b33);
+const VENT_ICE = new THREE.Color(0x9fd8ff);
 
-/**
- * Everything aluminium: plinth, top cap, chamber bezel, condenser fins,
- * corner posts and the grille surround.
- *
- * The front used to be one large enamel plane with everything on it lying
- * flush: the decal, the readout, the door. A flat plane facing the camera has
- * no internal form no matter how it is lit or what material it wears — which
- * is why this cabinet rendered as a single beige silhouette despite being
- * built from twenty-three boxes in four materials, and why relighting the
- * campsite did nothing for it. Everything here faces a different way from the
- * panel behind it, or is made of something with a different roughness, or
- * both. That is what a surface needs in order to be read as a surface.
- */
-function buildAluminiumTrim(): THREE.BufferGeometry {
-  const lip = 0.038;
-  const bezelZ = BODY.depth / 2 + 0.014;
-  const halfW = CHAMBER.width / 2 + lip / 2;
-  const halfH = CHAMBER.height / 2 + lip / 2;
-  const parts: PlacedPart[] = [
-    { geometry: box(BODY.width + 0.03, 0.09, BODY.depth + 0.03), position: [0, 0.045, 0] },
-    { geometry: box(BODY.width + 0.04, 0.05, BODY.depth + 0.04), position: [0, BODY.height + 0.025, 0] },
-    // The grille surround, low on the back where the cold plant breathes.
-    { geometry: box(0.6, 0.2, 0.012), position: [0, 0.16, -BODY.depth / 2 - 0.004] },
-  ];
-  // A bezel standing proud around the chamber mouth, so the door reads as set
-  // into a frame rather than painted onto a wall.
-  for (const sy of [1, -1]) {
-    parts.push({ geometry: box(CHAMBER.width + lip * 2, lip, 0.03), position: [0, CHAMBER.centreY + sy * halfH, bezelZ] });
-  }
-  for (const sx of [1, -1]) {
-    parts.push({ geometry: box(lip, CHAMBER.height, 0.03), position: [sx * halfW, CHAMBER.centreY, bezelZ] });
-  }
-  /*
-   * Condenser fins, low on the front where the cold plant would sit.
-   * Horizontal edges against a vertical panel: the one arrangement that
-   * catches a low moon and a fire at the same time.
-   */
-  for (let i = 0; i < 7; i++) {
-    parts.push({ geometry: box(0.34, 0.011, 0.022), position: [0, 0.15 + i * 0.026, BODY.depth / 2 + 0.009] });
-  }
-  /*
-   * Corner posts down the front edges. They break the silhouette, which is
-   * the only thing that reads at all once you are more than a couple of
-   * metres away and the panel detail has gone.
-   */
-  for (const sx of [-1, 1]) {
-    parts.push({ geometry: box(0.03, BODY.height - 0.14, 0.03), position: [sx * (BODY.width / 2 - 0.012), BODY.height / 2 + 0.03, BODY.depth / 2 - 0.012] });
-  }
-  return bake(parts);
-}
-
-/**
- * The rubber: a shadow gap under the top cap, and four feet.
- *
- * A recess reads as a seam between two pressings; without one the cabinet is
- * a single extrusion.
- */
-function buildRubberTrim(): THREE.BufferGeometry {
-  const parts: PlacedPart[] = [
-    { geometry: box(BODY.width - 0.05, 0.014, 0.02), position: [0, BODY.height - 0.055, BODY.depth / 2 - 0.006] },
-  ];
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      parts.push({
-        geometry: new THREE.CylinderGeometry(0.04, 0.045, 0.024, 8),
-        position: [sx * (BODY.width / 2 - 0.08), 0.012, sz * (BODY.depth / 2 - 0.08)],
-      });
-    }
-  }
-  return bake(parts);
-}
-
-/** The seven grille slats over the vent, which share one dark plastic. */
-function buildGrilleSlats(): THREE.BufferGeometry {
-  const parts: PlacedPart[] = [];
-  for (let i = 0; i < 7; i++) {
-    parts.push({ geometry: box(0.56, 0.008, 0.006), position: [0, 0.09 + i * 0.026, -BODY.depth / 2 - 0.012] });
-  }
-  return bake(parts);
-}
-
-/** A door slab's four enamel pieces, or its gasket's four, as one geometry. */
-function buildSlabFrame(slab: Slab, hole: { x: number; y: number; width: number; height: number }): THREE.BufferGeometry {
-  return bake(
-    doorFrame(slab, hole).map((piece) => ({
-      geometry: box(piece.width, piece.height, slab.depth),
-      position: [piece.x, piece.y, slab.z] as const,
-    })),
-  );
-}
-
-/**
- * A slab with a rectangular hole in it, as four boxes: a band above the hole,
- * a band below, and a jamb either side between them.
- */
-function doorFrame(
-  slab: Slab,
-  hole: { x: number; y: number; width: number; height: number },
-): ReadonlyArray<{ x: number; y: number; width: number; height: number }> {
-  const top = slab.y + slab.height / 2;
-  const bottom = slab.y - slab.height / 2;
-  const left = slab.x - slab.width / 2;
-  const right = slab.x + slab.width / 2;
-  const holeTop = hole.y + hole.height / 2;
-  const holeBottom = hole.y - hole.height / 2;
-  const holeLeft = hole.x - hole.width / 2;
-  const holeRight = hole.x + hole.width / 2;
-  return [
-    { x: slab.x, y: (top + holeTop) / 2, width: slab.width, height: top - holeTop },
-    { x: slab.x, y: (bottom + holeBottom) / 2, width: slab.width, height: holeBottom - bottom },
-    { x: (left + holeLeft) / 2, y: hole.y, width: holeLeft - left, height: hole.height },
-    { x: (right + holeRight) / 2, y: hole.y, width: right - holeRight, height: hole.height },
-  ];
-}
-
-export function Machine({ machine, settings, onAction, hintEnabled = true }: MachineProps): React.ReactElement {
+export function Machine({ machine, settings, onAction, hintEnabled = true, quality }: MachineProps): React.ReactElement {
   const doorRef = useRef<THREE.Group>(null);
   const leverRef = useRef<THREE.Group>(null);
   const latchRef = useRef<THREE.Group>(null);
@@ -237,9 +113,76 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
   const displayRef = useRef<THREE.Mesh>(null);
   const [hovered, setHovered] = useState<string | null>(null);
 
+  const tier = useMemo<QualityTier>(() => {
+    if (quality) return quality;
+    if (typeof navigator === 'undefined') return 'mid';
+    return probeQualityTier({
+      deviceMemoryGb: (navigator as { deviceMemory?: number }).deviceMemory,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      devicePixelRatio: typeof window === 'undefined' ? 1 : window.devicePixelRatio,
+    });
+  }, [quality]);
+
+  /*
+   * The painted cabinet.
+   *
+   * This used to be `getTexture('enamel')` — a 128 px tile of near-white noise
+   * — multiplied by a warm grey, on geometry whose UVs run 0..1 across every
+   * box face. Three separate things were wrong with that and only the first
+   * was visible in a screenshot.
+   *
+   * The colour put the machine within a few per cent of the handheld's own
+   * cream bezel, so at any distance where the panel detail had gone the SM-01
+   * dissolved into the frame around the screen. The tile carried no wear, no
+   * graphic and no information about *where* anything was, so the machine the
+   * game is named after had no food cue anywhere on it: it read as a kiosk, an
+   * ATM, a small appliance. And the 0..1-per-face UVs meant the same tile was
+   * stretched over the 0.86 m front and over a 0.03 m corner post, which is
+   * the texel-density bug that made the grille slats read as a flat dark
+   * rectangle until somebody looked at them.
+   *
+   * All three are the same fix: unwrap the cabinet onto its own elevations at
+   * one honest scale, and paint the elevations.
+   */
+  const bodyTexture = useMemo(
+    () =>
+      createMachineBodyTexture({
+        serial: machine.identity.serial,
+        wear: machine.identity.wear,
+        size: ATLAS_SIZE[tier],
+      }),
+    [machine.identity.serial, machine.identity.wear, tier],
+  );
+  const ventGlow = useMemo(() => createMachineBodyEmissive(ATLAS_SIZE[tier]), [tier]);
+  const doorTexture = useMemo(
+    () =>
+      createMachineDoorTexture({
+        serial: machine.identity.serial,
+        wear: machine.identity.wear,
+        size: DOOR_ATLAS_SIZE[tier],
+      }),
+    [machine.identity.serial, machine.identity.wear, tier],
+  );
+
   const enamel = useMemo(
-    () => createPs1Material({ tier: 'ps1Plus', settings, map: getTexture('enamel', { size: 128 }), color: 0xb2afa7, roughness: 0.55, metalness: 0.05 }),
-    [settings],
+    () =>
+      createPs1Material({
+        tier: 'ps1Plus',
+        settings,
+        map: bodyTexture,
+        emissive: 0xff8b33,
+        emissiveMap: ventGlow,
+        // Off at rest. The frame loop raises it while the machine works and
+        // swings it from amber to ice as the transformation turns real.
+        emissiveIntensity: 0,
+        roughness: 0.62,
+        metalness: 0.04,
+      }),
+    [bodyTexture, ventGlow, settings],
+  );
+  const doorEnamel = useMemo(
+    () => createPs1Material({ tier: 'ps1Plus', settings, map: doorTexture, roughness: 0.62, metalness: 0.04 }),
+    [doorTexture, settings],
   );
   const aluminium = useMemo(
     () => createPs1Material({ tier: 'ps1Plus', settings, map: getTexture('aluminium', { size: 128 }), color: 0x8e9195, roughness: 0.35, metalness: 0.75 }),
@@ -322,7 +265,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
   const aluminiumTrim = useMemo(() => buildAluminiumTrim(), []);
   const rubberTrim = useMemo(() => buildRubberTrim(), []);
   const grilleSlats = useMemo(() => buildGrilleSlats(), []);
-  const doorLeaf = useMemo(() => buildSlabFrame(DOOR, WINDOW), []);
+  const doorLeaf = useMemo(() => buildDoorLeaf(), []);
   const doorGasket = useMemo(() => buildSlabFrame(GASKET, WINDOW), []);
   /**
    * One material for the seven slats, which used to carry seven identical ones.
@@ -424,6 +367,26 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       indicatorLightRef.current.intensity = Math.max(r, g, b) * 2.4;
     }
 
+    /*
+     * --- Vent light -------------------------------------------------------
+     *
+     * The condenser bay, the drip-tray slot and the plant vents at the back,
+     * lit through the emissive mask. This is the machine's only readable state
+     * from more than three metres away: a run takes the better part of a
+     * minute and, before this, a working SM-01 and a dead one were the same
+     * object from across the clearing. It is light and colour, not a bar and
+     * not a countdown — §5.3 leaves that as the only honest option, and §3.1's
+     * table already says what the two colours mean.
+     */
+    const cold = coldness(machine);
+    const level = Math.max(machine.amber, cold * 0.85);
+    // Reduced motion gets the same light, held still (PRODUCT_SPEC §12).
+    const shimmer = settings.reducedMotion ? 1 : 0.88 + Math.sin(t * 1.7) * 0.12 * settings.flicker;
+    enamel.emissive.lerpColors(VENT_AMBER, VENT_ICE, cold > 0 ? cold / (cold + machine.amber + 1e-6) : 0);
+    // `fireBrightness` is the accessibility control for how hard anything in
+    // this world is allowed to glow, and this glows.
+    enamel.emissiveIntensity = level * 0.85 * settings.fireBrightness * shimmer;
+
     // --- Frost ------------------------------------------------------------
     if (frostRef.current) {
       const material = frostRef.current.material as THREE.MeshStandardMaterial;
@@ -514,12 +477,6 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
 
   return (
     <group name="sm-01">
-      {/* --- Body -------------------------------------------------------
-          Built as a shell with a real opening rather than one solid box.
-          A single box has no hole in it, so opening the door revealed the
-          machine's own front panel with the sandwich sealed inside the
-          geometry — the reveal could not work until the chamber had a
-          mouth. */}
       {/*
         The cabinet's static shell, merged.
 
@@ -531,6 +488,12 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
         lever), what is touched (the tray, the programmes, the confirm) and
         what is transparent (the frost, the window, the hints) is untouched
         below.
+
+        Everything added since — the crown board, the hinges, the drip tray,
+        the placard's mounting plate — went into these same three geometries
+        for the same reason. The budget the SM-01 has left is triangles, not
+        draw calls, so detail is bought with paint and with merged boxes and
+        never with another mesh.
       */}
       <mesh material={enamel} geometry={enamelShell} castShadow receiveShadow />
       <mesh material={aluminium} geometry={aluminiumTrim} castShadow />
@@ -561,7 +524,7 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
 
       {/*
         A lit pad on the tray while it is waiting to be loaded.
-        
+
         The tray is a thin aluminium shelf inside a dark box, and "click the
         shelf" is not a thing anybody guesses. This is the same hint treatment
         the lever and the latch get, on the one control that needed it most and
@@ -596,9 +559,15 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           was a description of an intention. The same is true of the gasket
           behind it, which was a second solid sheet. Both are cut the way the
           chamber mouth is cut into the front face above.
+
+          Its skin is its own texture rather than the body atlas, because the
+          leaf swings 120° away from everything else on the cabinet and its UVs
+          are in its own frame. Same material count, so it costs nothing — and
+          it is where the best wear on the whole object lives, since the door
+          is the part the player's own hand is about to be all over.
         */}
         <mesh
-          material={enamel}
+          material={doorEnamel}
           geometry={doorLeaf}
           castShadow
           onClick={canClose ? act({ type: 'close-door' }) : canOpen ? act({ type: 'open-door' }) : undefined}
@@ -660,15 +629,37 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       </group>
 
       {/* --- Control panel ----------------------------------------------- */}
-      <group position={[0, 0.86, BODY.depth / 2 + 0.002]}>
-        {/* Decal plate: brand, model, serial, warnings */}
-        <mesh material={decalMaterial} position={[-0.2, 0.02, 0.004]}>
-          <planeGeometry args={[0.4, 0.2]} />
+      <group position={[0, PANEL.y, PANEL.z]}>
+        {/*
+          Decal plate: brand, model, serial, warnings.
+
+          Sitting on the aluminium mounting plate that is part of the trim
+          geometry, and raised clear of the switch row below it — the plate and
+          the programme detents used to occupy the same square of panel, so the
+          knobs were drawn standing in the middle of the small print.
+        */}
+        <mesh
+          material={decalMaterial}
+          position={[
+            PANEL.plate.x,
+            PANEL.plate.y - PANEL.y,
+            BODY.depth / 2 + PANEL.plate.depth - 0.007 + PANEL.decal.standoff - PANEL.z,
+          ]}
+        >
+          <planeGeometry args={[PANEL.decal.width, PANEL.decal.height]} />
         </mesh>
 
-        {/* Status indicator */}
-        <mesh ref={indicatorRef} material={indicatorMaterial} position={[0.24, 0.06, 0.008]}>
-          <cylinderGeometry args={[0.028, 0.028, 0.012, 12]} />
+        {/*
+          Status indicator.
+
+          Turned to face the player. A `cylinderGeometry` stands on its Y axis,
+          so the lamp, the three programme detents and the confirm were all
+          drums lying edge-on against a vertical panel — six little bricks
+          where there should have been six round faces. It is a quarter turn
+          and it is the difference between controls and decoration.
+        */}
+        <mesh ref={indicatorRef} material={indicatorMaterial} position={[0.24, 0.06, 0.012]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.028, 0.028, 0.014, 12]} />
         </mesh>
         <pointLight ref={indicatorLightRef} position={[0.24, 0.06, 0.1]} distance={1.4} decay={2} />
 
@@ -684,11 +675,12 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
           return (
             <mesh
               key={program}
-              position={[-0.28 + i * 0.08, -0.07, 0.01]}
+              position={[-0.28 + i * 0.08, PANEL.switchRowY, 0.012]}
+              rotation={[Math.PI / 2, 0, 0]}
               onClick={enabled ? act({ type: 'set-program', program }) : undefined}
               {...pointerProps(`program-${program}`)}
             >
-              <cylinderGeometry args={[0.019, 0.019, 0.016, 10]} />
+              <cylinderGeometry args={[0.019, 0.019, 0.018, 10]} />
               <meshStandardMaterial
                 color={selected ? 0xe8e5de : 0x8b8880}
                 emissive={selected ? 0x554422 : 0x000000}
@@ -701,11 +693,12 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
 
         {/* Confirm */}
         <mesh
-          position={[0.02, -0.07, 0.012]}
+          position={[0.02, PANEL.switchRowY, 0.014]}
+          rotation={[Math.PI / 2, 0, 0]}
           onClick={canConfirm ? act({ type: 'confirm' }) : undefined}
           {...pointerProps('confirm')}
         >
-          <cylinderGeometry args={[0.024, 0.024, 0.018, 12]} />
+          <cylinderGeometry args={[0.024, 0.024, 0.02, 12]} />
           <meshStandardMaterial
             color={machine.confirmed ? 0xd8d4c8 : 0x9a968c}
             emissive={canConfirm && hintEnabled ? 0x335544 : 0x000000}
@@ -738,9 +731,6 @@ export function Machine({ machine, settings, onAction, hintEnabled = true }: Mac
       </group>
 
       {/* --- Grille and service panel ------------------------------------ */}
-      <mesh material={aluminium} position={[0, 0.16, -BODY.depth / 2 - 0.004]}>
-        <boxGeometry args={[0.6, 0.2, 0.012]} />
-      </mesh>
       <mesh geometry={grilleSlats} material={grillePlastic} />
 
       {/* Chamber lamp. A freezer lights its own interior when the door opens —

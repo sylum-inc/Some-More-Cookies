@@ -63,15 +63,37 @@ const EDGE_BOTTOM = ['P', 'P', 'S', 'S', 'K'] as const;
 const EDGE_LEFT = ['K', 'L', 'L', 'P', 'P'] as const;
 const EDGE_RIGHT = ['P', 'P', 'S', 'S', 'K'] as const;
 
-const LEGEND: Readonly<Record<string, PanelInk>> = {
+export type PanelLegend = Readonly<Record<string, PanelInk>>;
+
+/** Paper: a hard ink border, a lit top-left, a shaded bottom-right. */
+export const PAPER_LEGEND: PanelLegend = {
   K: 'ink',
   L: 'paperLit',
   S: 'paperShade',
   P: 'paper',
 };
 
-function inkFor(code: string | undefined): PanelInk {
-  const ink = code === undefined ? undefined : LEGEND[code];
+/**
+ * The same moulding, in a dark case.
+ *
+ * `panel.ts` has always had `drawPlate` — "a dark plate, for the one panel
+ * that is a device readout and not a page" — and the terminal is that panel.
+ * A plate is not a page with the colours swapped: the *border* has to be
+ * darker than the face rather than lighter, so `night` takes the border and
+ * the shade and `inkSoft` takes the lit edge, which is the same light from the
+ * same upper left falling on a different material.
+ *
+ * Nothing about the tiles changes. A mitre is a mitre.
+ */
+export const PLATE_LEGEND: PanelLegend = {
+  K: 'night',
+  L: 'inkSoft',
+  S: 'night',
+  P: 'ink',
+};
+
+function inkFor(code: string | undefined, legend: PanelLegend = PAPER_LEGEND): PanelInk {
+  const ink = code === undefined ? undefined : legend[code];
   // A typo in a tile above would otherwise be a silently wrong pixel on one
   // corner of every panel in the game, which is precisely the class of defect
   // `compile()` in bitmapFont.ts throws about. Same answer here.
@@ -79,11 +101,17 @@ function inkFor(code: string | undefined): PanelInk {
   return ink;
 }
 
-function paintTile(surface: PanelSurface, x: number, y: number, tile: readonly string[]): void {
+function paintTile(
+  surface: PanelSurface,
+  x: number,
+  y: number,
+  tile: readonly string[],
+  legend: PanelLegend = PAPER_LEGEND,
+): void {
   for (let row = 0; row < tile.length; row++) {
     const line = tile[row] ?? '';
     for (let column = 0; column < line.length; column++) {
-      pixel(surface, x + column, y + row, inkFor(line[column]));
+      pixel(surface, x + column, y + row, inkFor(line[column], legend));
     }
   }
 }
@@ -98,6 +126,14 @@ export interface PaperPanelOptions {
    * Three pixels wide because `SURFACE.rule` is three pixels wide.
    */
   readonly leadingRule?: PanelInk | null;
+  /**
+   * Which moulding this is: `PAPER_LEGEND` (the default) or `PLATE_LEGEND`.
+   *
+   * A legend rather than four colour props, because the nine tiles are
+   * authored once and a panel that could re-letter them individually is a
+   * panel where somebody eventually gets a mitre wrong on one corner.
+   */
+  readonly legend?: PanelLegend;
 }
 
 /**
@@ -110,14 +146,16 @@ export interface PaperPanelOptions {
  * different hat.
  */
 export function drawPaperPanel(surface: PanelSurface, area: Rect, options: PaperPanelOptions = {}): void {
-  const face = options.face ?? 'paper';
+  const legend = options.legend ?? PAPER_LEGEND;
+  const face = options.face ?? inkFor('P', legend);
+  const border = inkFor('K', legend);
   const screen = options.screen === undefined ? 'paperEdge' : options.screen;
   if (area.width < SLICE * 2 || area.height < SLICE * 2) {
     // Too small to frame. Draw the ground and a border so the caller sees a
     // box rather than nothing, because nothing is the failure that gets
     // misread as "the panel did not render".
     fillRect(surface, area, face);
-    frameRect(surface, area, 'ink');
+    frameRect(surface, area, border);
     return;
   }
 
@@ -127,22 +165,22 @@ export function drawPaperPanel(surface: PanelSurface, area: Rect, options: Paper
   const innerHeight = area.height - SLICE * 2;
 
   for (let row = 0; row < SLICE; row++) {
-    const top = inkFor(EDGE_TOP[row]);
-    const low = inkFor(EDGE_BOTTOM[row]);
+    const top = inkFor(EDGE_TOP[row], legend);
+    const low = inkFor(EDGE_BOTTOM[row], legend);
     surface.fill(area.x + SLICE, area.y + row, innerWidth, 1, top);
     surface.fill(area.x + SLICE, bottom(area) - SLICE + row, innerWidth, 1, low);
   }
   for (let column = 0; column < SLICE; column++) {
-    const left = inkFor(EDGE_LEFT[column]);
-    const rightInk = inkFor(EDGE_RIGHT[column]);
+    const left = inkFor(EDGE_LEFT[column], legend);
+    const rightInk = inkFor(EDGE_RIGHT[column], legend);
     surface.fill(area.x + column, area.y + SLICE, 1, innerHeight, left);
     surface.fill(right(area) - SLICE + column, area.y + SLICE, 1, innerHeight, rightInk);
   }
 
-  paintTile(surface, area.x, area.y, TILE_TOP_LEFT);
-  paintTile(surface, right(area) - SLICE, area.y, TILE_TOP_RIGHT);
-  paintTile(surface, area.x, bottom(area) - SLICE, TILE_BOTTOM_LEFT);
-  paintTile(surface, right(area) - SLICE, bottom(area) - SLICE, TILE_BOTTOM_RIGHT);
+  paintTile(surface, area.x, area.y, TILE_TOP_LEFT, legend);
+  paintTile(surface, right(area) - SLICE, area.y, TILE_TOP_RIGHT, legend);
+  paintTile(surface, area.x, bottom(area) - SLICE, TILE_BOTTOM_LEFT, legend);
+  paintTile(surface, right(area) - SLICE, bottom(area) - SLICE, TILE_BOTTOM_RIGHT, legend);
 
   // The screen goes on *after* the frame, not before it.
   //
@@ -449,8 +487,84 @@ export function drawFocusRing(surface: PanelSurface, area: Rect): void {
 /* Controls                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export function drawButtonChrome(surface: PanelSurface, area: Rect, pressed = false): void {
+export function drawButtonChrome(
+  surface: PanelSurface,
+  area: Rect,
+  pressed = false,
+  disabled = false,
+): void {
+  /*
+   * Three states and three materials, not one material at three opacities.
+   *
+   * The CSS version faded a disabled button to `opacity: 0.4`, which on paper
+   * over a dithered forest is a button somebody can still read as available.
+   * A cap that is *flat* — no bevel, no light on it — is not a thing a thumb
+   * reads as pressable, at any contrast, and it keeps the label above the
+   * legibility floor instead of taking it below (D7).
+   */
+  if (disabled) {
+    fillRect(surface, area, 'paperEdge');
+    frameRect(surface, area, 'inkSoft');
+    return;
+  }
   drawBevelBox(surface, area, pressed ? 'paperEdge' : 'paper', pressed ? 'in' : 'out', 'ink');
+}
+
+/**
+ * A well: a slip of cream stock pressed into whatever it is on.
+ *
+ * Cream on the dark plate as much as on the page, and that is the decision
+ * rather than an oversight. A dark field on a dark plate is a hole, its type
+ * is reversed twice over, and the one thing a postcode or an 86-character
+ * signature has to be is *legible while it is being typed* (D7). A recessed
+ * light slip in a dark case is also exactly what the era's appliances did with
+ * the one part of a console you had to read.
+ */
+export function drawTextWell(surface: PanelSurface, area: Rect, disabled = false): void {
+  drawBevelBox(surface, area, disabled ? 'paperShade' : 'paperEdge', 'in', disabled ? 'inkSoft' : 'ink');
+}
+
+/**
+ * The block caret, where the next character will land.
+ *
+ * Solid and still. A blinking caret is an animation, and §12's still path is
+ * the only path on these panels — the browser's own caret is inside a control
+ * at `opacity: 0` and never reaches the screen, so if this did not exist a
+ * player typing into a drawn field would have nothing at all telling them
+ * where they were.
+ */
+export function drawCaret(surface: PanelSurface, area: Rect): void {
+  fillRect(surface, area, 'stamp');
+}
+
+/**
+ * A window onto something the game did not draw.
+ *
+ * Four reticle corners and a sunken ink edge over `night`: the instrument, not
+ * the picture. What sits inside it is the caller's own element (see
+ * `ApertureBlock`), so the ground here is what shows while a camera is still
+ * waking up — which is a dark aperture rather than a hole in the panel.
+ */
+export function drawAperture(surface: PanelSurface, area: Rect): void {
+  if (area.width <= 0 || area.height <= 0) return;
+  fillRect(surface, area, 'night');
+  frameRect(surface, area, 'ink');
+  // A quarter of the shorter side, so the corners read as a frame rather than
+  // as four dashes at any size the measure gives us.
+  const arm = Math.max(2, Math.floor(Math.min(area.width, area.height) / 5));
+  const inset = 2;
+  const corners = [
+    [area.x + inset, area.y + inset, 1, 1],
+    [right(area) - inset - 1, area.y + inset, -1, 1],
+    [area.x + inset, bottom(area) - inset - 1, 1, -1],
+    [right(area) - inset - 1, bottom(area) - inset - 1, -1, -1],
+  ] as const;
+  for (const [cx, cy, dx, dy] of corners) {
+    for (let i = 0; i < arm; i++) {
+      pixel(surface, cx + dx * i, cy, 'amber');
+      pixel(surface, cx, cy + dy * i, 'amber');
+    }
+  }
 }
 
 /**
@@ -461,8 +575,8 @@ export function drawButtonChrome(surface: PanelSurface, area: Rect, pressed = fa
  * box. `accentColor: TOKENS.stamp` on the CSS input was already making this
  * choice; this is the same choice with the browser's checkbox art removed.
  */
-export function drawCheckbox(surface: PanelSurface, area: Rect, checked: boolean): void {
-  drawBevelBox(surface, area, checked ? 'paper' : 'paperEdge', 'in', 'ink');
+export function drawCheckbox(surface: PanelSurface, area: Rect, checked: boolean, disabled = false): void {
+  drawBevelBox(surface, area, checked ? 'paper' : 'paperEdge', 'in', disabled ? 'inkSoft' : 'ink');
   if (!checked) return;
   // Inside the border only, not inside the bevel. A 9x9 well leaves 7x7 of
   // face, and the tick is drawn to exactly that: measuring against the bevel
@@ -504,21 +618,29 @@ const TICK = ['......#', '.....##', '#...##.', '##.##..', '.####..', '..##...'] 
  * nothing else, and the readout is a string the caller has already formatted.
  */
 /** Returns the handle's rectangle, for a caller that wants to point at it. */
-export function drawSlider(surface: PanelSurface, track: Rect, fraction: number): Rect {
+export function drawSlider(surface: PanelSurface, track: Rect, fraction: number, disabled = false): Rect {
   const t = Math.min(1, Math.max(0, fraction));
   const handleWidth = 5;
   const trackY = track.y + Math.floor((track.height - 5) / 2);
   const trackRect: Rect = { x: track.x, y: trackY, width: track.width, height: 5 };
-  drawBevelBox(surface, trackRect, 'paperEdge', 'in', 'ink');
+  const edge: PanelInk = disabled ? 'inkSoft' : 'ink';
+  drawBevelBox(surface, trackRect, 'paperEdge', 'in', edge);
   const travel = Math.max(0, track.width - handleWidth);
   const filled = Math.round(travel * t);
-  if (filled > 0) fillRect(surface, { x: trackRect.x + 2, y: trackY + 2, width: filled, height: 1 }, 'stamp');
+  if (filled > 0 && !disabled) {
+    fillRect(surface, { x: trackRect.x + 2, y: trackY + 2, width: filled, height: 1 }, 'stamp');
+  }
   const handle: Rect = {
     x: track.x + filled,
     y: track.y,
     width: handleWidth,
     height: track.height,
   };
-  drawBevelBox(surface, handle, 'paper', 'out', 'ink');
+  if (disabled) {
+    fillRect(surface, handle, 'paperShade');
+    frameRect(surface, handle, 'inkSoft');
+  } else {
+    drawBevelBox(surface, handle, 'paper', 'out', 'ink');
+  }
   return handle;
 }

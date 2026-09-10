@@ -198,6 +198,57 @@ test.describe('adding a code from a wrapper', () => {
     await page.screenshot({ path: `${SHOTS}/redeem-expired.png` });
   });
 
+  /*
+   * The panel is drawn now, and the drawing is not the panel (spec §6.2).
+   *
+   * `Scan` moved into the pixel buffer with the Passport and Settings, which
+   * means every control on it is a picture — and a picture has no role, no
+   * name, no value and no tab stop. `access.spec.ts` makes exactly these
+   * assertions about the two panels that were converted first; this makes them
+   * about the code entry, which the audit that started all of this named as
+   * one of the two sharp cases ("a code entry form and a checkout") because it
+   * is a form somebody has to fill in from the keyboard.
+   *
+   * Nothing here is about the pixels. It is about the half of the panel a
+   * screen reader gets, which is the half that would silently stop existing if
+   * somebody decided the drawing was enough.
+   */
+  test('is a real form, whatever it is drawn out of', async ({ page }) => {
+    await proxyApi(page);
+    await openScanPanel(page);
+
+    const dialog = page.getByRole('dialog', { name: 'Add a code' });
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+
+    // Taken to it, not merely shown it.
+    const inside = () =>
+      dialog.evaluate((el) => el.contains(document.activeElement) && document.activeElement !== document.body);
+    expect(await inside(), 'focus was not moved into the code panel').toBe(true);
+
+    // The field is a real editable control with a real name, and the button
+    // that submits it is a real button. Both are `opacity: 0` over their own
+    // pixels — which is visible to Playwright and to a screen reader, and is
+    // the whole reason the conversion is allowed to draw them.
+    const field = page.getByTestId('scan-input');
+    await expect(field).toBeVisible();
+    await expect(field).toBeEditable();
+    await expect(dialog.getByRole('button', { name: 'Add it' })).toBeVisible();
+    // The label is a real one: this is what `getByLabel` resolves against, and
+    // it is what somebody listening hears when they land on the field.
+    await expect(dialog.getByLabel('Type it in')).toBeVisible();
+
+    // Round the whole cycle and back — more presses than the panel has
+    // controls, so a trap that only holds for one lap would fail here.
+    for (let i = 0; i < 20; i += 1) await page.keyboard.press('Tab');
+    expect(await inside(), 'Tab escaped the code panel').toBe(true);
+    for (let i = 0; i < 6; i += 1) await page.keyboard.press('Shift+Tab');
+    expect(await inside(), 'Shift+Tab escaped the code panel').toBe(true);
+
+    // And Escape shuts it, which is §12's rule for every overlay.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
+
   test('is reachable, and is never in the way of the campfire', async ({ page }) => {
     await proxyApi(page);
     await page.goto('/?camp=camp-redeem-quiet&env=pine_hollow');

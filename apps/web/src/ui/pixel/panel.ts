@@ -67,13 +67,17 @@ import { drawText, type PanelSurface, type Rect } from './surface.js';
 import { clipSurface, fillRect } from './surface.js';
 import { ditherGradient, scrim } from './dither.js';
 import {
+  drawAperture,
   drawButtonChrome,
+  drawCaret,
   drawCheckbox,
   drawFocusRing,
   drawPaperPanel,
   drawRule,
   drawSlider,
   drawStamp,
+  drawTextWell,
+  PLATE_LEGEND,
   type PaperPanelOptions,
 } from './chrome.js';
 import { controlById, type LaidOutBlock, type LaidOutLine, type PanelLayout } from './layout.js';
@@ -112,7 +116,46 @@ export interface DrawPanelOptions extends PaperPanelOptions {
    * reader who reached for this setting is most likely to be squinting at.
    */
   readonly highContrast?: boolean;
+  /**
+   * What the page's own two voices are made of.
+   *
+   * Paper by default. The terminal is the one surface in the product that is a
+   * device readout rather than a page (`drawPlate`, and `styles.ts` drew the
+   * same line for the HUD), and it reverses those two out of a dark case —
+   * without a single block, control or caller having to know, because a
+   * button cap and a text well carry their own tones (`PanelTone`).
+   */
+  readonly tones?: PanelTones;
 }
+
+/** The page's primary and secondary type, so a surface can be inverted. */
+export interface PanelTones {
+  readonly body: PanelInk;
+  readonly soft: PanelInk;
+}
+
+const PAPER_TONES: PanelTones = { body: 'ink', soft: 'inkSoft' };
+/**
+ * Cream on a warm dark case, and the second voice only one step down from it.
+ *
+ * `paperShade` was the obvious mirror of `inkSoft` and it was wrong, which the
+ * first plate sheet showed at a glance: a machine block is `soft` by
+ * definition, so the terminal's *entire printout* — the thing the panel exists
+ * to show — came out in the quiet voice, a good deal dimmer than the page it
+ * was on deserved. `paperEdge` keeps the two voices distinguishable and keeps
+ * the readout above the floor D7 draws (about nine to one against `ink`,
+ * against `paperShade`'s six and a half).
+ */
+export const PLATE_TONES: PanelTones = { body: 'paper', soft: 'paperEdge' };
+
+/** Everything a plate panel is: a dark case, no printed screen, an amber rule. */
+export const PLATE_SURFACE: PaperPanelOptions & { readonly tones: PanelTones } = {
+  legend: PLATE_LEGEND,
+  face: 'ink',
+  screen: null,
+  leadingRule: 'amber',
+  tones: PLATE_TONES,
+};
 
 /** The same shape of hash `Passport.tsx` uses, so a stamp keeps its identity. */
 export function stampSeed(id: string): number {
@@ -124,24 +167,31 @@ export function stampSeed(id: string): number {
   return hash >>> 0;
 }
 
-function inkFor(tone: LaidOutLine['tone'], highContrast = false): PanelInk {
-  return tone === 'soft' && !highContrast ? 'inkSoft' : 'ink';
+function inkFor(tone: LaidOutLine['tone'], highContrast = false, tones: PanelTones = PAPER_TONES): PanelInk {
+  // `chrome` and `chromeSoft` are on a control's own cream face and never
+  // move; the other two are the page's voice and follow the surface.
+  if (tone === 'chrome') return 'ink';
+  if (tone === 'chromeSoft') return highContrast ? 'ink' : 'inkSoft';
+  if (tone === 'soft') return highContrast ? tones.body : tones.soft;
+  return tones.body;
 }
 
 function paintLines(
   surface: PanelSurface,
   lines: readonly LaidOutLine[],
   highContrast = false,
+  tones: PanelTones = PAPER_TONES,
 ): void {
   for (const line of lines) {
     if (line.text === '') continue;
-    drawText(surface, line.rect.x, line.rect.y, line.text, inkFor(line.tone, highContrast), line.style);
+    drawText(surface, line.rect.x, line.rect.y, line.text, inkFor(line.tone, highContrast, tones), line.style);
   }
 }
 
 function paintBlock(surface: PanelSurface, block: LaidOutBlock, options: DrawPanelOptions): void {
   const high = options.highContrast === true;
-  paintLines(surface, block.lines, high);
+  const tones = options.tones ?? PAPER_TONES;
+  paintLines(surface, block.lines, high, tones);
 
   if (block.kind === 'rule') {
     const style = block.block.kind === 'rule' ? (block.block.style ?? 'solid') : 'solid';
@@ -151,9 +201,11 @@ function paintBlock(surface: PanelSurface, block: LaidOutBlock, options: DrawPan
       block.rect.y,
       block.rect.width,
       style,
-      style === 'solid' || high ? 'ink' : 'inkSoft',
+      style === 'solid' || high ? tones.body : tones.soft,
     );
   }
+
+  if (block.kind === 'aperture') drawAperture(surface, block.rect);
 
   const seedOf = options.stampSeed ?? stampSeed;
   for (const mark of block.marks) {
@@ -169,10 +221,22 @@ function paintBlock(surface: PanelSurface, block: LaidOutBlock, options: DrawPan
   }
 
   for (const control of block.controls) {
-    if (control.kind === 'button') drawButtonChrome(surface, control.control);
-    else if (control.kind === 'checkbox') drawCheckbox(surface, control.control, control.checked === true);
-    else drawSlider(surface, control.control, control.fraction ?? 0);
-    paintLines(surface, control.lines, high);
+    const off = control.disabled === true;
+    if (control.kind === 'button') {
+      drawButtonChrome(surface, control.control, control.pressed === true, off);
+    } else if (control.kind === 'checkbox') {
+      drawCheckbox(surface, control.control, control.checked === true, off);
+    } else if (control.kind === 'text') {
+      drawTextWell(surface, control.control, off);
+    } else {
+      drawSlider(surface, control.control, control.fraction ?? 0, off);
+    }
+    paintLines(surface, control.lines, high, tones);
+    // After the type, because the caret sits at the end of the last line and a
+    // well drawn over it would be a caret behind the word it follows.
+    if (control.kind === 'text' && control.caret !== undefined && options.focusedId === control.id && !off) {
+      drawCaret(surface, control.caret);
+    }
   }
 }
 

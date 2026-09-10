@@ -369,9 +369,22 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
     speckle(ctx, size, rng, ['#5e8a4d', '#1a3320'], 0.05);
   },
 
+  /**
+   * Compacted soil, for the sides of the pit and for the terrain past the mats.
+   *
+   * Every colour here used to sit between 25° and 30° of hue, which is orange,
+   * and it multiplies against a manifest ground colour that is also 27° — so
+   * the two compounded and a midday capture of the forest floor was graded
+   * "closer to Mars than to a pine hollow". Soil is not one hue. The wet and
+   * shaded parts of it go cool and almost neutral while the dry crust stays
+   * warm, and it is that split, rather than the average, that reads as earth.
+   */
   dirt: (ctx, size, rng) => {
-    fill(ctx, size, '#3c3026');
-    speckle(ctx, size, rng, ['#332920', '#48392c', '#2b221a', '#54432f'], 0.7);
+    fill(ctx, size, '#3a3028');
+    speckle(ctx, size, rng, ['#312a24', '#463a2e', '#272426', '#52432f'], 0.7);
+    // The cool half: damp soil in the low spots, which is what stops a whole
+    // hillside reading as one warm field.
+    speckle(ctx, size, rng, ['#2b2c30', '#343138'], 0.06);
   },
 
   /**
@@ -386,16 +399,43 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
    * even from standing height.
    */
   duff: (ctx, size, rng) => {
-    fill(ctx, size, '#423225');
+    /*
+     * Rust-brown, not orange-brown, and that is a smaller change than it
+     * sounds.
+     *
+     * The manifest's own words for this campsite's floor are "deep rust-brown
+     * needle litter over compacted dirt". Every colour in the first version of
+     * this tile sat between 24° and 32° of hue — which is orange — and the tile
+     * is *multiplied* by a manifest ground colour that is itself at 27°, so the
+     * two compounded rather than averaging. A midday capture of the clearing
+     * came back a near-uniform saturated orange with a very narrow value range,
+     * and the note on it was that the forest floor read closer to Mars than to
+     * a pine hollow.
+     *
+     * Rust is red-brown: the same value, ten degrees round the wheel, and a
+     * good deal less yellow in the pale end. The rest of the fix is not here —
+     * it is the daylight ramp no longer *raising* the ground's chroma as it
+     * lifts its value, and the terrain past the mats no longer being handed the
+     * same colour as the ground at the player's feet.
+     */
+    fill(ctx, size, '#3f2e23');
     // Broad patches: where the litter is deep, and where it has worn thin.
-    blotches(ctx, size, rng, ['#332619', '#2b2016'], 7, size / 9, size / 4.2);
-    blotches(ctx, size, rng, ['#4a382a', '#54402e'], 6, size / 10, size / 4.5);
+    blotches(ctx, size, rng, ['#2f2118', '#261a14'], 7, size / 9, size / 4.2);
+    blotches(ctx, size, rng, ['#4a3428', '#553c2c'], 6, size / 10, size / 4.5);
     // Fallen needles, in three ages: fresh rust, weathered brown, black.
-    strokes(ctx, size, rng, ['#6b4d2f', '#5a4128', '#2c1f14'], size * 2, size / 16, size / 7);
-    strokes(ctx, size, rng, ['#7d5c39'], size * 0.5, size / 20, size / 10);
-    // Grit and cone scales, the small pale things that catch a low sun.
-    speckle(ctx, size, rng, ['#8a7a61', '#9b8a6c'], 0.035);
-    speckle(ctx, size, rng, ['#1d150e'], 0.05);
+    strokes(ctx, size, rng, ['#6e442c', '#5a3a26', '#2a1c15'], size * 2, size / 16, size / 7);
+    strokes(ctx, size, rng, ['#7f5334'], size * 0.5, size / 20, size / 10);
+    // Grit and cone scales, the small pale things that catch a low sun. Greyer
+    // than they were: cone scales weather to bone, not to straw, and a pale
+    // yellow speck at this density is what pushed the whole field warm.
+    speckle(ctx, size, rng, ['#867b6a', '#978c7a'], 0.035);
+    // The cool dark: the gaps between needles are shadow lit only by the sky,
+    // and they are the entire reason a real forest floor is not monochrome.
+    // Sparse and barely blue — rendered at six times life size it looks like
+    // confetti, and at the one texel per fifth of a pixel this tile is actually
+    // sampled at, anything stronger averages into a grey cast over everything.
+    speckle(ctx, size, rng, ['#1b1712'], 0.042);
+    speckle(ctx, size, rng, ['#1e2128'], 0.014);
     // Same level as the tile it replaces; four times the value range.
     normaliseLinearMean(ctx, size, GROUND_TILE_MEAN);
   },
@@ -420,8 +460,11 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
      * not be. Bare soil next to needle litter is a small step in value and a
      * large step in *grain*, and it is the grain that has to do the work.
      */
-    fill(ctx, size, '#4e4132');
-    blotches(ctx, size, rng, ['#584a39', '#443729', '#5f5040'], 12, size / 9, size / 3.6);
+    // Greyer than the duff around it as well as lighter: bare soil that has
+    // been walked on has had the needles taken out of it, and the needles are
+    // where the red in a forest floor lives.
+    fill(ctx, size, '#4b4036');
+    blotches(ctx, size, rng, ['#55493d', '#42372d', '#5d5145'], 12, size / 9, size / 3.6);
     // Stones pressed up out of the soil, each with a shadow on one side.
     for (let i = 0; i < size / 3.4; i++) {
       const x = rng.range(0, size);
@@ -714,8 +757,18 @@ export function createMachineDecal(options: {
   const { ctx, canvas } = surface;
   const rng = new Rng(options.serial);
 
-  fill(ctx, size, '#e6e3dc');
-  speckle(ctx, size, rng, ['#dcd9d1', '#eeebe4'], 0.12);
+  /*
+   * The plate, which is no longer near-white.
+   *
+   * At `#e6e3dc` this was the brightest surface anywhere on the machine — in a
+   * night frame it read as a lit rectangle stuck to the cabinet, and at four
+   * metres it out-shouted the object it is a label for. A rating plate is
+   * painted or anodised aluminium that has been outdoors for twenty years; it
+   * is a mid grey, and the contrast that makes the name legible comes from the
+   * ink being dark, not from the plate being white.
+   */
+  fill(ctx, size, '#b9b4a4');
+  speckle(ctx, size, rng, ['#afaa9a', '#c3beae'], 0.12);
 
   const fade = Math.min(0.75, options.decalFade);
   const ink = `rgba(26,28,32,${(1 - fade * 0.7).toFixed(3)})`;
@@ -772,44 +825,77 @@ export function createMachineDecal(options: {
   ctx.fillStyle = ink;
   ctx.fillText('SOME MORE', size * 0.07, size * 0.075);
 
-  ctx.font = `bold ${Math.floor(size * 0.085)}px "Helvetica Neue", Arial, sans-serif`;
-  ctx.fillText('SM-01', size * 0.07, size * 0.275);
+  ctx.font = `bold ${Math.floor(size * 0.095)}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.fillText('SM-01', size * 0.07, size * 0.285);
+  // On its own line rather than set beside the model number, which is where it
+  // was: "SM-01" in bold at this size is about a third of the plate wide, and
+  // the description started a quarter of the way across it. The two strings
+  // overlapped on every machine in the game.
   ctx.font = `${Math.floor(size * 0.05)}px "Helvetica Neue", Arial, sans-serif`;
-  ctx.fillText('TRANSFORMATION FREEZER', size * 0.28, size * 0.305);
+  ctx.fillText('TRANSFORMATION FREEZER', size * 0.07, size * 0.395);
 
   // A functional rule, the Rams-influenced touch.
   ctx.fillStyle = `rgba(26,28,32,${(0.5 - fade * 0.3).toFixed(3)})`;
-  ctx.fillRect(size * 0.07, size * 0.37, size * 0.86, Math.max(1, size / 128));
+  ctx.fillRect(size * 0.07, size * 0.475, size * 0.86, Math.max(1, size / 96));
 
+  /*
+   * Two lines of data and a warning, where there were four lines and a warning.
+   *
+   * The arithmetic is not close. The plate is 0.40 m by 0.20 m and it is read
+   * from about two metres through a 426x240 buffer, so the whole plate is
+   * roughly 47 by 24 screen pixels: a line set at four and a half per cent of
+   * a 256 px canvas arrives about one pixel tall. Five such lines are not
+   * small print, they are a grey field at the frequency of the dither, which
+   * is why an art review read this plate as unpainted placeholder rather than
+   * as text.
+   *
+   * So the block is cut to what can actually survive: two lines at seven and a
+   * half per cent — about two and a half screen pixels each, which is a *mark*
+   * — with real air between them, and a warning line in the oxide red that is
+   * the only other thing on the plate with any colour in it. What is gone is
+   * gone: blank plate reads as blank plate, and blank plate is what a real
+   * rating label mostly is.
+   */
   ctx.fillStyle = ink;
-  ctx.font = `${Math.floor(size * 0.045)}px "Courier New", monospace`;
-  ctx.fillText(`SER ${options.serial}`, size * 0.07, size * 0.42);
-  ctx.fillText(`MFG ${options.built}`, size * 0.07, size * 0.48);
-  ctx.fillText('220-240V~ 50/60Hz', size * 0.07, size * 0.54);
-  ctx.fillText('R-290  CHARGE 148g', size * 0.07, size * 0.6);
+  ctx.font = `${Math.floor(size * 0.075)}px "Courier New", monospace`;
+  ctx.fillText(`SER ${options.serial}`, size * 0.07, size * 0.51);
+  ctx.fillText(`MFG ${options.built}   R-290`, size * 0.07, size * 0.605);
 
-  ctx.font = `${Math.floor(size * 0.04)}px "Helvetica Neue", Arial, sans-serif`;
-  ctx.fillText('COLD SURFACES — HANDLE WITH CARE', size * 0.07, size * 0.69);
+  ctx.fillStyle = `rgba(138,59,42,${(0.95 - fade * 0.45).toFixed(3)})`;
+  ctx.font = `bold ${Math.floor(size * 0.075)}px "Helvetica Neue", Arial, sans-serif`;
+  ctx.fillText('COLD SURFACES', size * 0.07, size * 0.705);
 
   // Stickers, tilted and aged.
-  let y = size * 0.77;
-  for (const sticker of options.stickers.slice(0, 2)) {
+  ctx.fillStyle = ink;
+  let y = size * 0.825;
+  for (const sticker of options.stickers.slice(0, 1)) {
     ctx.save();
     ctx.translate(size * 0.08, y);
     ctx.rotate(rng.range(-0.05, 0.05));
     ctx.fillStyle = rng.chance(0.5) ? '#d8cfae' : '#cfd8d4';
-    const w = size * 0.6;
-    const h = size * 0.075;
+    const w = size * 0.66;
+    const h = size * 0.105;
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(30,30,30,0.75)';
-    ctx.font = `${Math.floor(size * 0.032)}px "Courier New", monospace`;
-    ctx.fillText(sticker.slice(0, 28), size * 0.015, size * 0.018);
+    ctx.font = `${Math.floor(size * 0.055)}px "Courier New", monospace`;
+    /*
+     * The first word and the number, not the first fourteen characters.
+     *
+     * "CAMPGROUND INSPECTION 08" set small enough to fit is a grey smear, and
+     * cut to fourteen characters it is "CAMPGROUND INS", which reads as a
+     * string that got truncated by a bug. What is actually legible on a
+     * peeling inspection tag at two metres is one word and a number, so that
+     * is what is printed.
+     */
+    const words = sticker.split(/[\s,]+/).filter(Boolean);
+    const number = sticker.match(/\d+/)?.[0] ?? '';
+    ctx.fillText(`${words[0] ?? ''} ${number}`.trim().slice(0, 14), size * 0.02, size * 0.022);
     ctx.restore();
     y += size * 0.1;
   }
 
   // Wear: scuffs and paint loss.
-  const scuffs = Math.floor(options.wear * 26);
+  const scuffs = Math.floor(options.wear * 16);
   for (let i = 0; i < scuffs; i++) {
     ctx.fillStyle = `rgba(120,118,112,${rng.range(0.05, 0.3).toFixed(3)})`;
     ctx.fillRect(rng.range(0, size), rng.range(0, size), rng.range(1, size / 12), rng.range(1, 3));
@@ -908,3 +994,701 @@ export function clearTextureCache(): void {
 
 /** Every generator key, for tests and the debug view. */
 export const TEXTURE_KEYS = Object.keys(GENERATORS) as TextureKey[];
+
+/* -------------------------------------------------------------------------- */
+/* The SM-01's painted skin (spec §3.1)                                       */
+/*                                                                            */
+/* Everything below draws the machine and nothing else. It is appended rather  */
+/* than woven into `GENERATORS` on purpose: the keyed generators are tiles     */
+/* that repeat over whatever they are put on, and these are *elevations* — a   */
+/* front, a side, a door, drawn once at a known scale and unwrapped onto the   */
+/* cabinet by `Machine.tsx`. A tile cannot carry a graphic that has to be in   */
+/* one particular place, and a `BoxGeometry`'s 0..1-per-face UVs cannot carry  */
+/* a tile at an honest texel density on a box that is 0.86 m across one face   */
+/* and 0.03 m across the next.                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A rectangle of the machine atlas, in atlas pixels at the reference size,
+ * with the real-world extent it covers.
+ *
+ * Both halves matter and they are why this is data rather than magic numbers
+ * in two files. `Machine.tsx` projects each face of the cabinet onto the
+ * matching elevation to build UVs; the drawing code below converts metres to
+ * atlas pixels through the same numbers. If they disagree, the paint slides
+ * off the panel, and the only way to notice is to look.
+ */
+export interface AtlasRegion {
+  /** Position and size in atlas pixels, at the reference atlas size. */
+  readonly px: number;
+  readonly py: number;
+  readonly pw: number;
+  readonly ph: number;
+  /** Horizontal extent in metres: x for front/back/top, z for the side. */
+  readonly h: readonly [number, number];
+  /** Vertical extent in metres: y, or z on the top face. */
+  readonly v: readonly [number, number];
+}
+
+/** The reference atlas edge. Every region is expressed against this. */
+export const MACHINE_ATLAS_SIZE = 256;
+
+/**
+ * The cabinet's four elevations, laid out in one texture.
+ *
+ * The front and side are drawn at about 142 px/m, which is the texel density a
+ * 128 px tile gives a 0.9 m panel — the PS1 range this renderer is built for,
+ * not a modern lightmap. The back is deliberately squashed vertically to about
+ * a third of that: it faces away from the clearing at every campsite and
+ * carries nothing but horizontal bands, which is the one kind of detail a
+ * vertical squash cannot spoil.
+ */
+export const MACHINE_ATLAS = {
+  front: { px: 0, py: 0, pw: 128, ph: 190, h: [-0.45, 0.45], v: [0, 1.35] },
+  side: { px: 128, py: 0, pw: 100, ph: 190, h: [-0.35, 0.35], v: [0, 1.35] },
+  back: { px: 0, py: 190, pw: 128, ph: 66, h: [-0.45, 0.45], v: [0, 1.35] },
+  top: { px: 128, py: 190, pw: 100, ph: 66, h: [-0.45, 0.45], v: [-0.35, 0.35] },
+  /** Bottoms, inner returns, anything nobody stands in front of. */
+  misc: { px: 228, py: 0, pw: 28, ph: 256, h: [0, 1], v: [0, 1] },
+} as const satisfies Record<string, AtlasRegion>;
+
+export type MachineAtlasFace = keyof typeof MACHINE_ATLAS;
+
+/**
+ * The enamel the cabinet is painted in.
+ *
+ * It is not the industrial white the spec's material list names, and the
+ * reason is worth writing down. White enamel put the machine within a few per
+ * cent of the handheld's own cream bezel, so at any distance where the panel
+ * detail has gone — which is most of the game — the SM-01 dissolved into the
+ * frame around the screen. A chipped institutional green is the same class of
+ * object (municipal, enamelled, left outdoors for years) at a hue and value
+ * nothing else in the clearing occupies: the ground is rust-brown, the bezel
+ * is cream, the pines are darker and far more saturated, and the fire stays
+ * the brightest thing in the frame at night because this is a mid-value paint
+ * and not a light source.
+ *
+ * The value was chosen by measurement rather than by eye, because "a different
+ * hue" is not the same claim as "separates from the frame": a green at the
+ * same brightness as the bezel still merges once the buffer is 426 px wide and
+ * quantised to five bits. Sampling the enamel and the bezel out of the seven
+ * shipped `hour-*` frames and re-lighting the enamel through the new albedo
+ * gives, as a luminance gap from the bezel:
+ *
+ *     hour          old cream   this green
+ *     pre-dawn        0.261       0.290
+ *     dawn            0.241       0.275
+ *     morning         0.148       0.206
+ *     midday          0.041       0.065
+ *     afternoon       0.041       0.066
+ *     dusk            0.197       0.243
+ *     early night     0.226       0.263
+ *
+ * Every hour separates further than it did, and the two that were nearly
+ * indistinguishable — midday and afternoon, at four hundredths — separate by
+ * half as much again. Going darker still keeps widening that gap; this is as
+ * dark as it goes before pre-dawn stops being a surface and starts being a
+ * silhouette, which is the floor D7 puts under it.
+ */
+const ENAMEL = {
+  base: '#7f8c76',
+  light: '#8b9882',
+  lighter: '#97a48d',
+  dark: '#6f7b67',
+  darker: '#616c5a',
+  shadow: '#4e5747',
+  /** What a chip shows: oxide primer, and the bare filler around its edge. */
+  primer: '#423d31',
+  bare: '#7e786a',
+  /** Sun-bleached: the same paint after ten summers facing the clearing. */
+  bleached: '#a0a792',
+  bleachedLight: '#acb29d',
+} as const;
+
+/** Rust, soot and grease — the three things that age an outdoor appliance. */
+const GRIME = {
+  rust: '#8a4a25',
+  rustDark: '#61331a',
+  rustLight: '#a86733',
+  sootHard: 'rgba(24,20,17,0.55)',
+  grease: 'rgba(52,44,34,0.26)',
+  splash: 'rgba(74,58,40,0.30)',
+} as const;
+
+/**
+ * The s'more mark, in the game's own warm palette.
+ *
+ * Drawn as five stacked bands because that is what the product *is*, and
+ * because a stack of bands is the one illustration that survives being twenty
+ * pixels tall: at the arrival camera this mark is about 26 screen pixels high,
+ * which is five bands of four or five pixels each, and each band is a
+ * different value. Anything with interior drawing — a bitten corner, a
+ * highlight, a squeeze of ice cream — averages to a beige lozenge at that size
+ * and says nothing at all.
+ */
+const SMORE = {
+  ink: '#2a2320',
+  grahamTop: '#cf9a52',
+  graham: '#b8843f',
+  chocolate: '#4e2a18',
+  cream: '#f4ead4',
+  toast: '#c9884a',
+} as const;
+
+/** Maps a point given in metres on an elevation to atlas pixels. */
+function atlasPoint(region: AtlasRegion, h: number, v: number, scale: number): [number, number] {
+  const u = (h - region.h[0]) / (region.h[1] - region.h[0]);
+  const t = (v - region.v[0]) / (region.v[1] - region.v[0]);
+  return [(region.px + u * region.pw) * scale, (region.py + (1 - t) * region.ph) * scale];
+}
+
+/** Fills a rectangle given in metres on an elevation. */
+function metreRect(
+  ctx: Ctx2D,
+  region: AtlasRegion,
+  scale: number,
+  h0: number,
+  v0: number,
+  h1: number,
+  v1: number,
+  color: string,
+): void {
+  const [x0, y0] = atlasPoint(region, Math.min(h0, h1), Math.max(v0, v1), scale);
+  const [x1, y1] = atlasPoint(region, Math.max(h0, h1), Math.min(v0, v1), scale);
+  ctx.fillStyle = color;
+  ctx.fillRect(
+    Math.round(x0),
+    Math.round(y0),
+    Math.max(1, Math.round(x1 - x0)),
+    Math.max(1, Math.round(y1 - y0)),
+  );
+}
+
+/** Fills a whole region, in atlas pixels. */
+function fillRegion(ctx: Ctx2D, region: AtlasRegion, scale: number, color: string): void {
+  ctx.fillStyle = color;
+  ctx.fillRect(
+    Math.round(region.px * scale),
+    Math.round(region.py * scale),
+    Math.ceil(region.pw * scale),
+    Math.ceil(region.ph * scale),
+  );
+}
+
+/** Chalky enamel: a flat coat, then blocky value noise so it is not a wash. */
+function enamelCoat(
+  ctx: Ctx2D,
+  region: AtlasRegion,
+  scale: number,
+  rng: Rng,
+  base: string,
+  light: string,
+  dark: string,
+): void {
+  fillRegion(ctx, region, scale, base);
+  const x0 = Math.round(region.px * scale);
+  const y0 = Math.round(region.py * scale);
+  const w = Math.max(1, Math.floor(region.pw * scale));
+  const h = Math.max(1, Math.floor(region.ph * scale));
+  const patches = Math.floor(w * h * 0.034);
+  for (let i = 0; i < patches; i++) {
+    ctx.fillStyle = rng.chance(0.5) ? light : dark;
+    ctx.fillRect(x0 + rng.int(0, w - 1), y0 + rng.int(0, h - 1), rng.int(1, 2), rng.int(1, 2));
+  }
+}
+
+/**
+ * A rust streak weeping downward from a fixing.
+ *
+ * Real rust on painted steel runs: it starts at the fastener, widens as it
+ * goes, and fades out. Seven tapering steps of decreasing opacity do that,
+ * where a single hard bar reads as a drawn line.
+ */
+function rustStreak(
+  ctx: Ctx2D,
+  region: AtlasRegion,
+  scale: number,
+  h: number,
+  vTop: number,
+  vBottom: number,
+  width: number,
+  rng: Rng,
+): void {
+  const steps = 7;
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    const v0 = vTop + (vBottom - vTop) * t;
+    const v1 = vTop + (vBottom - vTop) * Math.min(1, t + 1 / (steps - 1));
+    const wide = width * (0.5 + t * 1.1);
+    const color = t < 0.25 ? GRIME.rustDark : t < 0.7 ? GRIME.rust : GRIME.rustLight;
+    ctx.globalAlpha = 0.7 - t * 0.5;
+    const jitter = rng.range(-0.004, 0.004);
+    metreRect(ctx, region, scale, h - wide / 2 + jitter, v0, h + wide / 2 + jitter, v1, color);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/** A hand's worth of grime: a smear plus a few finger marks. */
+function handSmudge(ctx: Ctx2D, region: AtlasRegion, scale: number, h: number, v: number, rng: Rng): void {
+  ctx.globalAlpha = 0.55;
+  metreRect(ctx, region, scale, h - 0.055, v - 0.05, h + 0.055, v + 0.05, GRIME.grease);
+  ctx.globalAlpha = 1;
+  for (let i = 0; i < 6; i++) {
+    const fh = h + rng.range(-0.05, 0.05);
+    const fv = v + rng.range(-0.045, 0.045);
+    ctx.globalAlpha = rng.range(0.25, 0.6);
+    metreRect(ctx, region, scale, fh, fv, fh + rng.range(0.008, 0.016), fv + rng.range(0.012, 0.024), GRIME.sootHard);
+    ctx.globalAlpha = 1;
+  }
+}
+
+/** Blends two hex colours, for fading a mark toward the panel around it. */
+function mixHex(color: string, toward: string, amount: number): string {
+  if (amount <= 0) return color;
+  const parse = (value: string): [number, number, number] => [
+    Number.parseInt(value.slice(1, 3), 16),
+    Number.parseInt(value.slice(3, 5), 16),
+    Number.parseInt(value.slice(5, 7), 16),
+  ];
+  const [r0, g0, b0] = parse(color);
+  const [r1, g1, b1] = parse(toward);
+  const lerp = (a: number, b: number): number => Math.round(a + (b - a) * amount);
+  return `rgb(${lerp(r0, r1)},${lerp(g0, g1)},${lerp(b0, b1)})`;
+}
+
+/**
+ * The s'more mark: five bands, an ink outline, and nothing else.
+ *
+ * `fade` bleaches it toward the panel colour, which is how one drawing serves
+ * both the crown sign — fresh, on a dark plaque — and the painted sign on the
+ * flank that has faced the clearing since the unit was installed.
+ */
+function smoreMark(
+  ctx: Ctx2D,
+  region: AtlasRegion,
+  scale: number,
+  centreH: number,
+  centreV: number,
+  width: number,
+  height: number,
+  fade: number,
+): void {
+  const f = (color: string): string => mixHex(color, ENAMEL.bleached, fade);
+
+  // Band heights as fractions of the mark's total height. The marshmallow is
+  // the tallest because it is the only band the player has personally roasted.
+  const bands: ReadonlyArray<{ inset: number; height: number; fill: string; lid: string | null }> = [
+    { inset: 0.0, height: 0.2, fill: f(SMORE.graham), lid: f(SMORE.grahamTop) },
+    { inset: 0.05, height: 0.12, fill: f(SMORE.chocolate), lid: null },
+    { inset: 0.02, height: 0.3, fill: f(SMORE.cream), lid: null },
+    { inset: 0.05, height: 0.12, fill: f(SMORE.chocolate), lid: null },
+    { inset: 0.0, height: 0.26, fill: f(SMORE.graham), lid: f(SMORE.grahamTop) },
+  ];
+  // Width and height are given separately because the two places this mark
+  // goes are different shapes: a wide crown board and a nearly square flank.
+  // Tying the height to the width put a 0.30 m mark on a 0.62 m board, and the
+  // bands were half the thickness they could have been for free.
+  const totalHeight = height;
+  const ink = f(SMORE.ink);
+  const outline = Math.max(totalHeight * 0.045, ((region.h[1] - region.h[0]) / region.pw) * 1.2);
+
+  let v = centreV - totalHeight / 2;
+  for (const band of bands) {
+    const half = (width / 2) * (1 - band.inset);
+    const bandHeight = totalHeight * band.height;
+    // Ink first and the fill inset into it: an outline drawn as a stroke gets
+    // eaten by rounding when the whole mark is twenty pixels tall.
+    metreRect(ctx, region, scale, centreH - half, v, centreH + half, v + bandHeight, ink);
+    metreRect(
+      ctx,
+      region,
+      scale,
+      centreH - half + outline,
+      v + outline * 0.5,
+      centreH + half - outline,
+      v + bandHeight - outline * 0.5,
+      band.fill,
+    );
+    if (band.lid) {
+      metreRect(
+        ctx,
+        region,
+        scale,
+        centreH - half + outline,
+        v + bandHeight - outline * 2.4,
+        centreH + half - outline,
+        v + bandHeight - outline * 0.5,
+        band.lid,
+      );
+    }
+    v += bandHeight;
+  }
+
+  // Two toast marks on the marshmallow. At this size they are the whole
+  // difference between "roasted" and "a white slab".
+  const creamBottom = centreV - totalHeight / 2 + totalHeight * 0.32;
+  const creamHeight = totalHeight * 0.3;
+  const toast = f(SMORE.toast);
+  metreRect(ctx, region, scale, centreH - width * 0.3, creamBottom + creamHeight * 0.22, centreH - width * 0.1, creamBottom + creamHeight * 0.52, toast);
+  metreRect(ctx, region, scale, centreH + width * 0.05, creamBottom + creamHeight * 0.45, centreH + width * 0.27, creamBottom + creamHeight * 0.74, toast);
+}
+
+export interface MachineSkinOptions {
+  /** Seeds every scuff, chip and streak, so a campsite's unit is its unit. */
+  serial: string;
+  /** 0..1, from `machine.identity.wear`. */
+  wear: number;
+  /** Atlas edge in pixels. The reference size on `mid`, half it on `low`. */
+  size?: number;
+}
+
+/**
+ * The painted cabinet: front, side, back and top elevations in one texture.
+ *
+ * The three things an art review said were missing from this object are all
+ * here, and all in paint rather than in geometry, because paint is free and
+ * the draw-call budget is not: a food cue (the s'more mark on the crown, and
+ * again large and sun-faded on the flank that faces the clearing), wear that
+ * says the machine has been used (rust weeping from the hinge fixings, grease
+ * and soot where hands go, a splash line along the bottom), and a body colour
+ * that is not the bezel's.
+ */
+export function createMachineBodyTexture(options: MachineSkinOptions): THREE.Texture | null {
+  const size = options.size ?? MACHINE_ATLAS_SIZE;
+  const cacheKey = `machineBody:${options.serial}:${size}:${options.wear.toFixed(2)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const surface = createCanvas(size);
+  if (!surface) return null;
+  const { ctx, canvas } = surface;
+  const scale = size / MACHINE_ATLAS_SIZE;
+  const rng = new Rng(`${options.serial}-body`);
+  const wear = Math.min(1, Math.max(0, options.wear));
+
+  fill(ctx, size, ENAMEL.base);
+  for (const face of ['front', 'side', 'back', 'top', 'misc'] as const) {
+    enamelCoat(ctx, MACHINE_ATLAS[face], scale, rng, ENAMEL.base, ENAMEL.light, ENAMEL.dark);
+  }
+
+  drawFrontElevation(ctx, scale, rng, wear);
+  drawSideElevation(ctx, scale, rng, wear);
+  drawBackElevation(ctx, scale, rng, wear);
+  drawTopElevation(ctx, scale, rng, wear);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  cache.set(cacheKey, texture);
+  return texture;
+}
+
+/** The face the player operates: crown sign, panel recess, hinge rust. */
+function drawFrontElevation(ctx: Ctx2D, scale: number, rng: Rng, wear: number): void {
+  const front = MACHINE_ATLAS.front;
+
+  // The crown sign board, 1.06–1.33 m. A dark plaque, so the mark on it is a
+  // light shape on a dark ground — the contrast that survives 426 px.
+  metreRect(ctx, front, scale, -0.34, 1.05, 0.34, 1.34, ENAMEL.darker);
+  metreRect(ctx, front, scale, -0.325, 1.065, 0.325, 1.325, '#38443a');
+  metreRect(ctx, front, scale, -0.31, 1.08, 0.31, 1.31, '#2c372e');
+  smoreMark(ctx, front, scale, 0, 1.196, 0.40, 0.225, 0);
+
+  // A shadow gap under the crown, so it reads as bolted on, not moulded in.
+  metreRect(ctx, front, scale, -0.34, 1.03, 0.34, 1.052, ENAMEL.shadow);
+
+  // The control-panel bay: the shallow recess the placard and the switches sit
+  // in. Painted, because a recess drawn in shadow costs nothing and a recess
+  // built in geometry costs twelve triangles and a seam.
+  metreRect(ctx, front, scale, -0.43, 0.742, 0.43, 1.008, ENAMEL.dark);
+  metreRect(ctx, front, scale, -0.43, 0.990, 0.43, 1.008, ENAMEL.shadow);
+  metreRect(ctx, front, scale, -0.43, 0.742, 0.43, 0.758, ENAMEL.light);
+
+  // The chamber surround: slightly darker than the flat, the way a pressing
+  // that has been wiped ten thousand times goes.
+  metreRect(ctx, front, scale, -0.30, 0.34, 0.30, 0.78, ENAMEL.dark);
+
+  // Hinge fixings on the left jamb, and what has been weeping out of them
+  // since the unit was installed.
+  for (const y of [0.72, 0.40]) {
+    metreRect(ctx, front, scale, -0.335, y - 0.012, -0.285, y + 0.012, ENAMEL.shadow);
+    rustStreak(ctx, front, scale, -0.31, y - 0.014, y - 0.014 - 0.28 * (0.5 + wear), 0.028, rng);
+  }
+
+  // The drip-tray mouth under the door: a dark slot with a lip shadow. The
+  // tray itself is real aluminium geometry; this is the dark it sits in.
+  metreRect(ctx, front, scale, -0.20, 0.250, 0.20, 0.302, '#2c332a');
+  metreRect(ctx, front, scale, -0.20, 0.288, 0.20, 0.302, '#1e241d');
+
+  // Condenser bay behind the fins, dark so the fins read as standing proud.
+  // 0.066–0.220 m, which is where `FINS` in `machineShell.ts` actually puts
+  // them: this pair of numbers is the one place the paint and the geometry can
+  // disagree without anything failing.
+  metreRect(ctx, front, scale, -0.18, 0.064, 0.18, 0.222, ENAMEL.shadow);
+
+  // Grease where the latch hand goes, and the scuff line where boots and an
+  // armful of firewood have hit the plinth.
+  handSmudge(ctx, front, scale, 0.33, 0.56, rng);
+  ctx.globalAlpha = 0.5;
+  metreRect(ctx, front, scale, -0.45, 0.0, 0.45, 0.045, GRIME.splash);
+  ctx.globalAlpha = 1;
+
+  chipsAndScuffs(ctx, front, scale, rng, wear, 1);
+}
+
+/** The flank that faces the clearing: the painted sign, and ten summers of sun. */
+function drawSideElevation(ctx: Ctx2D, scale: number, rng: Rng, wear: number): void {
+  const side = MACHINE_ATLAS.side;
+
+  /*
+   * The sun-bleached band.
+   *
+   * Not the whole panel: paint fades where the light lands, which on an object
+   * standing in a clearing is a band across the upper two-thirds with a soft
+   * lower edge where the undergrowth has shaded it. Drawn as four steps rather
+   * than a gradient because the renderer quantises to five bits per channel
+   * anyway — a smooth ramp arrives as four steps with the banding in places
+   * nobody chose.
+   */
+  const steps = [
+    { v0: 0.46, v1: 0.60, color: ENAMEL.light },
+    { v0: 0.60, v1: 0.74, color: ENAMEL.lighter },
+    { v0: 0.74, v1: 1.02, color: ENAMEL.bleached },
+    { v0: 1.02, v1: 1.10, color: ENAMEL.bleachedLight },
+  ];
+  for (const step of steps) metreRect(ctx, side, scale, -0.35, step.v0, 0.35, step.v1, step.color);
+
+  // The painted sign: the same mark, large, faded most where the band is
+  // brightest. This is the one that has to survive being seen from the fire,
+  // so it takes nearly the full depth of the flank.
+  smoreMark(ctx, side, scale, 0.02, 0.715, 0.44, 0.34, 0.42);
+
+  // A hairline border round the sign, the way a stencilled panel is edged.
+  ctx.globalAlpha = 0.5;
+  const border = { h0: -0.235, h1: 0.275, v0: 0.5, v1: 0.935 };
+  metreRect(ctx, side, scale, border.h0, border.v0, border.h1, border.v0 + 0.012, ENAMEL.shadow);
+  metreRect(ctx, side, scale, border.h0, border.v1 - 0.012, border.h1, border.v1, ENAMEL.shadow);
+  metreRect(ctx, side, scale, border.h0, border.v0, border.h0 + 0.012, border.v1, ENAMEL.shadow);
+  metreRect(ctx, side, scale, border.h1 - 0.012, border.v0, border.h1, border.v1, ENAMEL.shadow);
+  ctx.globalAlpha = 1;
+
+  // Rust from the top seam, which is where the water sits.
+  for (let i = 0; i < 3; i++) {
+    rustStreak(ctx, side, scale, rng.range(-0.28, 0.28), 1.05, 1.05 - rng.range(0.12, 0.34) * (0.4 + wear), 0.02, rng);
+  }
+
+  // Mud and needle wash up the bottom of the flank.
+  ctx.globalAlpha = 0.6;
+  metreRect(ctx, side, scale, -0.35, 0, 0.35, 0.08, GRIME.splash);
+  ctx.globalAlpha = 0.3;
+  metreRect(ctx, side, scale, -0.35, 0.08, 0.35, 0.2, GRIME.splash);
+  ctx.globalAlpha = 1;
+
+  chipsAndScuffs(ctx, side, scale, rng, wear, 0.8);
+}
+
+/** The back: the cold plant breathes here, and nobody looks. */
+function drawBackElevation(ctx: Ctx2D, scale: number, rng: Rng, wear: number): void {
+  const back = MACHINE_ATLAS.back;
+  metreRect(ctx, back, scale, -0.32, 0.05, 0.32, 0.28, ENAMEL.shadow);
+  for (let i = 0; i < 5; i++) {
+    const y = 0.07 + i * 0.042;
+    metreRect(ctx, back, scale, -0.30, y, 0.30, y + 0.02, ENAMEL.darker);
+  }
+  ctx.globalAlpha = 0.55;
+  metreRect(ctx, back, scale, -0.45, 0, 0.45, 0.09, GRIME.splash);
+  ctx.globalAlpha = 1;
+  chipsAndScuffs(ctx, back, scale, rng, wear, 0.6);
+}
+
+/** The top: seen by anybody standing next to it, so it gets the weather. */
+function drawTopElevation(ctx: Ctx2D, scale: number, rng: Rng, wear: number): void {
+  const top = MACHINE_ATLAS.top;
+  enamelCoat(ctx, top, scale, rng, ENAMEL.bleached, ENAMEL.bleachedLight, ENAMEL.light);
+  // Standing water leaves rings, and the grit that came with it.
+  for (let i = 0; i < 6; i++) {
+    const h = rng.range(-0.34, 0.28);
+    const v = rng.range(-0.28, 0.22);
+    ctx.globalAlpha = rng.range(0.14, 0.34);
+    metreRect(ctx, top, scale, h, v, h + rng.range(0.04, 0.13), v + rng.range(0.03, 0.09), GRIME.splash);
+    ctx.globalAlpha = 1;
+  }
+  for (let i = 0; i < 2; i++) {
+    rustStreak(ctx, top, scale, rng.range(-0.3, 0.3), 0.3, 0.3 - rng.range(0.08, 0.2), 0.02, rng);
+  }
+  chipsAndScuffs(ctx, top, scale, rng, wear, 0.5);
+}
+
+/**
+ * Chipped enamel and scuffs, scaled by the unit's wear.
+ *
+ * A chip is two rectangles, not one: the paint edge around it is lighter than
+ * the paint and what is under it is much darker, and without both it reads as
+ * a dirty mark rather than as a place the enamel has come off.
+ */
+function chipsAndScuffs(
+  ctx: Ctx2D,
+  region: AtlasRegion,
+  scale: number,
+  rng: Rng,
+  wear: number,
+  density: number,
+): void {
+  const spanH = region.h[1] - region.h[0];
+  const spanV = region.v[1] - region.v[0];
+  const chips = Math.floor((4 + wear * 15) * density);
+  for (let i = 0; i < chips; i++) {
+    // Weighted to the bottom and to the edges: that is where things hit it.
+    const h = region.h[0] + spanH * (rng.chance(0.5) ? rng.range(0, 0.14) : rng.range(0.86, 1));
+    const v = region.v[0] + spanV * Math.pow(rng.range(0, 1), 2.1);
+    const w = spanH * rng.range(0.006, 0.02);
+    const t = spanV * rng.range(0.004, 0.013);
+    metreRect(ctx, region, scale, h - w * 0.25, v - t * 0.25, h + w * 1.25, v + t * 1.25, ENAMEL.bare);
+    metreRect(ctx, region, scale, h, v, h + w, v + t, ENAMEL.primer);
+  }
+  const scuffs = Math.floor((7 + wear * 20) * density);
+  for (let i = 0; i < scuffs; i++) {
+    const h = region.h[0] + spanH * rng.range(0, 1);
+    const v = region.v[0] + spanV * Math.pow(rng.range(0, 1), 1.6);
+    ctx.globalAlpha = rng.range(0.1, 0.34);
+    metreRect(
+      ctx,
+      region,
+      scale,
+      h,
+      v,
+      h + spanH * rng.range(0.02, 0.09),
+      v + spanV * rng.range(0.003, 0.008),
+      rng.chance(0.5) ? ENAMEL.lighter : ENAMEL.shadow,
+    );
+    ctx.globalAlpha = 1;
+  }
+}
+
+/**
+ * The emissive mask for the cabinet: black except where light gets out.
+ *
+ * §3.1 says colour on this machine is functional, and what the machine had was
+ * an indicator lamp, a chamber lamp and nothing else — so a run that takes a
+ * minute looked, from six metres away, exactly like a machine that was off.
+ * This is the vent light: the condenser bay behind the fins, the drip-tray
+ * slot, the seam under the crown, and the plant vents at the back.
+ * `Machine.tsx` drives the intensity and the colour — amber while the chamber
+ * is still warm, icy blue once it is freezing — so this map only ever says
+ * *where*, never *how much*.
+ */
+export function createMachineBodyEmissive(size = MACHINE_ATLAS_SIZE): THREE.Texture | null {
+  const cacheKey = `machineGlow:${size}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const surface = createCanvas(size);
+  if (!surface) return null;
+  const { ctx, canvas } = surface;
+  const scale = size / MACHINE_ATLAS_SIZE;
+  const front = MACHINE_ATLAS.front;
+  const back = MACHINE_ATLAS.back;
+
+  fill(ctx, size, '#000000');
+
+  // Behind the fins. Bars rather than a slab: the fins stand proud of the
+  // panel with a gap between each, so what actually escapes is stripes.
+  for (let i = 0; i < 6; i++) {
+    const y = 0.072 + i * 0.026;
+    metreRect(ctx, front, scale, -0.175, y, 0.175, y + 0.013, '#ffffff');
+    metreRect(ctx, front, scale, -0.175, y + 0.013, 0.175, y + 0.019, '#5a5a5a');
+  }
+  // The drip-tray slot, and a thin seam under the crown board.
+  metreRect(ctx, front, scale, -0.19, 0.256, 0.19, 0.296, '#c8c8c8');
+  metreRect(ctx, front, scale, -0.32, 1.034, 0.32, 1.05, '#8a8a8a');
+  // The plant vents at the back.
+  for (let i = 0; i < 5; i++) {
+    const y = 0.07 + i * 0.042;
+    metreRect(ctx, back, scale, -0.30, y, 0.30, y + 0.02, '#9a9a9a');
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.needsUpdate = true;
+  cache.set(cacheKey, texture);
+  return texture;
+}
+
+/**
+ * The door leaf's elevation: x 0..0.58 from the hinge, y -0.24..0.24.
+ *
+ * Separate from the body atlas because the door moves — its UVs are in the
+ * door's own frame, not the cabinet's. It is still one material and one mesh,
+ * so it costs nothing.
+ */
+export const MACHINE_DOOR_ATLAS = {
+  face: { px: 0, py: 0, pw: 84, ph: 70, h: [0, 0.58], v: [-0.24, 0.24] },
+  edge: { px: 86, py: 0, pw: 40, ph: 70, h: [0, 1], v: [0, 1] },
+} as const satisfies Record<string, AtlasRegion>;
+
+export const MACHINE_DOOR_ATLAS_SIZE = 128;
+
+/** The door leaf's skin: the same enamel, plus every hand that has opened it. */
+export function createMachineDoorTexture(options: MachineSkinOptions): THREE.Texture | null {
+  const size = options.size ?? MACHINE_DOOR_ATLAS_SIZE;
+  const cacheKey = `machineDoor:${options.serial}:${size}:${options.wear.toFixed(2)}`;
+  const cached = cache.get(cacheKey);
+  if (cached) return cached;
+
+  const surface = createCanvas(size);
+  if (!surface) return null;
+  const { ctx, canvas } = surface;
+  const scale = size / MACHINE_DOOR_ATLAS_SIZE;
+  const rng = new Rng(`${options.serial}-door`);
+  const wear = Math.min(1, Math.max(0, options.wear));
+  const face = MACHINE_DOOR_ATLAS.face;
+
+  fill(ctx, size, ENAMEL.base);
+  enamelCoat(ctx, face, scale, rng, ENAMEL.base, ENAMEL.light, ENAMEL.dark);
+  enamelCoat(ctx, MACHINE_DOOR_ATLAS.edge, scale, rng, ENAMEL.dark, ENAMEL.base, ENAMEL.darker);
+
+  // A pressed border, the way a fridge door is stiffened.
+  metreRect(ctx, face, scale, 0.03, -0.215, 0.55, -0.198, ENAMEL.light);
+  metreRect(ctx, face, scale, 0.03, 0.198, 0.55, 0.215, ENAMEL.shadow);
+
+  // Hinge plates on the leaf, and the rust that has run down from them.
+  for (const y of [0.16, -0.16]) {
+    metreRect(ctx, face, scale, 0.008, y - 0.022, 0.062, y + 0.022, ENAMEL.shadow);
+    rustStreak(ctx, face, scale, 0.035, y - 0.024, y - 0.024 - 0.11 * (0.4 + wear), 0.026, rng);
+  }
+
+  /*
+   * Where the hand goes.
+   *
+   * The handle is at x = 0.53 on this leaf and the door has been pulled open
+   * and shoved shut every night for years, so the paint there carries grease
+   * from a palm, soot from the fire on the fingertips, and a patch worn
+   * through to the primer under the thumb. It is the most convincing wear
+   * available on this object, because it is the wear the player is about to
+   * add to themselves.
+   */
+  ctx.globalAlpha = 0.4;
+  metreRect(ctx, face, scale, 0.44, -0.15, 0.57, 0.15, GRIME.grease);
+  ctx.globalAlpha = 1;
+  handSmudge(ctx, face, scale, 0.50, 0.02, rng);
+  handSmudge(ctx, face, scale, 0.505, -0.09, rng);
+  metreRect(ctx, face, scale, 0.486, -0.022, 0.518, 0.032, ENAMEL.bare);
+  metreRect(ctx, face, scale, 0.492, -0.014, 0.512, 0.024, ENAMEL.primer);
+
+  chipsAndScuffs(ctx, face, scale, rng, wear, 0.7);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  cache.set(cacheKey, texture);
+  return texture;
+}

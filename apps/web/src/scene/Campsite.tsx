@@ -21,7 +21,15 @@ import {
   type WaterBasin,
   type WeatherState,
 } from '@somemore/sim';
-import { luminance, skyLook, type SkyLook } from '../render/daylight.js';
+import {
+  DOME_ALOFT,
+  DOME_BAND,
+  lightningStrike,
+  luminance,
+  skyLook,
+  weatherLook,
+  type SkyLook,
+} from '../render/daylight.js';
 import { TIER_TINT, starTier } from './NightSky.js';
 
 /** Ground below this is under water, so nothing is planted in it. */
@@ -148,11 +156,189 @@ export interface CampsiteProps {
  */
 const MOON_FLOOR = 12;
 
+/**
+ * Where the undergrowth goes: clumps, three sizes, thicker under the trees.
+ *
+ * Two art reviews in a row have called the undergrowth "one Y-shaped sprite
+ * repeated at near-identical scale and spacing", and all three halves of that
+ * were true. Every instance was placed independently at a uniform angle and a
+ * square-rooted radius, which is the definition of an even scatter; every scale
+ * was a single roll over a 1.6x range, which at a metre from the knee is no
+ * range at all; and nothing anywhere consulted where the trees were.
+ *
+ * Plants do not grow like that. They grow from where a parent dropped its
+ * spores, in patches with bare ground between them, at whatever size the light
+ * where they landed allowed — and bracken in particular is thickest exactly
+ * where the canopy breaks. So:
+ *
+ *   - a handful of **clump centres** are drawn first and every instance belongs
+ *     to one, scattered around it with a triangular falloff. The gaps between
+ *     clumps are as much of the read as the clumps are;
+ *   - **three scale classes** rather than one continuous roll, because a ratio
+ *     of two between neighbours is what the eye picks up as different ages of
+ *     the same plant, while a smooth spread of scales averages back to one size;
+ *   - **canopy proximity** decides how many take, so the fringe under the trees
+ *     is dense and the middle of the clearing is thin.
+ *
+ * All of it is placement, which is free: the same two geometries, the same two
+ * draw calls, the same instance count.
+ *
+ * Lifted out of the component so it can be *measured* rather than looked at.
+ * "Clumpier than a uniform scatter" and "three distinct sizes" are properties
+ * with numbers attached, and a change like this one has now twice been made,
+ * shipped, and reported as not having happened — see `campsite-scatter.test.ts`.
+ */
+export function plantUnderstorey(options: {
+  rng: () => number;
+  /** How many to plant. The loop stops when it has them. */
+  count: number;
+  /** The disc to fill, from `CLEARING_RADIUS` out. */
+  radius: number;
+  /** Two of them, because instancing wants one mesh per geometry variant. */
+  buckets: ScatterItem[][];
+  /** 0..1, how likely a plant is to take here. See `understoreyDensity`. */
+  density: (x: number, z: number) => number;
+  height: (x: number, z: number) => number;
+  underwater: (y: number) => boolean;
+}): number {
+  const { rng, count, radius, buckets, density, height, underwater } = options;
+  // The trail keeps the same corridor the trees already respect.
+  const trailAngle = Math.atan2(6.2, 7.5);
+
+  const clumps = Math.max(4, Math.round(count / 14));
+  const centres: { angle: number; distance: number }[] = [];
+  for (let c = 0; c < clumps; c++) {
+    centres.push({
+      angle: rng() * Math.PI * 2,
+      distance: CLEARING_RADIUS + Math.sqrt(rng()) * Math.max(0, radius - CLEARING_RADIUS),
+    });
+  }
+
+  /*
+   * Attempts, not instances.
+   *
+   * Two of the filters below — the clearing's soft edge and the canopy term —
+   * reject, and rejecting inside a fixed-length loop would have quietly halved
+   * the undergrowth as a side effect of making it clumpy. So the loop runs
+   * until it has planted what the catalogue asked for, with a hard attempt
+   * ceiling so a kit whose whole disc is inside the clearing cannot spin. Same
+   * instance count as before, and therefore the same triangles and draw calls.
+   */
+  let planted = 0;
+  for (let i = 0; i < count * 4 && planted < count; i++) {
+    /*
+     * Most of it belongs to a patch and a fifth of it does not.
+     *
+     * Rendered from above, clump-only placement came out as polka dots: thirty
+     * tight blobs with bare ground between every one of them, which is a
+     * different wrong answer from an even sprinkle rather than a right one. A
+     * real stand has patches *and* the odd plant out on its own, and the
+     * strays are what stop the gaps reading as mown.
+     */
+    let distance: number;
+    let angle: number;
+    if (rng() < 0.2) {
+      angle = rng() * Math.PI * 2;
+      distance = CLEARING_RADIUS + Math.sqrt(rng()) * Math.max(0, radius - CLEARING_RADIUS);
+    } else {
+      const centre = centres[Math.floor(rng() * centres.length)] as {
+        angle: number;
+        distance: number;
+      };
+      // Two rolls added is a triangular distribution: most of a clump sits near
+      // its centre and a few stragglers reach out, which is what a patch is.
+      const spread = 0.9 + rng() * 3.2;
+      const off = (rng() + rng() - 1) * spread;
+      const offAngle = ((rng() + rng() - 1) * spread) / Math.max(1.5, centre.distance);
+      distance = Math.max(CLEARING_RADIUS, centre.distance + off);
+      angle = centre.angle + offAngle;
+    }
+    // A soft edge to the clearing: right at its lip almost nothing takes, and a
+    // couple of metres out everything does. A hard ring reads as a mown lawn,
+    // which is the opposite of a wood.
+    const establish = clamp01((distance - CLEARING_RADIUS) / 2.4);
+    if (rng() > establish * 0.85 + 0.15) continue;
+    let delta = Math.abs(angle - trailAngle) % (Math.PI * 2);
+    if (delta > Math.PI) delta = Math.PI * 2 - delta;
+    if (delta < 0.3 && distance < 12) continue;
+    const x = Math.cos(angle) * distance;
+    const z = Math.sin(angle) * distance;
+    if (rng() > density(x, z)) continue;
+    const y = height(x, z);
+    // Nothing grows in the fire or underwater.
+    if (underwater(y)) continue;
+    // Three ages of the same plant: seedling, established, and the one that got
+    // the light. Roughly 3 : 5 : 2, so the big ones read as landmarks.
+    const roll = rng();
+    const scale = roll < 0.3 ? 0.52 : roll < 0.82 ? 0.9 : 1.55;
+    const bucket = buckets[rng() < 0.5 ? 0 : 1] as ScatterItem[];
+    bucket.push({
+      x,
+      y,
+      z,
+      // A little jitter inside each class, so a class is a size and not a stamp.
+      scale: scale * (0.88 + rng() * 0.24),
+      rotationY: rng() * Math.PI * 2,
+    });
+    planted++;
+  }
+  return planted;
+}
+
+/**
+ * How thick the field stars are in a given direction, 0..1.
+ *
+ * The critic's item 13, the half of it that was left. The magnitudes and the
+ * tiers were fixed a round ago and the *placement* was not: four hundred and
+ * twenty points at a uniform angle over a uniform solid angle is a Poisson
+ * field, and a Poisson field on a dome is exactly what a scanner's noise floor
+ * looks like — which is what "uniformly sized, uniformly bright 1px dots,
+ * sensor noise, not a sky" was about in the first place.
+ *
+ * A real sky is nothing like even. The galactic plane runs across it, there are
+ * dark lanes where the dust is, and the count thins toward the pole; the eye
+ * reads that structure long before it reads any individual star. A tilted band
+ * plus two long-wavelength sines gives it for nothing: the placement loop rolls
+ * a direction, samples this, and keeps the star in proportion. Same count, same
+ * two clouds, same draw calls — a redistribution, not an addition.
+ *
+ * Never returns zero. The voids are thin, not empty; a sky with holes punched
+ * clean through it reads as torn rather than as deep.
+ */
+export function starDrift(x: number, y: number, z: number): number {
+  // `y * 2.1` tilts the plane so it crosses the sky at an angle rather than
+  // lying along the horizon, which is where a treeline already is.
+  const plane = Math.abs(x * 0.55 + y * 2.1 - z * 0.42) / 120;
+  const band = 1 - Math.min(1, plane * 1.35);
+  const lumps = Math.sin(x * 0.061 + z * 0.037) * 0.5 + Math.sin(z * 0.094 - y * 0.052) * 0.5;
+  // The constant is the floor and it is chosen rather than left over: the
+  // thinnest part of the sky still keeps about one star in seven.
+  return clamp01(0.32 + band * 0.55 + lumps * 0.18);
+}
+
 /** Scratch, so easing the sky every frame allocates nothing. */
 const TMP_COLOR = new THREE.Color();
 /** A second one: the hour now moves four albedos, not one. */
 const TMP_COLOR_B = new THREE.Color();
 const WHITE = new THREE.Color(0xffffff);
+/**
+ * Where the palette goes as the weather closes in.
+ *
+ * A blue-grey rather than a neutral one, because taking the chroma out of a
+ * forest floor toward grey reads as a black-and-white photograph and taking it
+ * toward this reads as cold light — and cold light is the thing every wet or
+ * frozen state in the set has in common.
+ */
+const GROUND_CHILL = new THREE.Color(0x6a7686);
+/**
+ * Lying snow. Not white: snow under a canopy at dusk is a pale blue-grey, and
+ * a floor at `#ffffff` in a game with a five-bit colour depth is a hole in the
+ * frame rather than a surface.
+ */
+const SNOW_LYING = new THREE.Color(0xd2dae4);
+/** The stones lying in the dirt, and the sticks. See their materials. */
+const PEBBLE_TONE = 0x4a453e;
+const SPRIG_TONE = 0x6b5a44;
 
 const DEFAULT_PALETTE = {
   ground: '#4a4438',
@@ -196,8 +382,11 @@ export function Campsite({
   const moonRef = useRef<THREE.DirectionalLight>(null);
   const sunDiscRef = useRef<THREE.Mesh>(null);
   const moonDiscRef = useRef<THREE.Mesh>(null);
+  /** Standing water in the low ground. One instanced mesh; see `puddles`. */
+  const puddleRef = useRef<THREE.InstancedMesh>(null);
   /** Where the colours actually are, as opposed to where they are headed. */
   const eased = useRef({
+    haze: new THREE.Color(),
     sky: new THREE.Color(),
     horizon: new THREE.Color(),
     fog: new THREE.Color(),
@@ -224,11 +413,39 @@ export function Campsite({
    * a dome goes over the background, mixing horizon into zenith by the view
    * direction's own Y.
    *
-   * Two colours and eight lines of GLSL rather than a texture, because
+   * Three colours and a dozen lines of GLSL rather than a texture, because
    * ADR-0002 says everything is procedural and because a gradient texture at
    * this resolution would band worse than the shader does. `smoothstep` and a
    * pinch toward the horizon keep the interesting part — the two or three
    * degrees above the treeline — from being squeezed into nothing.
+   *
+   * **The whole sky was being drawn in the wrong colour space, and this is the
+   * ninth thing this session to have been written, computed and then thrown
+   * away one stage later.**
+   *
+   * A `ShaderMaterial` that writes `gl_FragColor` itself gets no
+   * `<colorspace_fragment>` unless it asks for one, and its `Color` uniforms
+   * are uploaded in the renderer's *working* space, which is linear. So every
+   * colour this dome has ever painted went into an sRGB framebuffer as a linear
+   * number — and linear-as-sRGB is roughly half the value. The ramp's noon
+   * zenith is `#92a9cd`; measured on the midday capture it arrives as
+   * `#4a679c`, which is exactly `sRGBToLinear(#92a9cd)` rounded, to the byte,
+   * on all three channels.
+   *
+   * That one missing include is most of the "pale ghost trees" an art director
+   * found in the mid-distance. Distance fog is applied *after*
+   * `<colorspace_fragment>` in Three's own fragment order and its colour
+   * uniform is converted to the output space on the way in, so fogged geometry
+   * resolves to exactly the value `daylight.ts` asks for — while the sky behind
+   * it was arriving at half of it. A tree at the treeline was not too bright;
+   * the sky was too dark, by a factor of two, at every hour since the dome was
+   * written. Measured: crowns at 169–183 against a sky at 100.7.
+   *
+   * It is worth recording how well it hid. Every screenshot looked like a
+   * plausible dusk, because halving a sky in linear light is very close to what
+   * a darker sky looks like — and the ramp had been re-tuned twice *against*
+   * these frames, so two rounds of art direction were spent compensating for a
+   * missing five words.
    */
   const domeMaterial = useMemo(
     () =>
@@ -236,10 +453,14 @@ export function Campsite({
         uniforms: {
           uHorizon: { value: new THREE.Color(0x0c1119) },
           uZenith: { value: new THREE.Color(0x070a0f) },
+          /** The airlight: what the sky is at the treeline. See `daylight.ts`. */
+          uHaze: { value: new THREE.Color(0x0b1016) },
           uCloud: { value: new THREE.Color(0x4a4f58) },
           /** 0..1 cover, and a slow drift so the deck is not a painting. */
           uCover: { value: 0 },
           uTime: { value: 0 },
+          /** Full-frame lightning, 0..1. Zero whenever motion is reduced. */
+          uFlash: { value: 0 },
         },
         vertexShader: `
           varying vec3 vDirection;
@@ -251,9 +472,11 @@ export function Campsite({
         fragmentShader: `
           uniform vec3 uHorizon;
           uniform vec3 uZenith;
+          uniform vec3 uHaze;
           uniform vec3 uCloud;
           uniform float uCover;
           uniform float uTime;
+          uniform float uFlash;
           varying vec3 vDirection;
 
           /*
@@ -303,25 +526,61 @@ export function Campsite({
 
           void main() {
             /*
-             * A band, not a wash.
+             * Two ramps, because a sky has two things going on in it.
              *
-             * The first version ramped over the first 25 degrees of elevation,
-             * and because the camera sits pitched down at a fire the entire
-             * visible sky is inside that — so a sunset came out as a uniformly
-             * red dome rather than as a red strip under a violet one, which is
-             * a different and much worse thing. Eight degrees is about what a
-             * real one occupies, and it puts the transition exactly where the
-             * treeline is.
+             * \`band\` is the sunset strip. Narrow on purpose: the first version
+             * ramped over the first 25 degrees, and because the camera sits
+             * pitched down at a fire the whole visible sky is inside that — so
+             * a sunset came out as a uniformly red dome rather than as a red
+             * strip under a violet one, which is a different and much worse
+             * thing.
+             *
+             * \`aloft\` is the aerial gradient above it, and it is the one that
+             * was missing. With the band as the *only* ramp, everything above
+             * eight degrees was painted the flat zenith colour and there was no
+             * haze in the sky at all — while distance fog went on resolving to
+             * the horizon for geometry at every height. A conifer crown eleven
+             * degrees up was therefore fogged toward a strip it was nowhere
+             * near, and drawn against a zenith with nothing between them. Both
+             * edges come from \`daylight.ts\` (\`DOME_BAND\`, \`DOME_ALOFT\`),
+             * which is also where \`uHaze\` and the fog colour are derived from
+             * them, so the two cannot drift apart.
              */
             float h = clamp(vDirection.y, 0.0, 1.0);
-            float t = smoothstep(0.0, 0.14, h);
-            vec3 sky = mix(uHorizon, uZenith, t);
-            // Cloud is lit from below at dusk and from above at noon; rather
-            // than track that, the deck takes a little of whatever the sky
-            // under it is doing, which lands close enough at either end and
-            // means a red sunset gets red-bellied cloud for free.
-            vec3 deck = mix(uCloud, uHorizon, 0.28);
-            gl_FragColor = vec4(mix(sky, deck, clouds(vDirection)), 1.0);
+            float band = smoothstep(${DOME_BAND.from.toFixed(3)}, ${DOME_BAND.to.toFixed(3)}, h);
+            float aloft = smoothstep(${DOME_ALOFT.from.toFixed(3)}, ${DOME_ALOFT.to.toFixed(3)}, h);
+            vec3 sky = mix(uHorizon, mix(uHaze, uZenith, aloft), band);
+            // The deck's whole colour arrives ready-made now, rather than
+            // being mixed toward the horizon here: a storm lid has to be able
+            // to go dark *including* its warm belly, and mixing a fixed 28 %
+            // of the horizon back in at this end put a floor under how dark
+            // any cloud could be. See where the uniform is set.
+            vec3 colour = mix(sky, uCloud, clouds(vDirection));
+            /*
+             * Lightning, as the sky rather than as a filter.
+             *
+             * The critic asked for "periodic full-frame value inversion", and
+             * that is what a bolt does: for two frames the sky is the brightest
+             * thing in the world instead of the darkest, and every tree in front
+             * of it becomes a black cut-out. Done here, it costs one uniform and
+             * no post-process — and because it is only ever the *sky* that goes
+             * white, the ground stays exactly as legible as it was, which is what
+             * D7 needs and what a screen-wide white flash would not give.
+             *
+             * \`uFlash\` is held at zero whenever reduced motion is on; see the
+             * frame loop, where the storm keeps its other four signatures.
+             */
+            colour = mix(colour, vec3(0.86, 0.90, 1.0), uFlash);
+            gl_FragColor = vec4(colour, 1.0);
+            /*
+             * And out into the space the framebuffer is actually in.
+             *
+             * See the note where this material is built: without this the dome
+             * writes linear light into an sRGB buffer and the entire sky is
+             * drawn at about half the value the ramp asks for, which is most of
+             * what "pale ghost trees in the mid-distance" turned out to be.
+             */
+            #include <colorspace_fragment>
           }
         `,
         side: THREE.BackSide,
@@ -485,13 +744,52 @@ export function Campsite({
    * A surface in sunlight does not desaturate. It gets brighter and, if
    * anything, a little *more* saturated, because more of the light reaching
    * the eye has bounced off it. So the day tone is the same hue at a much
-   * higher lightness, taken in HSL where those two are separable numbers,
-   * with the saturation held rather than washed out.
+   * higher lightness, taken in HSL where those two are separable numbers.
+   *
+   * **But not more saturated than it started, which is where the last version
+   * overshot.** `chroma: 1.15` on top of `lightness: 0.55` took the pine
+   * hollow's `#2b2119` — a manifest that describes itself as "deep rust-brown
+   * needle litter over compacted dirt" — out to a `#af8869` that the midday
+   * capture then rendered as a near-uniform orange. Graded, the note was that
+   * the forest floor read "closer to Mars than to a pine hollow", and it was
+   * right: rust-brown at 13 % lightness has about the same chroma-to-value
+   * ratio as orange at 55 %, and holding the ratio while quadrupling the value
+   * is what turns duff into desert. Real needle litter loses a little chroma as
+   * it dries out in the sun and it loses a lot as it silvers with age, so the
+   * day tone now sits slightly *under* the night's saturation rather than over
+   * it, and a little darker with it.
    */
   const groundTones = useMemo(() => {
     const night = new THREE.Color(palette.ground);
-    return { night, day: sunlit(night, 0.55, 1.15) };
+    return { night, day: sunlit(night, 0.46, 0.82) };
   }, [palette.ground]);
+
+  /**
+   * How much darker the ground gets on the way out to the trees.
+   *
+   * The other half of the same note: "there is almost no value step from the
+   * fire ring out to the treeline." There was not, and there could not be —
+   * the terrain and the two cover mats were being handed the same colour every
+   * frame, so the only thing separating the near ground from the far ground was
+   * the tile scale and about four per cent of distance fog.
+   *
+   * That is not how a clearing looks. The middle of a clearing is the part with
+   * the sky over it; the ground under the canopy edge is in shade for most of
+   * the day and has a deeper, wetter litter on it. So the terrain — everything
+   * outside the mats, which starts where the canopy starts — is taken down and
+   * cooled, and the worn ring at the centre is left brightest. Three steps from
+   * the fire to the trees, where there was one.
+   *
+   * Small numbers on purpose, and most of the step is *temperature* rather than
+   * value. This is a gradient across the largest surface in the game; a step
+   * big enough to see as a step is a step big enough to read as two different
+   * materials, which is the decal failure the worn ring already had to be
+   * rescued from once. And `e2e/night.spec.ts` measures the band between half
+   * and four fifths of the frame height, which at this camera is almost exactly
+   * this surface — so twelve per cent off its value is about as far as it can
+   * go without eating into a floor that cannot be re-measured from here.
+   */
+  const CANOPY_SHADE = 0.88;
 
   /**
    * The near ground, in two grains.
@@ -650,6 +948,76 @@ export function Campsite({
     }
     return { pebbles, sprigs };
   }, [seed, basin, groundAt, drawDistance]);
+
+  /**
+   * Puddles, in the low ground, for one draw call and about eighty triangles.
+   *
+   * Chosen rather than scattered: a puddle in a random place is a shiny disc,
+   * and a puddle in a hollow is *drainage*. So a few dozen candidates are
+   * sampled around the clearing and only the lowest survive, which means the
+   * water lies where the terrain says water would lie and the same campsite
+   * puddles in the same places every time it rains.
+   *
+   * Kept out of the trodden ring by a wide margin: the one place a campsite
+   * does not hold water is the packed ground people have been walking on, and
+   * the fire's pool of light reaches far enough out that the puddles still
+   * catch it from the edge of the duff.
+   */
+  const puddleItems = useMemo<ScatterItem[]>(() => {
+    const rng = mulberry(seed ^ 0x60d1);
+    const candidates: { x: number; z: number; y: number }[] = [];
+    for (let i = 0; i < 90; i++) {
+      const angle = rng() * Math.PI * 2;
+      const distance = 3.6 + Math.sqrt(rng()) * 5.2;
+      const x = Math.cos(angle) * distance;
+      const z = Math.sin(angle) * distance;
+      const y = groundAt(x, z);
+      if (basin && y < WATERLINE) continue;
+      candidates.push({ x, y, z });
+    }
+    candidates.sort((a, b) => a.y - b.y);
+    // Eight on a mid device, five on a weak one. The count is what makes them
+    // read as weather rather than as a feature of the campsite.
+    const wanted = drawDistance < 26 ? 5 : drawDistance < 36 ? 8 : 10;
+    return candidates.slice(0, wanted).map((spot) => ({
+      x: spot.x,
+      // Over the duff mat's own centimetre and a half, or the water is under
+      // the ground it is supposed to be lying on.
+      y: spot.y + 0.019,
+      z: spot.z,
+      rotationY: rng() * Math.PI * 2,
+      scale: 0.34 + rng() * 0.46,
+    }));
+  }, [seed, basin, groundAt, drawDistance]);
+
+  /** A seven-sided disc. Seven triangles; a circle would be a rounding error. */
+  const puddleGeometry = useMemo(() => {
+    const disc = new THREE.CircleGeometry(1, 7);
+    disc.rotateX(-Math.PI / 2);
+    return disc;
+  }, []);
+  useEffect(() => () => puddleGeometry.dispose(), [puddleGeometry]);
+
+  /**
+   * Water lying on dirt: dark, smooth and a little metallic.
+   *
+   * The albedo is almost nothing, which is right — a puddle is mostly a mirror
+   * — and the whole of what you see in it is the specular return. That is why
+   * it is worth a draw call: everything else rain does to this clearing makes
+   * it darker, and this is the one thing that makes part of it brighter.
+   */
+  const puddleMaterial = useMemo(
+    () =>
+      createPs1Material({
+        settings,
+        color: 0x2c3742,
+        roughness: 0.12,
+        metalness: 0.62,
+        transparent: true,
+        opacity: 0,
+      }),
+    [settings],
+  );
 
   const treeMaterial = useMemo(
     () =>
@@ -891,6 +1259,61 @@ export function Campsite({
   const deadfallGeometry = useMemo(() => createLogGeometry(2.6, 0.19), []);
 
   /**
+   * How likely a plant is to have taken at a point, 0..1, from the wood above it.
+   *
+   * The undergrowth and the canopy were placed by two functions that had never
+   * heard of each other, so the fern density in the open middle of the clearing
+   * was the same as the fern density under a closed stand — which is the
+   * "near-identical spacing" note from two different reviews, seen from the
+   * other end. In a real wood the two are tightly coupled: bracken is thickest
+   * at the canopy edge, sparse in full shade, and sparse again in the open.
+   *
+   * A coarse grid rather than a distance query per plant. Four hundred and
+   * sixty instances against two hundred and forty trees is a hundred thousand
+   * distance tests every time the campsite is built; a 24×24 lattice with a
+   * splat per tree is two hundred and forty writes and a bilinear read, and at
+   * two metres a cell it is finer than anything the eye can resolve on a
+   * scatter this dense.
+   */
+  const understoreyDensity = useMemo(() => {
+    const cells = 24;
+    const half = Math.max(12, extent);
+    const step = (half * 2) / cells;
+    const field = new Float32Array(cells * cells);
+    for (const tree of trees) {
+      // The crown, not the trunk: a tree shades a disc about as wide as it is
+      // tall, and `scale` is the only thing here that knows how big it is.
+      const reach = 2.4 * tree.scale;
+      const minI = Math.max(0, Math.floor((tree.x - reach + half) / step));
+      const maxI = Math.min(cells - 1, Math.floor((tree.x + reach + half) / step));
+      const minJ = Math.max(0, Math.floor((tree.z - reach + half) / step));
+      const maxJ = Math.min(cells - 1, Math.floor((tree.z + reach + half) / step));
+      for (let i = minI; i <= maxI; i++) {
+        for (let j = minJ; j <= maxJ; j++) {
+          const cx = (i + 0.5) * step - half;
+          const cz = (j + 0.5) * step - half;
+          const d = Math.hypot(cx - tree.x, cz - tree.z);
+          if (d > reach) continue;
+          field[j * cells + i] = (field[j * cells + i] as number) + (1 - d / reach);
+        }
+      }
+    }
+    return (x: number, z: number): number => {
+      const i = Math.min(cells - 1, Math.max(0, Math.floor((x + half) / step)));
+      const j = Math.min(cells - 1, Math.max(0, Math.floor((z + half) / step)));
+      const shade = field[j * cells + i] as number;
+      /*
+       * A hump, not a ramp. Nothing much grows in the open and nothing much
+       * grows under a closed stand; the fringe between them is where the wood
+       * is impassable, and putting the peak there is the whole point of
+       * consulting the trees at all.
+       */
+      const t = Math.min(1, shade / 2.2);
+      return 0.22 + Math.sin(t * Math.PI) * 0.78;
+    };
+  }, [trees, extent]);
+
+  /**
    * The understorey, placed from the manifest's own densities.
    *
    * Two geometry variants per kit rather than one per plant: instancing needs
@@ -931,29 +1354,15 @@ export function Campsite({
        * trees already respect. Both are the environment being sensible about
        * itself rather than the renderer hiding its own content.
        */
-      const trailAngle = Math.atan2(6.2, 7.5);
-
-      for (let i = 0; i < count; i++) {
-        const angle = rng() * Math.PI * 2;
-        // Square-rooted so instances spread evenly over the disc rather than
-        // crowding the middle, which is where the player spends the whole game.
-        const distance = CLEARING_RADIUS + Math.sqrt(rng()) * (radius - CLEARING_RADIUS);
-        // A soft edge to the clearing: right at its lip almost nothing takes,
-        // and a couple of metres out everything does. A hard ring reads as a
-        // mown lawn, which is the opposite of a wood.
-        const establish = clamp01((distance - CLEARING_RADIUS) / 2.4);
-        if (rng() > establish * 0.85 + 0.15) continue;
-        let delta = Math.abs(angle - trailAngle) % (Math.PI * 2);
-        if (delta > Math.PI) delta = Math.PI * 2 - delta;
-        if (delta < 0.3 && distance < 12) continue;
-        const x = Math.cos(angle) * distance;
-        const z = Math.sin(angle) * distance;
-        const y = terrainHeight(x, z, seed, 0.7, basin);
-        // Nothing grows in the fire or underwater.
-        if (basin && y < WATERLINE) continue;
-        const bucket = buckets[rng() < 0.5 ? 0 : 1] as ScatterItem[];
-        bucket.push({ x, y, z, scale: 0.8 + rng() * 0.5, rotationY: rng() * Math.PI * 2 });
-      }
+      plantUnderstorey({
+        rng,
+        count,
+        radius,
+        buckets,
+        density: understoreyDensity,
+        height: (x, z) => terrainHeight(x, z, seed, 0.7, basin),
+        underwater: basin ? (y) => y < WATERLINE : () => false,
+      });
 
       const height = (kit.minHeight + kit.maxHeight) / 2;
       const family = understoreyFamily(kit.kitId);
@@ -966,7 +1375,7 @@ export function Campsite({
         ],
       };
     });
-  }, [understorey, drawDistance, seed, basin]);
+  }, [understorey, drawDistance, seed, basin, understoreyDensity]);
 
   /**
    * Four rock shapes rather than fourteen.
@@ -1192,7 +1601,7 @@ export function Campsite({
       createPs1Material({
         settings,
         map: getTexture('stone', { size: 64, seed }),
-        color: 0x4a453e,
+        color: PEBBLE_TONE,
         roughness: 1,
         vertexColors: true,
       }),
@@ -1213,7 +1622,7 @@ export function Campsite({
       createPs1Material({
         settings,
         map: getTexture('bark', { size: 64, seed }),
-        color: 0x6b5a44,
+        color: SPRIG_TONE,
         roughness: 1,
         vertexColors: true,
       }),
@@ -1288,9 +1697,20 @@ export function Campsite({
     [palette.sky, palette.fog],
   );
 
+  /**
+   * What this weather does to the surfaces, as opposed to what it does to the
+   * sky. See `weatherLook` — this is the half that was missing.
+   *
+   * Read every render rather than memoised on the weather object, because the
+   * simulation mutates that object in place: memoising on its identity is
+   * memoising on a reference that never changes, which is a slower way of
+   * computing it once.
+   */
+  const surfaces = weatherLook(weather);
+
   const look = useMemo(
-    () => skyLook((sky.sun.altitude * 180) / Math.PI, nightColors, weather.cloudCover),
-    [sky.sun.altitude, nightColors, weather.cloudCover],
+    () => skyLook((sky.sun.altitude * 180) / Math.PI, nightColors, weather.cloudCover, surfaces.gloom),
+    [sky.sun.altitude, nightColors, weather.cloudCover, surfaces.gloom],
   );
 
   /** Where the sun is. Its light is `look.sunIntensity`, which is zero when it is down. */
@@ -1372,7 +1792,27 @@ export function Campsite({
     const bright: number[] = [];
     const brightColors: number[] = [];
 
-    for (let i = 0; i < count; i++) {
+    /*
+     * Drifts and voids, which is the half of "uniformly sized, uniformly
+     * bright" that the tiering did not answer.
+     *
+     * The magnitudes were fixed a round ago and the *placement* was not: four
+     * hundred and twenty points at a uniform angle over a uniform solid angle
+     * is a Poisson field, and a Poisson field on a dome is exactly what a
+     * scanner's noise floor looks like. A real sky is nothing like even. It has
+     * the galactic plane running through it, dark lanes where the dust is, and
+     * a general thinning toward the pole — so the eye reads structure long
+     * before it reads any individual star.
+     *
+     * Two octaves of value noise over the sphere gives that for nothing: a
+     * candidate direction is rolled, the field is sampled there, and the star
+     * is kept in proportion. No extra points, no extra buffers, no extra draw
+     * calls — the same two clouds, redistributed. Rejection sampling with an
+     * attempt ceiling, so the count is unchanged and a pathological field
+     * cannot spin.
+     */
+    let placed = 0;
+    for (let attempt = 0; attempt < count * 6 && placed < count; attempt++) {
       // Upper hemisphere only.
       const theta = rng() * Math.PI * 2;
       const phi = Math.acos(rng() * 0.95);
@@ -1380,6 +1820,8 @@ export function Campsite({
       const x = Math.sin(phi) * Math.cos(theta) * r;
       const y = Math.cos(phi) * r + 20;
       const z = Math.sin(phi) * Math.sin(theta) * r;
+      if (rng() > starDrift(x, y, z)) continue;
+      placed++;
 
       /*
        * A magnitude, not a brightness. Raised to a power so the count climbs
@@ -1563,10 +2005,24 @@ export function Campsite({
     ease.started = true;
     ease.sky.lerp(TMP_COLOR.setHex(look.sky), k);
     ease.horizon.lerp(TMP_COLOR.setHex(look.horizon), k);
+    ease.haze.lerp(TMP_COLOR.setHex(look.haze), k);
     (domeMaterial.uniforms.uHorizon!.value as THREE.Color).copy(ease.horizon);
     (domeMaterial.uniforms.uZenith!.value as THREE.Color).copy(ease.sky);
+    (domeMaterial.uniforms.uHaze!.value as THREE.Color).copy(ease.haze);
     domeMaterial.uniforms.uCover!.value = weather.cloudCover;
     domeMaterial.uniforms.uTime!.value = state.clock.elapsedTime;
+    /*
+     * The bolt, computed once and used by everything that reacts to it.
+     *
+     * Reduced motion takes it to zero and leaves it there (PRODUCT_SPEC §12) —
+     * a full-frame value inversion is precisely what that setting exists to
+     * suppress. The storm is still nameable without it: it is the only state
+     * with a black ceiling, the hardest shear on the rain, the wettest ground
+     * and standing water in the low spots, and all four of those are still.
+     */
+    const flash =
+      surfaces.lightning && !settings.reducedMotion ? lightningStrike(state.clock.elapsedTime) : 0;
+    domeMaterial.uniforms.uFlash!.value = flash;
     /*
      * The deck's own colour, which is the sky's plus a lift.
      *
@@ -1579,7 +2035,29 @@ export function Campsite({
     const lift = 0.16 + luminance(ease.sky.getHex()) * 0.55;
     (domeMaterial.uniforms.uCloud!.value as THREE.Color)
       .copy(ease.sky)
-      .lerp(TMP_COLOR.setHex(0xffffff), lift);
+      .lerp(TMP_COLOR.setHex(0xffffff), lift)
+      // Cloud is lit from below at dusk and from above at noon; rather than
+      // track that, the deck takes a little of whatever the sky under it is
+      // doing, which lands close enough at either end and means a red sunset
+      // gets red-bellied cloud for free.
+      .lerp(ease.horizon, 0.28)
+      /*
+       * And how *thick* it is, which is the thing that was missing.
+       *
+       * The deck's colour tracked the sky and nothing else, so an overcast lid
+       * and a storm lid were drawn at the same value — and since cover only
+       * separates them by eight hundredths (0.92 against 1.00), the two states
+       * came out of the grader as the same picture, with storm measuring
+       * *lighter* than overcast, which is backwards.
+       *
+       * A storm cloud is dark because it is deep: not much light gets through
+       * a kilometre of it. That is a different number from how much of the sky
+       * it covers, and it belongs here rather than on the horizon — the strip
+       * under the lid stays bright, which is what a squall line looks like and
+       * is also what keeps the far side of the clearing above the D7 floor
+       * while the storm is being the darkest state in the set.
+       */
+      .multiplyScalar(1 - surfaces.gloom * 0.72);
     ease.fog.lerp(TMP_COLOR.setHex(look.fog), k);
 
     if (state.scene.background !== sceneBackground) state.scene.background = sceneBackground;
@@ -1660,23 +2138,21 @@ export function Campsite({
     }
 
     /*
-     * Lightning.
+     * Lightning, on the scene as well as on the sky.
      *
-     * A storm without a flash is heavy rain, and the difference between the
-     * two is the whole reason the word exists. Driven off elapsed time rather
-     * than a random roll so it cannot fire twice in a frame or stutter, and
-     * gated hard on reduced motion — a full-frame white flash is exactly the
-     * kind of thing §12 exists to let people turn off.
+     * A storm without a flash is heavy rain, and the difference between the two
+     * is the whole reason the word exists. The dome does the value inversion —
+     * see `uFlash` — and this is the half that makes it a *light* rather than a
+     * filter: for two frames the clearing is lit from the sky by something
+     * enormous and cold, so the props throw the wrong shadows and the ground
+     * goes blue-white. The two together are what a strike is.
+     *
+     * Gated on reduced motion at the single point where `flash` is computed, so
+     * there is one gate rather than three (PRODUCT_SPEC §12).
      */
-    if (ambientRef.current && weather.kind === 'storm' && !settings.reducedMotion) {
-      const beat = state.clock.elapsedTime % 8.5;
-      // Two strikes close together, the way they actually come, then a long
-      // wait. The second is weaker: it is the same bolt's afterglow.
-      const strike = Math.max(pulse(beat, 0.06), pulse(beat - 0.19, 0.09) * 0.55);
-      if (strike > 0) {
-        ambientRef.current.intensity += strike * 5.5;
-        ambientRef.current.color.lerp(TMP_COLOR.setHex(0xc8d4ff), strike * 0.8);
-      }
+    if (ambientRef.current && flash > 0) {
+      ambientRef.current.intensity += flash * 5.5;
+      ambientRef.current.color.lerp(TMP_COLOR.setHex(0xc8d4ff), flash * 0.8);
     }
     if (hemisphereRef.current) {
       const hemisphere = hemisphereRef.current;
@@ -1697,9 +2173,30 @@ export function Campsite({
        * the trees still darker than the sky behind them.
        */
       const target =
-        1.28 + moonlight.ambient * 1.35 * (1 - look.sunShare) + look.sunShare * 1.1;
+        (1.28 + moonlight.ambient * 1.35 * (1 - look.sunShare) + look.sunShare * 1.1) *
+        surfaces.topLight;
       hemisphere.intensity += (target - hemisphere.intensity) * k;
-      hemisphere.color.lerp(ease.sky, k);
+      /*
+       * And the weather's own colour on the tops of things, which is where the
+       * whole "snow on every upward-facing face" read comes from.
+       *
+       * A hemisphere light shades by the surface normal's Y and by nothing
+       * else, which is exactly and only "upward-facing faces". So a squall
+       * drives this white and hard and the log top, the stone tops, the
+       * machine's roof and the crowns all take snow together, with their sides
+       * left dry — and rain drives it a cold steel blue at half the strength,
+       * which is a wet sheen on the same faces. Nine states, one uniform, no
+       * cap geometry and no draw calls, which is what makes it affordable at
+       * all: a snow cap per prop would be a mesh and a call for each.
+       */
+      TMP_COLOR.copy(ease.sky);
+      if (surfaces.topColor !== 0) {
+        TMP_COLOR.lerp(
+          TMP_COLOR_B.setHex(surfaces.topColor),
+          Math.max(surfaces.settling, surfaces.wet * 0.7, surfaces.chill * 0.4),
+        );
+      }
+      hemisphere.color.lerp(TMP_COLOR, k);
       /*
        * And the *other* half of a hemisphere light, which was a constant.
        *
@@ -1717,12 +2214,93 @@ export function Campsite({
       );
     }
 
-    // And the ground comes up with the sun.
-    groundMaterial.color
-      .copy(groundTones.night)
-      .lerp(groundTones.day, look.surfaceLift);
-    wornMaterial.color.copy(groundTones.night).lerp(groundTones.day, look.surfaceLift);
-    duffMaterial.color.copy(groundTones.night).lerp(groundTones.day, look.surfaceLift);
+    /*
+     * And the ground comes up with the sun — and now goes out into the weather.
+     *
+     * Lying snow is eased rather than assigned, so walking into a squall
+     * whitens the clearing over a few seconds. Everything else follows the
+     * weather's own transition, which is already a ramp over about a minute.
+     */
+    /*
+     * Snow lies faster than it melts, which is both true and the fix for a
+     * capture.
+     *
+     * One rate for both directions meant a clearing that whitened over about
+     * eight seconds and then un-whitened just as fast the moment the squall
+     * passed, which is not what happens to snow and — more immediately — is
+     * longer than any harness waits, so the contact sheet's snow frame was of a
+     * clearing a third of the way through settling. Rising over about a second
+     * and a half and falling over eight is the right shape and it also means
+     * the picture of snow is a picture of snow.
+     */
+    const settling = surfaces.settling > snowCover.current;
+    snowCover.current +=
+      (surfaces.settling - snowCover.current) * Math.min(1, delta * (settling ? 0.65 : 0.12));
+    const lying = snowCover.current;
+    /*
+     * The three ground materials, all three of them.
+     *
+     * This is the fix for the single largest hole in the weather: snow settling
+     * used to be written to `groundMaterial` alone. `groundMaterial` is the
+     * *terrain* — the coarse grid that starts nine and a half metres out, where
+     * the cover mats end. Everything nearer than that is `duffMaterial` and
+     * `wornMaterial`, and that is the bottom half of every frame in the game.
+     * So the accumulation landed on the one piece of ground the player never
+     * sees clean: past the mats the terrain is forty to a hundred per cent
+     * distance fog by the time it reaches the eye, and a sevenfold lift in its
+     * albedo arrived as about one luminance step. Measured across the contact
+     * sheet, the near ground under snow read 20.0 out of 255 against clear at
+     * 29.8 — snow was *darker* than a clear night and within a step and a half
+     * of rain and storm.
+     *
+     * `paint` is therefore applied to all three, in order: the hour, then what
+     * the weather has done to it, then what is lying on top.
+     */
+    const paint = (
+      material: THREE.MeshStandardMaterial,
+      wornRing: boolean,
+      shade = 1,
+    ): void => {
+      const colour = material.color;
+      colour.copy(groundTones.night).lerp(groundTones.day, look.surfaceLift);
+      // Under the canopy edge rather than under the sky. See `CANOPY_SHADE`.
+      if (shade !== 1) colour.multiplyScalar(shade).lerp(GROUND_CHILL, (1 - shade) * 0.5);
+      // Wet duff is darker and much less colourful — the needles go near-black
+      // and the light that comes back is the sky's, not the ground's.
+      if (surfaces.groundValue !== 1) colour.multiplyScalar(surfaces.groundValue);
+      if (surfaces.chill > 0) colour.lerp(GROUND_CHILL, surfaces.chill * 0.42);
+      /*
+       * Broken white over dark duff, rather than a white floor.
+       *
+       * The worn ring takes less: it is the ground people have been walking on
+       * and the fire has been burning a hole in, and a snowed campsite reads as
+       * snowed *because* there is bare trodden earth at the middle of it.
+       */
+      if (lying > 0.004) colour.lerp(SNOW_LYING, lying * (wornRing ? 0.55 : 1));
+    };
+    // Fire ring, duff, wood — brightest, middle, darkest. The step the frame
+    // has never had. Lying snow inverts it on its own, because the worn ring
+    // takes less of it than the ground around it does.
+    paint(wornMaterial, true, 1.06);
+    paint(duffMaterial, false, 1);
+    paint(groundMaterial, false, CANOPY_SHADE);
+    /*
+     * And what a wet surface does that a dark one does not: come back at you.
+     *
+     * Roughness is the difference between wet ground and merely dark ground.
+     * Dropping it puts a specular kick on the duff exactly where the fire is,
+     * which is what stops "darken and desaturate" reading as "turn the lights
+     * down" — the clearing gets darker overall and *brighter* in the two metres
+     * around the pit, which is what rain at a campfire actually looks like.
+     */
+    const wetRoughness = 1 - surfaces.wet * 0.55;
+    groundMaterial.roughness = wetRoughness;
+    wornMaterial.roughness = wetRoughness;
+    duffMaterial.roughness = wetRoughness;
+    // Stone and fallen wood soak too, and stone shows it most.
+    rockMaterial.roughness = 1 - surfaces.wet * 0.62;
+    deadfallMaterial.roughness = 1 - surfaces.wet * 0.5;
+    woodMaterial.roughness = 1 - surfaces.wet * 0.5;
 
     /*
      * And so does the wood, which never has.
@@ -1743,6 +2321,11 @@ export function Campsite({
     );
     TMP_COLOR.copy(foliageTones.golden).lerp(foliageTones.day, 1 - warmth);
     treeMaterial.color.copy(foliageTones.night).lerp(TMP_COLOR, canopyLift);
+    // Weather reaches the wood too. A soaked canopy is darker and colder; a
+    // snowed one is not white — the crowns catch it and the sides do not, which
+    // the hemisphere term above is already doing — but it does go grey-blue.
+    if (surfaces.chill > 0) treeMaterial.color.lerp(GROUND_CHILL, surfaces.chill * 0.3);
+    if (surfaces.wet > 0) treeMaterial.color.multiplyScalar(1 - surfaces.wet * 0.16);
     // The understorey rides the same ramp from its own, lighter, night colour:
     // it is a metre from the player's knee and cannot go where the treeline
     // goes without turning into a black cut-out at the one distance it is
@@ -1751,24 +2334,46 @@ export function Campsite({
       .copy(understoreyTones.night)
       .lerp(TMP_COLOR_B.copy(TMP_COLOR).lerp(WHITE, 0.16), canopyLift);
     /*
-     * Snow on the ground, which is where snow mostly is.
+     * Undergrowth goes *dark* under snow, not white, and that is the read.
      *
-     * Falling flakes alone are a screensaver: a graded capture of snow was
-     * indistinguishable from a storm because nothing had settled anywhere. The
-     * ground is the cheapest surface to cover and by far the largest, so it is
-     * most of the read — and it is honest, since a campsite that has been snowed
-     * on has white ground and a fire burning a hole in it.
-     *
-     * Only for the snow kinds, and eased by the same frame factor as everything
-     * else here, so walking into a squall whitens the clearing over a few
-     * seconds rather than between frames.
+     * A field of white ground with black stalks sticking out of it is what a
+     * snowed clearing looks like from standing height; white ground with white
+     * grass on it is a fog bank. The same for the litter: pebbles and sprigs
+     * poking through the cover are the whole reason it reads as lying snow at
+     * a depth rather than as a repainted floor.
      */
-    const settled = weather.kind === 'snow' || weather.kind === 'snow-squall'
-      ? Math.min(0.72, weather.precipitation * 0.95)
-      : 0;
-    snowCover.current += (settled - snowCover.current) * Math.min(1, delta * 0.35);
-    if (snowCover.current > 0.004) {
-      groundMaterial.color.lerp(TMP_COLOR.setHex(0xc9ced6), snowCover.current);
+    // Reset from the base tone first: these two are the only materials here
+    // whose colour is otherwise a constant, and multiplying a constant in a
+    // frame loop walks it to black over a few hundred frames.
+    sprigMaterial.color.setHex(SPRIG_TONE);
+    pebbleMaterial.color.setHex(PEBBLE_TONE);
+    if (lying > 0.004) {
+      understoreyMaterial.color.multiplyScalar(1 - lying * 0.45);
+      sprigMaterial.color.multiplyScalar(1 - lying * 0.5);
+      pebbleMaterial.color.lerp(SNOW_LYING, lying * 0.75);
+    }
+    if (surfaces.wet > 0) {
+      understoreyMaterial.color.multiplyScalar(1 - surfaces.wet * 0.2);
+      sprigMaterial.color.multiplyScalar(1 - surfaces.wet * 0.3);
+      pebbleMaterial.color.multiplyScalar(1 - surfaces.wet * 0.25);
+    }
+
+    /*
+     * Standing water, which is the one thing rain does that a tint cannot.
+     *
+     * Puddles are worth their single draw call because they are the only part
+     * of wet weather that is *bright*: a dark, almost mirror-smooth disc lying
+     * in the low ground picks the fire up and throws it back, so the clearing
+     * gains three or four orange shapes it does not have when it is dry. That
+     * is a change in the composition of the frame rather than in its palette,
+     * which is what "the player cannot name the weather from the picture" was
+     * really asking for.
+     */
+    if (puddleRef.current) {
+      const shown = surfaces.puddles;
+      puddleRef.current.visible = shown > 0.02;
+      puddleMaterial.opacity = Math.min(0.92, 0.25 + shown * 0.67);
+      puddleMaterial.color.copy(ease.haze).multiplyScalar(0.55);
     }
 
     // The two discs. Neither is a light; both are just something to look at.
@@ -1819,20 +2424,53 @@ export function Campsite({
     const isSnow = weather.kind === 'snow' || weather.kind === 'snow-squall';
     const falling = weather.precipitation;
 
+    /*
+     * What is in the air when nothing is falling out of it.
+     *
+     * `wind` was the one state in the set with no signature at all. Its cloud
+     * is 0.3, its fog is 0.03 and its precipitation is zero, so every channel
+     * the renderer had was showing it as a slightly hazier clear night — and a
+     * gale that looks like a calm one is the plainest possible case of "the
+     * player cannot name the weather from the picture". Its own caption says
+     * "you hear wind before you feel it", which is fine as a line and is not a
+     * picture.
+     *
+     * A wood in a gale has things flying through it: needles off the crowns,
+     * dust off the trodden ring, last year's leaves. Drawn on the emitter the
+     * rain already owns — the same 420 segments, the same one draw call, warm
+     * brown instead of blue-grey and nearly flat instead of nearly vertical —
+     * so a state that had nothing now has motes streaking across the clearing
+     * and costs the frame nothing it was not already paying.
+     */
+    const blowing = falling < 0.02 ? clamp01((surfaces.shear - 0.45) / 0.5) : 0;
     if (rainRef.current) {
-      const strength = isSnow ? 0 : falling;
+      const strength = isSnow ? 0 : Math.max(falling, blowing * 0.55);
       rainMaterial.opacity = strength * 0.62;
+      rainMaterial.color.setHex(blowing > 0 ? 0x8a7047 : 0x8fa3b8);
       rainRef.current.visible = strength > 0.02;
       if (strength > 0.02) {
         const positions = rainGeometry.getAttribute('position') as THREE.BufferAttribute;
-        // The lean is the whole picture. A vertical streak is drizzle however
-        // fast it falls; twelve degrees of shear is what a storm looks like.
-        const lean = Math.min(0.42, weather.windSpeed * 0.055);
-        const length = 0.26 + strength * 0.34;
+        /*
+         * The lean is the whole picture, and it is now the *state's* lean.
+         *
+         * It used to be the instantaneous wind speed, which sounds right and is
+         * not: the simulation's gust term swings between roughly half and one
+         * and a half of the base at all times, so a downpour on a lull sheared
+         * less than a drizzle on a gust and the picture said nothing about
+         * which weather it was. `shear` takes the greater of what the *kind*
+         * asks for and what the wind is actually doing, so a storm is always
+         * hard over and a gale still lays the drizzle down.
+         */
+        // Blowing litter is almost flat and much slower to lose height; rain is
+        // steep. The one number that separates them is how much of the streak's
+        // length is horizontal.
+        const lean = blowing > 0 ? 2.6 + blowing * 3.4 : 0.06 + surfaces.shear * 0.62;
+        const length = 0.26 + strength * 0.34 + surfaces.shear * 0.3;
+        const fall = blowing > 0 ? 1.1 : 9 + strength * 7;
         for (let i = 0; i < rainCount; i++) {
           const head = i * 2;
-          let y = positions.getY(head) - (9 + strength * 7) * delta;
-          let x = positions.getX(head) + weather.windSpeed * delta * 0.22;
+          let y = positions.getY(head) - fall * delta;
+          let x = positions.getX(head) + (0.4 + surfaces.shear * 5.2) * delta;
           if (y < 0) {
             y = 12;
             // A drop that lands is a new drop somewhere else. Presentation
@@ -1857,12 +2495,13 @@ export function Campsite({
       if (strength > 0.02) {
         const positions = snowGeometry.getAttribute('position') as THREE.BufferAttribute;
         for (let i = 0; i < snowCount; i++) {
-          let y = positions.getY(i) - 1.05 * delta;
+          // A squall drives flakes almost flat; a still snowfall lets them sink.
+          let y = positions.getY(i) - (1.05 + surfaces.shear * 1.1) * delta;
           // Flakes drift rather than fall: a sideways wander each one keeps to
           // itself, so the field does not move as a sheet.
           let x =
             positions.getX(i) +
-            (weather.windSpeed * 0.35 + Math.sin(state.clock.elapsedTime * 0.8 + i) * 0.22) * delta;
+            (surfaces.shear * 6.5 + Math.sin(state.clock.elapsedTime * 0.8 + i) * 0.22) * delta;
           if (y < 0) {
             y = 12;
             x = (Math.random() - 0.5) * 26;
@@ -1950,6 +2589,22 @@ export function Campsite({
         items={litterFields.sprigs}
         castShadow={false}
         receiveShadow
+      />
+
+      {/*
+        And the water lying in it, when there is any.
+
+        One instanced mesh whatever the weather; the frame loop hides it when
+        the ground is dry, so a clear night pays a visibility test and nothing
+        else. See `puddleItems` for why they are where they are.
+      */}
+      <Scatter
+        innerRef={puddleRef}
+        geometry={puddleGeometry}
+        material={puddleMaterial}
+        items={puddleItems}
+        castShadow={false}
+        receiveShadow={false}
       />
 
       {/* Trees — four draw calls for the whole wood, not one per trunk. */}
@@ -2368,6 +3023,7 @@ function Scatter({
   material,
   items,
   name,
+  innerRef,
   receiveShadow = false,
   castShadow = true,
   onPick,
@@ -2376,6 +3032,8 @@ function Scatter({
   material: THREE.Material;
   items: readonly ScatterItem[];
   name?: string;
+  /** For the one scatter the frame loop has to show and hide. See `puddles`. */
+  innerRef?: React.RefObject<THREE.InstancedMesh | null>;
   receiveShadow?: boolean;
   /**
    * Whether this scatter casts into the shadow map.
@@ -2392,7 +3050,8 @@ function Scatter({
   castShadow?: boolean;
   onPick?: (index: number) => void;
 }): React.ReactElement | null {
-  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const ownRef = useRef<THREE.InstancedMesh>(null);
+  const meshRef = innerRef ?? ownRef;
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   useEffect(() => {
@@ -2448,12 +3107,3 @@ function mulberry(seed: number): () => number {
   };
 }
 
-/**
- * A short spike at `t = 0`, zero elsewhere. The shape of a lightning flash:
- * instant on, quick off, nothing in between.
- */
-function pulse(t: number, width: number): number {
-  if (t < 0 || t > width) return 0;
-  const k = 1 - t / width;
-  return k * k;
-}

@@ -314,6 +314,14 @@ Four consequences are binding, not incidental:
 - **Type has two sizes, and the text slider still has twenty stops.** A five-pixel bitmap face has 1x and 2x and nothing between. Inside a drawn panel the accessibility dial lands on those; the rest of its range buys line spacing and page margin, which is the half of "larger text" a bitmap face can actually deliver. Everywhere else in the interface it still scales continuously, so nothing about the setting is lost.
 - **§5.3 is unchanged and unrelaxed.** The Passport is a record of sandwiches. Moving it into the buffer is not an invitation to add a number to it.
 
+**The conversion is complete.** It shipped in two parts, and the second part matters because a half-converted set of overlays is the same defect as none of them: the Passport, Settings and the spoken survey moved first, and the code reader (§14), the order terminal (§11) and the fireside panel (§9) followed. Every overlay in the product is now drawn in the same eleven colours and the same 5x9 face, and the CSS that used to make them — `.sm-overlay`, `.sm-panel`, the frame-and-scroll-region pair, the mark at the cut, the repainted range input — is deleted rather than left shipped.
+
+Three things the second part had to add, each recorded here because each is a decision rather than a translation:
+
+- **The terminal is a plate, not a page.** Paper is for a booklet you have stopped to read; the terminal is an appliance printing an order at you, so it is drawn as a dark case with an amber rule down its edge and cream type reversed out of it. Its former green CRT (`#5affbe` on `#0d1512`) was two colours nobody chose from a palette with no green in it. **Nothing about §11 changes**: commerce stays subordinate, no purchase surface exists before the reveal, and no raw card data is collected anywhere — the fields are an address and an email.
+- **A live camera is not developed, it is framed.** The code reader's viewfinder is the one rectangle on any drawn panel that the game does not draw into. `developPhoto` is a treatment for a capture that has stopped moving; running it per frame would be an animation on a panel whose rule is that nothing animates (§12), on a picture whose whole job is to be a lens. So the kit draws the instrument — a sunken aperture with reticle corners — and a real `<video>` sits inside it, clipped to the drawn window.
+- **A field is a well with a real input over it, and a caret the canvas draws.** The browser's own caret is inside an element at `opacity: 0` and never reaches the screen, so a drawn panel that did not draw one would leave a typist with no idea where their next character was going. It is solid and still, because there is no blinking anywhere on these panels.
+
 ### 6.3 Persistent campsites
 
 Campsites remember: moved objects · photos taken · discoveries · notes left · machine history · wildlife relationships · environmental traces · sandwich memories.

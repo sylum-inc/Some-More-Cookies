@@ -30,21 +30,38 @@
  *
  * ## What changed when the panels moved into the buffer
  *
- * Settings, the Passport and the survey are drawn now (`ui/PixelPanel.tsx`),
- * so half of what this file used to measure is measured somewhere better: the
- * cut, the measure, the rectangles and the palette are all asserted against
- * the real drawing in `pixelPanel.test.ts`, and there is a proof sheet a human
- * looks at. What is left here is the half that only exists once a panel is
- * mounted in a document — the *seam*: that the way out is still first, that
- * every drawn control still has a real element over it with a role and a name,
- * and that the element is over the pixels it stands for rather than near them.
+ * All five overlays are drawn now (`ui/PixelPanel.tsx`), so half of what this
+ * file used to measure is measured somewhere better: the cut, the measure, the
+ * rectangles and the palette are all asserted against the real drawing in
+ * `pixelPanel.test.ts`, and there is a proof sheet a human looks at. What is
+ * left here is the half that only exists once a panel is mounted in a document
+ * — the *seam*: that the way out is still first, that every drawn control
+ * still has a real element over it with a role and a name, and that the
+ * element is over the pixels it stands for rather than near them.
  *
- * The stylesheet block below still runs, and it is no longer about these three
- * panels. `.sm-panel`, `.sm-overlay` and the cut mark now serve the three CSS
- * panels that remain — the arrival card, the terminal and the code entry —
- * which are short, are not frames with scroll regions, and were never the
- * thing the art grade was about. The rules are checked because they are still
- * shipped, not because the Passport still uses them.
+ * The stylesheet block that used to sit at the bottom of this file is gone
+ * with the rules it checked. `.sm-panel`, `.sm-overlay`, `.sm-panel-tall`,
+ * `.sm-panel-scroll`, the cut mark keyed on `data-more` and the repainted
+ * range input were the last three panels' material — the code entry, the
+ * terminal and the fireside panel — and those three moved into the buffer with
+ * this change. Nothing in `apps/web/src` referenced any of them afterwards
+ * (checked, not assumed), so the declarations went and these assertions went
+ * with them: a test that a stylesheet contains a rule nobody applies is a test
+ * that keeps dead code alive.
+ *
+ * What the deleted rules were *about* is not gone. The mark at a cut has to
+ * contrast with the paper it cuts — `pixelPanel.test.ts` asserts the drawn
+ * dither, which is legible at any two colours because it is a pattern; the
+ * sliders have to stay real `<input type="range">` elements — asserted below,
+ * against the mirrored DOM rather than against a pseudo-element.
+ *
+ * ## All five panels, on the same table
+ *
+ * `PANELS` is every drawn overlay in the product, and every generic assertion
+ * in this file runs against all of them. That is the point of there being one
+ * kit: the code entry and the terminal get the close button in the right
+ * place, the single scroll region, the painted-out mirror and the bezel inset
+ * for free, and if any of them stops getting one of those, this notices.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -52,9 +69,15 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Settings, settingsPage } from '../src/ui/Settings.js';
 import { Passport, passportPage } from '../src/ui/Passport.js';
+import { Scan, scanPage } from '../src/ui/Scan.js';
+import { Terminal, terminalPage } from '../src/ui/Terminal.js';
+import { CampfirePanel, campfirePage } from '../src/ui/Campfire.js';
 import { overlayPage, overlayView } from '../src/ui/PixelPanel.js';
 import { GLOBAL_CSS, TOKENS } from '../src/ui/styles.js';
 import { hasGlyph } from '../src/render/bitmapFont.js';
+import { deriveMachineIdentity, deriveSandwich, PROGRAMS, type SandwichRecord } from '@somemore/sim';
+import type { Campfire } from '../src/net/campfire.js';
+import type { ScanFlow, ScanState } from '../src/net/codes.js';
 import {
   PanelBuffer,
   drawStamp,
@@ -108,9 +131,131 @@ function passportMarkup(scale = 1, passport: PassportState = PASSPORT): string {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* The three that arrived last                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A sandwich the simulation would actually produce.
+ *
+ * The terminal prints its provenance, and provenance built out of placeholder
+ * numbers would not tell us whether a real serial fits the measure — which is
+ * exactly the kind of thing the drawn panel can get wrong and the CSS one
+ * could not.
+ */
+function makeSandwich(): SandwichRecord {
+  return deriveSandwich({
+    roast: {
+      brown: 0.6, char: 0.05, blister: 0.2, evenness: 0.8, sidedness: 0.1,
+      peakTempC: 194, melt: 0.3, fallen: false, ignitionCount: 0, flameSeconds: 0,
+      seconds: 74.2, rotationTravel: 40, descriptors: ['evenly-golden'], label: 'Evenly golden',
+    },
+    assembly: {
+      misalignment: 0.004, maxMisalignment: 0.006, lean: 0.02, squish: 0.4,
+      crumbs: 0.3, smear: 0.2, seconds: 20, tidiness: 0.8, label: 'Neatly stacked',
+    },
+    machine: {
+      serial: deriveMachineIdentity('camp-overlay', 'pine_hollow').serial,
+      program: 'standard', durationSeconds: 50, peakFrost: 0.7,
+      minChamberTempC: -28, quirkIds: [], firmness: PROGRAMS.standard.firmness,
+    },
+    environmentId: 'pine_hollow',
+    campsiteSeed: 'camp-overlay',
+    createdAt: Date.UTC(2026, 0, 1),
+    index: 1,
+  });
+}
+
+const SANDWICH = makeSandwich();
+
+const SCAN_STATE: ScanState = {
+  stage: 'idle',
+  message: null,
+  awarded: null,
+  result: null,
+  inviteToken: null,
+  decidedOffline: false,
+  failure: null,
+};
+
+/** Enough of a `ScanFlow` to render one: the panel reads its state and nothing else. */
+const SCAN_FLOW = {
+  state: SCAN_STATE,
+  subscribe: () => () => {},
+  submit: async () => {},
+  reset: () => {},
+} as unknown as ScanFlow;
+
+/**
+ * A fire with two people at it.
+ *
+ * A stand-in rather than a real `Campfire`, which needs a transport and a
+ * session: what is being checked here is the *panel*, and the panel's whole
+ * input is this shape. Two people rather than none, because a roster with
+ * somebody in it is the case with the controls in it.
+ */
+const FIRE = {
+  accountId: 'me',
+  joined: true,
+  status: 'joined',
+  statusDetail: null,
+  latencyMs: 42,
+  catchingUp: false,
+  notes: [],
+  chat: [{ at: 1, from: 'acct-0', name: 'Wren Alvarez', text: 'pull up a log' }],
+  roster: {
+    everyone: [
+      { accountId: 'acct-0', name: 'Wren Alvarez', phase: 'here', activity: 'roasting', micMuted: false, blocked: false, volume: 0.8 },
+      { accountId: 'acct-1', name: 'Tomas Bell', phase: 'here', activity: 'assembling', micMuted: true, blocked: false, volume: 1 },
+    ],
+  },
+  authority: { holderOf: () => 'me' },
+  voice: { status: 'text_and_gesture', mode: 'off', muted: false, provider: null, reason: 'nothing is configured' },
+  requestVoice: () => {},
+  offer: () => {},
+  block: () => {},
+  say: () => true,
+  gesture: () => {},
+  depart: () => {},
+} as unknown as Campfire;
+
+function scanMarkup(scale = 1): string {
+  return renderToStaticMarkup(
+    createElement(Scan, { flow: SCAN_FLOW, textScale: scale, onClose: () => {} }),
+  );
+}
+
+function terminalMarkup(scale = 1): string {
+  return renderToStaticMarkup(
+    createElement(Terminal, { sandwich: SANDWICH, textScale: scale, onClose: () => {} }),
+  );
+}
+
+function campfireMarkup(scale = 1): string {
+  return renderToStaticMarkup(
+    createElement(CampfirePanel, {
+      fire: FIRE,
+      textScale: scale,
+      highContrast: false,
+      onClose: () => {},
+    }),
+  );
+}
+
+/**
+ * Every drawn overlay in the product.
+ *
+ * All five, on one table, because there is one kit: a panel that stops getting
+ * the close button in the right place, or the single scroll region, or the
+ * painted-out mirror, has stopped being made of the same thing as the others
+ * and this is where that shows.
+ */
 const PANELS: readonly (readonly [string, (scale?: number) => string, string])[] = [
   ['Settings', settingsMarkup, 'Close settings'],
   ['Passport', passportMarkup, 'Close passport'],
+  ['Scan', scanMarkup, 'Close'],
+  ['Terminal', terminalMarkup, 'Close terminal'],
+  ['Campfire', campfireMarkup, 'Close'],
 ];
 
 /** Every text scale the settings panel can actually be set to (0.85..1.8). */
@@ -120,14 +265,28 @@ const TEXT_SCALES = Array.from({ length: 20 }, (_, i) => Number((0.85 + i * 0.05
 const SSR_VIEWPORT = { width: 1024, height: 768, inset: 0 } as const;
 
 function blocksFor(panel: string): PanelBlock[] {
-  return panel === 'Settings'
-    ? settingsPage(DEFAULT_RENDER_SETTINGS, DEFAULT_ACCESSIBILITY, DEFAULT_AUDIO, {
+  switch (panel) {
+    case 'Settings':
+      return settingsPage(DEFAULT_RENDER_SETTINGS, DEFAULT_ACCESSIBILITY, DEFAULT_AUDIO, {
         onRender: () => {},
         onAccessibility: () => {},
         onAudio: () => {},
-      }).blocks
-    : passportPage(PASSPORT, undefined, true).blocks;
+      }).blocks;
+    case 'Scan':
+      return scanPage(SCAN_STATE, '', { cameraAvailable: false, cameraOpen: false, cameraNote: null }).blocks;
+    case 'Terminal':
+      return terminalPage(SANDWICH, 'terminal', null, EMPTY_ADDRESS, '', false).blocks;
+    case 'Campfire':
+      return campfirePage(FIRE, '').blocks;
+    default:
+      return passportPage(PASSPORT, undefined, true).blocks;
+  }
 }
+
+const EMPTY_ADDRESS = {
+  name: '', line1: '', line2: null, city: '', region: '',
+  postalCode: '', country: 'US', phone: null,
+} as const;
 
 /** One element's inline `left/top/width/height`, in CSS pixels. */
 function boxOf(tag: string): { left: number; top: number; width: number; height: number } | null {
@@ -430,113 +589,124 @@ describe('the passport stamp', () => {
   });
 });
 
-describe('the stylesheet the cut depends on', () => {
+/*
+ * What is left of the stylesheet, now that no panel is made of it.
+ *
+ * This block used to check nine rules — the panel, the scrim, the frame and
+ * its scroll region, the scrollbar, the mark at the cut, and the repainted
+ * range input — and every one of them was checked *because it was shipped*,
+ * not because anything used it. The last three panels that did moved into the
+ * pixel buffer, nothing in `apps/web/src` referenced any of those selectors
+ * afterwards, and the declarations went. Keeping the assertions would have
+ * kept four hundred lines of dead CSS alive by making its removal a test
+ * failure.
+ *
+ * Every claim they carried still has somewhere to live, and it is a better
+ * place in each case:
+ *
+ *   THE CUT       `pixelPanel.test.ts` asserts the drawn dither's rectangle
+ *                 and that it is reserved below the last line rather than
+ *                 screened over it. A dither is legible at any two colours,
+ *                 which is the whole reason it replaced a gradient that had
+ *                 shipped three times ending on the colour the paper already
+ *                 was.
+ *   THE SLIDERS   still real `<input type="range">` elements, asserted above
+ *                 against the mirrored DOM — which is the thing
+ *                 `access.spec.ts` drives — rather than against a `::-webkit`
+ *                 pseudo-element that only existed to repaint them.
+ *   THE BEZEL     `never lets a page overhang the bezel` above, run against
+ *                 all five panels at four insets, instead of a regex looking
+ *                 for `calc(var(--sm-frame-inset))` in a padding shorthand.
+ *
+ * What remains here is the HUD's own layout, which is still CSS and still the
+ * one place in this interface where a `grid-template-areas` is the right
+ * answer.
+ */
+/*
+ * Every word these five panels can print, checked against the font.
+ *
+ * `pixelPanel.test.ts` makes this argument once with a handful of literals and
+ * calls it a guard rather than a feature; this is the guard pointed at the
+ * copy that actually ships. It is not hypothetical — the multiplier readout
+ * "×1.00" drew as a hollow missing-glyph box until the font grew U+00D7, and
+ * it was found by somebody opening a picture. A converted panel arrives with a
+ * few hundred new characters of prose in it (a terminal's small caps, a
+ * fireside roster, a code reader's refusals), and one non-breaking space or
+ * one accented letter anywhere in that is a box in the middle of a sentence
+ * that nothing else in the suite would notice.
+ */
+describe('the copy all five panels ship', () => {
+  const textOf = (block: PanelBlock): string[] => {
+    switch (block.kind) {
+      case 'heading':
+      case 'body':
+      case 'machine':
+        return [block.text];
+      case 'stamps':
+        return block.marks.map((mark) => mark.label);
+      case 'photos':
+        return block.photos.map((photo) => photo.caption);
+      case 'aperture':
+        return [block.label];
+      case 'controls':
+        return block.controls.flatMap((control) => [
+          control.label,
+          ...(control.kind === 'slider' ? [control.readout] : []),
+          ...(control.kind === 'text' ? [control.value, control.placeholder ?? ''] : []),
+          ...('hint' in control && control.hint !== undefined ? [control.hint] : []),
+        ]);
+      default:
+        return [];
+    }
+  };
+
+  for (const [name] of PANELS) {
+    it(`${name} has nothing in it the font cannot draw`, () => {
+      const undrawable = new Set<string>();
+      for (const block of blocksFor(name)) {
+        for (const text of textOf(block)) {
+          for (const character of text) {
+            if (character !== '\n' && !hasGlyph(character)) undrawable.add(character);
+          }
+        }
+      }
+      expect([...undrawable], `${name} prints characters with no glyph`).toEqual([]);
+    });
+  }
+});
+
+describe('the stylesheet the HUD still depends on', () => {
   const rule = (selector: string): string => {
     const found = new RegExp(`${selector.replace(/[.[\]*>"=-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(GLOBAL_CSS);
     expect(found, `no rule for ${selector}`).not.toBeNull();
     return found![1] as string;
   };
 
-  it('caps the panel to what the scrim leaves and hands the scrolling to the child', () => {
-    expect(rule('.sm-panel')).toMatch(/max-height:\s*100%/);
-    const region = rule('.sm-panel-tall > .sm-panel-scroll');
-    expect(region).toMatch(/overflow-y:\s*auto/);
-    // Without this a flex item refuses to shrink below its content and the
-    // cap silently stops applying — which is how this failed before.
-    expect(region).toMatch(/min-height:\s*0/);
-  });
-
   /*
-   * The bezel is 18 screen pixels a side at step 2 and the overlays had never
-   * heard of it: they padded themselves by 4vmin, which clears it at 1280 wide
-   * and does not at 393. The scrim reads the number the frame publishes now.
-   */
-  it('insets the scrim by the bezel the build draws over the viewport', () => {
-    expect(rule('.sm-overlay')).toMatch(/padding:\s*calc\(var\(--sm-frame-inset[^)]*\)[^;]*\)/);
-  });
-
-  it('pins the mark to the cut rather than to the content', () => {
-    const mark = rule('.sm-panel-tall[data-more="yes"]::after');
-    expect(mark).toMatch(/position:\s*absolute/);
-    expect(mark).not.toMatch(/position:\s*sticky/);
-    expect(mark).toMatch(/bottom:\s*0/);
-  });
-
-  /*
-   * The measurement the last three rounds needed.
+   * The overlays are gone from this sheet, and that is checked rather than
+   * assumed: a rule left behind here is a rule somebody re-applies in six
+   * months to a panel that is drawn now, and gets two rendering languages in
+   * one window all over again.
    *
-   * The old mark faded to #d6cbb1 — which is what `.sm-panel`'s own gradient
-   * has already reached by the time it gets to the bottom, so the mark's
-   * darkest point was 1 count of luma away from the paper under it. Anything
-   * under about 20 is invisible on a screen with a fire behind it; the mark
-   * drawn now composites to roughly 90 below the paper.
+   * Comments are stripped first, and that is not a convenience — the sheet
+   * still *names* every one of these, in the note that says where each of them
+   * went. A check that could not tell a declaration from a sentence about a
+   * declaration would force the removal to be silent, which is the opposite of
+   * what four hundred deleted lines deserve.
    */
-  it('draws a mark that can actually be seen against the paper it cuts', () => {
-    const luma = ([r, g, b]: readonly number[]): number =>
-      0.2126 * (r as number) + 0.7152 * (g as number) + 0.0722 * (b as number);
-    const hex = (value: string): number[] => [1, 3, 5].map((i) => Number.parseInt(value.slice(i, i + 2), 16));
-    const paper = hex(TOKENS.paperEdge);
-
-    const mark = rule('.sm-panel-tall[data-more="yes"]::after');
-    const inks = [...mark.matchAll(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/g)]
-      .map((m) => ({
-        rgb: [Number(m[1]), Number(m[2]), Number(m[3])],
-        alpha: m[4] === undefined ? 1 : Number(m[4]),
-      }))
-      .filter((ink) => ink.alpha > 0);
-    expect(inks.length, 'the mark has no ink in it').toBeGreaterThan(0);
-
-    // A 2px checker covers half the area, so the ink's effective weight over
-    // the paper is half its own alpha. Take the strongest of them.
-    const darkest = Math.max(
-      ...inks.map((ink) => {
-        const weight = ink.alpha * 0.5;
-        const composite = paper.map((c, i) => c * (1 - weight) + (ink.rgb[i] as number) * weight);
-        return luma(paper) - luma(composite);
-      }),
-    );
-    expect(Math.round(darkest), 'the mark at the cut is the colour of the paper').toBeGreaterThan(40);
-  });
-
-  /* An overlay scrollbar that never paints on a capture is a panel with no
-     evidence that it scrolls. This one is drawn, in the panel's own ink. */
-  it('draws a scrollbar rather than relying on the browser to reveal one', () => {
-    expect(GLOBAL_CSS).toMatch(/\.sm-panel-scroll::-webkit-scrollbar\s*\{/);
-    expect(GLOBAL_CSS).toMatch(/\.sm-panel-scroll::-webkit-scrollbar-thumb\s*\{/);
-    expect(rule('.sm-panel-tall > .sm-panel-scroll')).toMatch(/scrollbar-width:\s*thin/);
-  });
-
-  /*
-   * Still a real range input, whatever it is painted to look like. The
-   * accessibility suite drives these with `fill()` and the arrow keys, and a
-   * div with a background gradient has no role, no value and no keyboard.
-   */
-  it('repaints the sliders without replacing them', () => {
-    expect(GLOBAL_CSS).toMatch(/input\[type="range"\]\.sm-slider\s*\{/);
-    expect(GLOBAL_CSS).toMatch(/::-webkit-slider-thumb/);
-    expect(GLOBAL_CSS).toMatch(/::-moz-range-thumb/);
-    // Square, because a round handle is the browser's, not this game's.
-    expect(GLOBAL_CSS).toMatch(/::-webkit-slider-thumb\s*\{[^}]*border-radius:\s*0/);
-    expect(settingsMarkup()).toMatch(/<input[^>]*type="range"/);
-  });
-
-  /*
-   * The comb, counted.
-   *
-   * The track scored itself every 12px, which over the ~600px track in the
-   * shipped capture is fifty 1px marks — read, correctly, as a comb rather
-   * than as a scale. The notch spacing is a percentage of the track now, so
-   * the count is fixed however wide the panel gets, and it is small enough to
-   * take in at a glance.
-   */
-  it('scores the slider track as a scale rather than as a comb', () => {
-    const track = rule('input[type="range"].sm-slider::-webkit-slider-runnable-track');
-    // Each notch is 2px of ink and the gap to the next is a percentage of the
-    // track, so the count is fixed however wide the panel gets — the old rule
-    // repeated every 12px, which is fifty marks at the width it shipped at.
-    const notches = /repeating-linear-gradient\(90deg,[\s\S]*?0 2px,[\s\S]*?2px ([\d.]+)%\)/.exec(track);
-    expect(notches, 'the track scores itself in pixels, or not at all').not.toBeNull();
-    expect(100 / Number(notches![1])).toBeLessThanOrEqual(10);
+  it('has no panel material left in it at all', () => {
+    const declarations = GLOBAL_CSS.replace(/\/\*[\s\S]*?\*\//g, '');
+    for (const selector of [
+      '.sm-overlay',
+      '.sm-panel',
+      '.sm-panel-tall',
+      '.sm-panel-scroll',
+      '.sm-slider',
+      '.sm-stamp',
+      '.sm-close',
+    ]) {
+      expect(declarations, `${selector} is still shipped and nothing uses it`).not.toContain(selector);
+    }
   });
 
   /*

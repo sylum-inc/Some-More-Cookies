@@ -2,9 +2,24 @@
  * Overlays that live in the pixel buffer, and the DOM that gives them meaning.
  *
  * This is the wiring `ui/pixel/panel.ts` describes in its header, written once
- * so that the Passport, Settings and the spoken survey are one object rather
- * than three that drift. Read that header first; this file is its
- * implementation and does not repeat its arguments.
+ * so that all five overlays — the Passport, Settings, the code reader, the
+ * order terminal and the spoken survey — are one object rather than five that
+ * drift. Read that header first; this file is its implementation and does not
+ * repeat its arguments.
+ *
+ * Three things here exist only because the last three panels needed them, and
+ * each is a seam rather than a special case:
+ *
+ *   A FIELD      `TextControl` and `onText`. A drawn well with a real
+ *                `<input>` or `<textarea>` over it, and a block caret the
+ *                canvas draws because the browser's own is inside an element
+ *                at zero opacity and never reaches the screen.
+ *   A WINDOW     `ApertureBlock` and `slot`. One rectangle on one panel that
+ *                the game does not draw into, because what goes in it is a
+ *                live camera and a lens is not printed matter. See `Scan.tsx`.
+ *   A PLATE      `surface="plate"`. The terminal is a device readout rather
+ *                than a page, which `pixel/panel.ts` anticipated with
+ *                `drawPlate` before there was anything to draw on it.
  *
  * ## Why the overlays moved into the buffer at all
  *
@@ -69,6 +84,7 @@ import {
   panelTextMetrics,
   scrim,
   toScreen,
+  PLATE_SURFACE,
   type LaidOutBlock,
   type PanelBlock,
   type PanelLayout,
@@ -77,6 +93,7 @@ import {
   type PanelSurface,
   type PhotoPixels,
   type Rect,
+  type ScreenBox,
 } from './pixel/index.js';
 import { useViewportSize } from '../pwa/viewport.js';
 import { useDialog } from './useDialog.js';
@@ -415,7 +432,36 @@ function semanticsFor(
       ) : (
         <h2 {...attrs}>{source.text}</h2>
       );
-    case 'body':
+    case 'body': {
+      /*
+       * A paragraph unless it is a channel.
+       *
+       * The fire's log and the code reader's verdict both change while nobody
+       * is looking at them and nobody's focus has moved, and §12's rule is
+       * that nothing is delivered through one channel only. A live region is
+       * the DOM's whole answer to that, and it has to be a real one — the
+       * drawn page is the other channel, not a substitute for this one.
+       */
+      const extra = {
+        ...(source.live === undefined ? {} : { 'aria-live': source.live, 'aria-atomic': 'false' as const }),
+        ...(source.role === undefined ? {} : { role: source.role }),
+        ...(source.label === undefined ? {} : { 'aria-label': source.label }),
+        ...Object.fromEntries(
+          Object.entries(source.data ?? {}).map(([key, value]) => [`data-${key}`, value]),
+        ),
+      };
+      // A `<div>` when it carries a role of its own; `role="log"` on a
+      // paragraph is a paragraph pretending, and the role wins over the tag.
+      return source.role === undefined ? (
+        <p {...attrs} {...extra}>
+          {source.text}
+        </p>
+      ) : (
+        <div {...attrs} {...extra}>
+          {source.text}
+        </div>
+      );
+    }
     case 'machine':
       return <p {...attrs}>{source.text}</p>;
     case 'stamps':
@@ -548,11 +594,41 @@ export interface PixelPanelProps {
   readonly onButton?: (id: string) => void;
   readonly onCheckbox?: (id: string, checked: boolean) => void;
   readonly onSlider?: (id: string, value: number) => void;
+  /** A `text` control changed. The caller owns the value; this is a report. */
+  readonly onText?: (id: string, value: string) => void;
+  /**
+   * Enter was pressed in a single-line field.
+   *
+   * The code reader and the fire were both `<form onSubmit>` before this, and
+   * pressing Enter in the field is how anybody actually sends either one. A
+   * drawn panel has no form to submit, so the key is carried explicitly rather
+   * than lost — which is §12's keyboard path for the two verbs on this panel
+   * that a player uses most.
+   */
+  readonly onSubmit?: (id: string) => void;
   readonly sliders?: Readonly<Record<string, SliderMirror>>;
   /** `data-testid` for a block or a control, by id. */
   readonly testIds?: Readonly<Record<string, string>>;
   /** The bytes of one photograph. See `DrawPanelOptions.photo`. */
   readonly photo?: (id: string) => PhotoPixels | undefined;
+  /**
+   * The one thing on a drawn panel the game did not draw.
+   *
+   * Called for each `aperture` block with the screen rectangle the layout gave
+   * it, so the caller can put a real element inside the drawn window — the
+   * code reader's `<video>`, and nothing else so far. The kit owns the
+   * geometry, which is what stops the instrument and the lens drifting apart.
+   */
+  readonly slot?: (id: string, box: ScreenBox) => React.ReactNode;
+  /**
+   * A device readout rather than a page.
+   *
+   * The terminal is the only one. `panel.ts` has carried `drawPlate` for it
+   * since the kit was written, and `styles.ts` drew the same line for the HUD:
+   * paper is for a booklet you have stopped to read, and a cream card is the
+   * wrong object for an appliance printing an order at you.
+   */
+  readonly surface?: 'paper' | 'plate';
 }
 
 export function PixelPanel(props: PixelPanelProps): React.ReactElement {
@@ -588,6 +664,9 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
     scrim(surface, view.frame);
     drawPanel(surface, layout, {
       focusedId,
+      ...(props.surface === 'plate' ? PLATE_SURFACE : {}),
+      // High contrast still wins over the surface: it drops the printed screen
+      // (a plate has none anyway) and pulls the soft voice up to the body one.
       ...(props.highContrast === true ? { screen: null, highContrast: true } : {}),
       ...(props.photo === undefined ? {} : { photo: props.photo }),
     });
@@ -603,7 +682,7 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
      * picture. `layout` is memoised on the spec and the scroll offset, so this
      * fires on a scroll, a resize, a setting, a focus move, and nothing else.
      */
-  }, [view, layout, close, focusedId, props.highContrast, props.photo]);
+  }, [view, layout, close, focusedId, props.highContrast, props.photo, props.surface]);
 
   /**
    * Bring a control onto the page when it takes focus.
@@ -805,6 +884,8 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
                           key={control.id}
                           type="button"
                           {...(testId === undefined ? {} : { 'data-testid': testId })}
+                          {...(control.pressed === undefined ? {} : { 'aria-pressed': control.pressed })}
+                          disabled={control.disabled === true}
                           onClick={() => props.onButton?.(control.id)}
                           onFocus={focus(control.id)}
                           onBlur={blur}
@@ -814,10 +895,85 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
                             top: row.top,
                             width: Math.max(1, row.width),
                             height: Math.max(1, row.height),
+                            cursor: control.disabled === true ? 'default' : 'pointer',
                           }}
                         >
                           {control.label}
                         </button>
+                      );
+                    }
+                    if (control.kind === 'text') {
+                      /*
+                       * A real field, over the drawn well.
+                       *
+                       * `<textarea>` when the well is more than one line deep
+                       * and `<input>` when it is one, because that is the
+                       * difference a player can feel: Enter sends a line at the
+                       * fire and adds one to a pasted code. Both are inside a
+                       * `<label>` for the same reason every other control here
+                       * is — `access.spec.ts` reads the label's own text, and
+                       * `redeem.spec.ts` fills this by test id.
+                       */
+                      const field: React.CSSProperties = {
+                        ...inner,
+                        // A caret the browser draws at device resolution would
+                        // be the one anti-aliased thing on the panel, and it
+                        // sits *inside* an element at zero opacity anyway. The
+                        // drawn block caret is the one a player sees.
+                        caretColor: 'transparent',
+                        resize: 'none',
+                        overflow: 'hidden',
+                        lineHeight: 1,
+                        fontSize: 8,
+                      };
+                      const shared = {
+                        ...(testId === undefined ? {} : { 'data-testid': testId }),
+                        ...(control.maxLength === undefined ? {} : { maxLength: control.maxLength }),
+                        ...(control.inputMode === undefined ? {} : { inputMode: control.inputMode }),
+                        ...(control.placeholder === undefined ? {} : { placeholder: control.placeholder }),
+                        value: control.value ?? '',
+                        disabled: control.disabled === true,
+                        spellCheck: false,
+                        autoCapitalize: 'off',
+                        autoCorrect: 'off',
+                        onFocus: focus(control.id),
+                        onBlur: blur,
+                        style: field,
+                      } as const;
+                      return (
+                        <label
+                          key={control.id}
+                          style={{
+                            ...PROSE,
+                            left: row.left,
+                            top: row.top,
+                            width: Math.max(1, row.width),
+                            height: Math.max(1, row.height),
+                            pointerEvents: 'auto',
+                            cursor: 'text',
+                          }}
+                        >
+                          {(control.rows ?? 1) > 1 ? (
+                            <textarea
+                              {...shared}
+                              rows={control.rows ?? 1}
+                              onChange={(event) => props.onText?.(control.id, event.target.value)}
+                            />
+                          ) : (
+                            <input
+                              {...shared}
+                              type="text"
+                              onChange={(event) => props.onText?.(control.id, event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter') return;
+                                event.preventDefault();
+                                props.onSubmit?.(control.id);
+                              }}
+                            />
+                          )}
+                          <span>{control.label}</span>
+                          {control.hint !== undefined && <small>{control.hint}</small>}
+                        </label>
                       );
                     }
                     const slider = props.sliders?.[control.id];
@@ -839,6 +995,7 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
                             type="checkbox"
                             {...(testId === undefined ? {} : { 'data-testid': testId })}
                             checked={control.checked === true}
+                            disabled={control.disabled === true}
                             onChange={(event) => props.onCheckbox?.(control.id, event.target.checked)}
                             onFocus={focus(control.id)}
                             onBlur={blur}
@@ -852,6 +1009,7 @@ export function PixelPanel(props: PixelPanelProps): React.ReactElement {
                             max={slider?.max ?? 1}
                             step={slider?.step ?? 0.05}
                             value={slider?.value ?? 0}
+                            disabled={control.disabled === true}
                             onChange={(event) => props.onSlider?.(control.id, Number(event.target.value))}
                             onFocus={focus(control.id)}
                             onBlur={blur}
@@ -930,7 +1088,7 @@ export interface PixelNoteProps {
  *
  * The spoken survey is not a dialog: it is not modal, it does not take focus,
  * and it goes away with the same key that opened it. What it shares with the
- * two dialogs is everything else — the same paper, the same font, the same
+ * four dialogs is everything else — the same paper, the same font, the same
  * buffer, the same cut mark — which is the whole point of there being one kit.
  *
  * It stays a live region. §12's rule is that nothing may be delivered through

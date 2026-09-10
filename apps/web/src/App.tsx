@@ -2471,9 +2471,10 @@ export function App({ store }: AppProps): React.ReactElement {
 
             The drawn panels lay themselves out in buffer pixels and have to
             inset by the rail before they choose a rectangle, or the page is
-            drawn partly under the steel. `Frame` also publishes it as
-            `--sm-frame-inset` for the CSS panels that are left; this is the
-            same number by the route that cannot be missed.
+            drawn partly under the steel. `Frame` still publishes it as
+            `--sm-frame-inset`, which is what `PixelPanel` falls back to when
+            nobody passes it; this is the same number by the route that cannot
+            be missed.
           */
           frameInset={bezelInset(viewport.width, showFrame)}
           onClose={() => store.setOverlay('none')}
@@ -2516,6 +2517,8 @@ export function App({ store }: AppProps): React.ReactElement {
         <Scan
           flow={scanRef.current}
           textScale={state.accessibility.textScale}
+          highContrast={state.accessibility.highContrast}
+          frameInset={bezelInset(viewport.width, showFrame)}
           onClose={() => store.setOverlay('none')}
           onCampInvite={(token) => {
             /*
@@ -2600,6 +2603,7 @@ export function App({ store }: AppProps): React.ReactElement {
           fire={campfire}
           textScale={state.accessibility.textScale}
           highContrast={state.accessibility.highContrast}
+          frameInset={bezelInset(viewport.width, showFrame)}
           onClose={() => store.setOverlay('none')}
         />
       )}
@@ -2617,6 +2621,8 @@ export function App({ store }: AppProps): React.ReactElement {
         <Terminal
           sandwich={ritual.sandwich}
           textScale={state.accessibility.textScale}
+          highContrast={state.accessibility.highContrast}
+          frameInset={bezelInset(viewport.width, showFrame)}
           sync={syncRef.current}
           onClose={() => store.setOverlay('none')}
         />

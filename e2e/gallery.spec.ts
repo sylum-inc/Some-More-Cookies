@@ -228,6 +228,56 @@ test.describe('gallery', () => {
       await page.waitForTimeout(400);
     }
 
+    /*
+     * The three that were converted last, captured for the same reason.
+     *
+     * The grade that moved the overlays into the buffer was made from
+     * `overlay-*.png` and it scored the panels 4.0 against an overall 6.2 —
+     * "a modern web form sitting on a dithered game". Two of the five were
+     * then re-shot here and three were not, which is how a conversion comes to
+     * be judged on the half of itself that was finished. All five are on the
+     * contact sheet now.
+     *
+     * Guarded on the affordance being present rather than assumed, because
+     * this file asserts nothing by design: a gallery run that fails because
+     * one panel was unreachable from this campsite has stopped being a contact
+     * sheet and started being a test with no assertions in it.
+     */
+    const addCode = page.getByTestId('passport-add-code');
+    await page.getByRole('button', { name: /passport/i }).click();
+    await page.waitForTimeout(400);
+    if ((await addCode.count()) > 0) {
+      await addCode.click();
+      await page.waitForTimeout(600);
+      await shot('overlay-scan');
+    }
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+
+    // The terminal, which only exists after the reveal (spec §11) — so this
+    // has to come after `driveRitual`, and it does.
+    const makeReal = page.getByRole('button', { name: 'Make this real' });
+    if ((await makeReal.count()) > 0) {
+      await makeReal.first().click();
+      await page.waitForTimeout(700);
+      await shot('overlay-terminal');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+    }
+
+    // The fireside panel. It is the one a player has open *during* the ritual,
+    // with the world still burning behind the scrim, so it is the capture the
+    // legibility floor is actually judged on.
+    await page.keyboard.press('k');
+    await page.waitForTimeout(600);
+    if ((await page.getByRole('dialog', { name: 'At the fire' }).count()) > 0) {
+      await shot('overlay-campfire');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+    }
+
     // The spoken survey: the one thing a player can ask the world.
     await page.keyboard.press('q');
     await page.waitForTimeout(700);

@@ -3,9 +3,26 @@
  *
  * The interface is a field journal and a campground booklet, not a dashboard
  * (spec §6.2). Warm paper, stamped ink, monospaced machine text.
+ *
+ * ## What is left in here, and what is not
+ *
+ * The overlays are not. All five are drawn into the pixel buffer now, in the
+ * eleven colours of `ui/pixel/palette.ts` and the 5x9 face of
+ * `render/bitmapFont.ts`, and the four hundred lines of panel material that
+ * used to live at the bottom of `GLOBAL_CSS` went with the last of them. The
+ * note where they used to be says where each rule ended up.
+ *
+ * What remains is what is genuinely still CSS: the tokens themselves (which
+ * `pixel/palette.ts` copies, exactly, and a test holds it to), the HUD's dark
+ * plates, its grid of named areas, the focus outline and the reduced-motion
+ * rule. `TOKENS` is the one thing in this file both worlds share, and that is
+ * the point of it.
  */
 
-import { useEffect, useRef, useState } from 'react';
+// No React hook lives here any more — `useScrollCut` was the last one and the
+// layout answers its question by construction. The import stays for the
+// `React.CSSProperties` the style helpers below are typed as.
+import type React from 'react';
 
 export const TOKENS = {
   paper: '#e8e0cd',
@@ -133,62 +150,18 @@ export function plate(textScale: number, high = false): React.CSSProperties {
   };
 }
 
-/**
- * The paper surface, for the one HUD thing that is a page rather than a plate.
+/*
+ * `paperPanel`, `paperPadding` and `CUT_MARK_PX` were here.
  *
- * `plate()` above argues — correctly — that a cream card floating over a night
- * forest is a hole punched in the picture, and that is why every ambient HUD
- * channel is dark. The distinction it draws is the one that matters here:
- * *paper is right for a booklet you have stopped to read.* The survey is not
- * ambient. Nothing volunteers it; a player presses a key, stops, and reads a
- * description of where they are standing — which is the Passport's job in
- * miniature and belongs in the Passport's material.
- *
- * Same stock as `.sm-panel`: halftone at a 3px pitch over a warm gradient, a
- * hard ink border, a shadow that falls rather than glows.
+ * They were the CSS panel's stock — a halftone over a warm gradient, a hard
+ * ink border, and a fixed allowance at the bottom of a scroll region for the
+ * mark that says a page continues. Every one of them is now drawn:
+ * `ui/pixel/chrome.ts` mitres the border and `drawPaperPanel` screens the
+ * paper, `ui/pixel/dither.ts` puts the halftone on it, and the allowance is
+ * `PanelMetrics.cutMark`, which is reserved by `layoutPanel` rather than
+ * remembered by each caller. The arguments they carried went with them into
+ * those files; nothing was thrown away except the declarations.
  */
-export function paperPanel(textScale: number, framed = false): React.CSSProperties {
-  return {
-    background: `
-      repeating-linear-gradient(0deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
-      repeating-linear-gradient(90deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
-      linear-gradient(168deg, #efe8d7 0%, ${TOKENS.paper} 42%, ${TOKENS.paperEdge} 100%)`,
-    color: TOKENS.ink,
-    border: `2px solid ${TOKENS.ink}`,
-    borderRadius: 0,
-    boxShadow: 'inset 0 2px 0 rgba(255,252,244,0.85), 4px 5px 0 rgba(6,8,11,0.55)',
-    textShadow: '0 1px 0 rgba(255,252,244,0.65)',
-    fontFamily: FONT_STACK.mono,
-    fontSize: typePx(12, textScale),
-    lineHeight: 1.55,
-    /*
-     * A framed page has no padding of its own: it hands it to the scroll
-     * region inside it. This is the same rule `.sm-panel-tall` obeys and for
-     * the same reason — padding on the scrollport puts the whole pad between
-     * the last line of type and the mark that says there is more of it, which
-     * is how the survey came to be cut mid-sentence with nothing to say so.
-     */
-    padding: framed ? 0 : `${px(9, textScale)} ${px(12, textScale)}`,
-    textAlign: 'left',
-  };
-}
-
-/** What `paperPanel(scale, true)` gave away, for the scroll region to take. */
-export function paperPadding(textScale: number): string {
-  return `${px(9, textScale)} ${px(12, textScale)}`;
-}
-
-/**
- * How tall the mark at the bottom of a scroll region is.
- *
- * Fixed rather than scaled with the type, because it is a printed dither at a
- * 2px pitch and a dither that grows with the text stops being a dither. Every
- * scroll region adds it to its own bottom padding so the last line can pass
- * clear of the mark rather than ending underneath it — which is what the old,
- * *scaled* allowance got wrong at 1.8x, where it reserved fifty-two pixels for
- * a twenty-pixel band.
- */
-export const CUT_MARK_PX = 20;
 
 /**
  * Off screen, but read aloud.
@@ -221,56 +194,17 @@ export function machineText(textScale: number): React.CSSProperties {
   };
 }
 
-/**
- * Whether a scroll region has anything below its own bottom edge.
+/*
+ * `useScrollCut` was here.
  *
- * Three overlays were graded as clipping — Settings cut a slider track in
- * half, the Passport cut a line of small caps, the survey cut mid-sentence at
- * "along the path to" — and the structural fix that came before this one (a
- * frame with the scrolling moved to a child) did not change any of that,
- * because the thing that was missing was never the structure. It was the
- * *mark*. `.sm-panel-tall::after` did exist, and it faded the paper to
- * `paperEdge` — which is the exact colour both panels already are by the time
- * they reach their own bottom. Sampling the shipped screenshot at the cut
- * gives rgb(214,202,176) against a fade ending on rgb(214,203,177): a
- * one-count difference on one channel, which is a fade that renders and says
- * nothing. A reader saw a hard border with a sliced control above it.
- *
- * So the mark is drawn honestly now (see `.sm-panel-tall[data-more="yes"]`),
- * and this is what tells it when to be there. A permanent mark on a panel with
- * nothing below it is the same lie in the other direction.
- *
- * The effect deliberately has no dependency list. The survey's content changes
- * while it is open, and a subscription set up once at mount measures a
- * scrollHeight that has since moved; re-measuring on every render of a panel
- * that renders when something about it changes is both correct and free.
+ * It measured a DOM scroller and told `.sm-panel-tall` whether to draw its
+ * mark. `layoutPanel` answers the same question by construction now — it knows
+ * where the flow ends and where the viewport does, so `PanelLayout.cut` is
+ * null when there is nothing below and a rectangle when there is, and there is
+ * no scrollHeight to measure or ResizeObserver to keep alive. The lesson it
+ * was written for survives in `pixel/panel.ts`: a mark on a page with nothing
+ * below it is the same lie as no mark on a page that has more.
  */
-export function useScrollCut<T extends HTMLElement>(): {
-  ref: React.RefObject<T | null>;
-  more: 'yes' | 'no';
-} {
-  const ref = useRef<T | null>(null);
-  const [more, setMore] = useState<'yes' | 'no'>('no');
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const measure = (): void => {
-      // Two pixels of slack, not zero: on a fractional device-pixel ratio a
-      // region scrolled to its end reports a sub-pixel short of it, and the
-      // mark flickered on at the bottom of a panel with nothing below it.
-      setMore(node.scrollHeight - node.clientHeight - node.scrollTop > 2 ? 'yes' : 'no');
-    };
-    measure();
-    node.addEventListener('scroll', measure, { passive: true });
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
-    observer?.observe(node);
-    return () => {
-      node.removeEventListener('scroll', measure);
-      observer?.disconnect();
-    };
-  });
-  return { ref, more };
-}
 
 /** Injects the global stylesheet. */
 export const GLOBAL_CSS = `
@@ -282,320 +216,39 @@ export const GLOBAL_CSS = `
   canvas { image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; display: block; }
   button { font: inherit; color: inherit; cursor: pointer; }
   /*
-    The overlays are printed matter, not web panels.
+    The overlays used to be here, and they are drawn now.
 
-    They were cream paper with Georgia on it behind a Gaussian blur, which is a
-    handsome document and the wrong object: an art review called it "two
-    products in one window", and it is right — you cut from a dithered forest
-    to something that could be an article on any website. Three things fix it,
-    and none of them is a picture:
+    .sm-overlay, .sm-panel, .sm-panel-tall, .sm-panel-scroll and its scrollbar,
+    the cut mark keyed on data-more, the repainted input[type="range"]
+    .sm-slider, .sm-stamp and .sm-close were about four hundred lines of this
+    sheet, and the last of the five panels that used them moved into the pixel
+    buffer with this change (spec section 6.2). Every one of them exists, in
+    the game's own eleven colours and its own font, in ui/pixel/ — the halftone
+    in dither.ts, the mitred bevel and the stamp and the slider in chrome.ts,
+    the cut in panel.ts, the scrim over the world in dither.ts — and the
+    reasoning each rule carried moved with it rather than being deleted. Read
+    those files: none of this is lost, and none of it is CSS any more.
 
-      1. NO BLUR AND NO ROUNDED CORNERS. A backdrop blur filter is a
-         post-2015 effect on top of a render pipeline whose entire premise is
-         nearest-neighbour upscaling of a 320x240 buffer, and a 3px radius is
-         the single clearest tell that something was styled rather than drawn.
-         The scrim is a flat wash instead, and every corner is square.
-      2. A HALFTONE. Two crossed repeating gradients at a 3px pitch, which is a
-         printed dot screen — the same idea as the ordered dither in the world,
-         at the size a booklet would actually be screened at. It sits over the
-         paper at low alpha, so the paper stops being a flat #e8e0cd field and
-         starts being stock.
-      3. LETTERPRESS. A hard ink border, a hairline of light along the top
-         inner edge, and a shadow that falls rather than glows. Type on this
-         gets a 1px light shadow below it, which is what ink pressed into paper
-         does to the fibre beside it.
+    (No backticks in this comment, and that is not fussiness. This whole string
+    is a template literal, so one backtick in a note about a selector ends the
+    stylesheet in the middle of a sentence and the rest of the file becomes
+    something the parser has to guess at.)
+
+    Two things about them were structural rather than decorative and are worth
+    saying once more here, because they are the reasons the panels kept
+    failing:
+
+      1. NOTHING SHIPPED IS A FADE THAT MATCHES ITS OWN BACKGROUND. The mark at
+         a cut is a *dither*, which is legible at any two colours because a
+         reader sees the pattern rather than the value. A gradient ending on
+         the colour the paper already was shipped three times and could not be
+         seen in any of them.
+      2. THE BEZEL IS PUBLISHED, NOT GUESSED. --sm-frame-inset is still written
+         on the root element by ui/Frame.tsx and is still what an overlay
+         insets itself by: PixelPanel takes it as a prop and falls back to
+         reading that property. Two numbers that agree by luck at one window
+         size is not a layout.
   */
-  /*
-    The overlay knows about the bezel now.
-
-    It did not, and that is half of why the panels read as clipped. The build
-    draws a nine-slice rail over every edge of the viewport (ui/Frame.tsx,
-    9 atlas pixels at step 2 = 18 screen pixels a side) and hands its width to
-    the HUD as frameInset so the guidance line stays inside the device. The
-    overlays were never told: they sat at inset: 0 with padding: 4vmin,
-    which at 1280x720 is 28.8px and happened to clear the rail, and at 393
-    wide is 15.7px and does not. Two numbers that agree by luck on one screen
-    size is not a layout.
-
-    So the bezel publishes its own thickness as --sm-frame-inset (see
-    Frame) and the scrim is padded by it plus a fixed 10px gutter. The panel
-    then takes everything that leaves, rather than the 88vh it used to be
-    capped at — which on a 720-tall window meant 87 unused pixels above and
-    below a page that was cutting a slider in half.
-  */
-  .sm-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: calc(var(--sm-frame-inset, 0px) + 10px); z-index: 40; background: rgba(6, 8, 11, 0.80); }
-  .sm-panel {
-    background:
-      repeating-linear-gradient(0deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
-      repeating-linear-gradient(90deg, rgba(42,38,32,0.055) 0 1px, rgba(0,0,0,0) 1px 3px),
-      linear-gradient(168deg, #efe8d7 0%, ${TOKENS.paper} 42%, ${TOKENS.paperEdge} 100%);
-    color: ${TOKENS.ink};
-    max-width: min(860px, 94vw);
-    /* Everything the scrim leaves, which is the viewport less the bezel and a
-       gutter. It used to be 88vh *as well as* the scrim's own padding, so the
-       two insets were applied twice and a long page was cut earlier than it
-       needed to be. */
-    max-height: 100%;
-    overflow-y: auto;
-    border: 2px solid ${TOKENS.ink};
-    border-radius: 0;
-    box-shadow: inset 0 2px 0 rgba(255,252,244,0.85), 6px 8px 0 rgba(6,8,11,0.55), 0 22px 60px rgba(0,0,0,0.55);
-    position: relative;
-    text-shadow: 0 1px 0 rgba(255,252,244,0.65);
-    /* The punched corner. A booklet page that has been through a ring binder,
-       and the one asymmetry in an otherwise rigidly square object. */
-    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
-  }
-  /*
-    A long panel is capped and scrolls *inside itself*.
-
-    .sm-panel already carried a height cap, overflow-y: auto and a ::after
-    fade, and none of the three held: the Passport was cut through the middle
-    of "KEEP THIS PASSPORT" with nothing to say it had been, and Settings ended
-    mid-slider. Three reasons, all worth writing down because they are the
-    three ways this keeps failing.
-
-      1. The fade was position: sticky; bottom: 0, and a sticky box is
-         clamped to its *containing block* — the panel's content box. The
-         panels put their 26–28px of padding on the scroller itself, so the
-         fade parked a whole pad above the cut and the last line of type was
-         guillotined below it. A padded element cannot be both the scrollport
-         and the thing the fade sticks to.
-      2. The panel was the scroller, so everything absolutely positioned
-         inside it — the close button, most obviously — scrolled away with the
-         content. A dialog you cannot shut once you have read it is worse than
-         one that is a little too tall.
-      3. And once both of those were fixed a third grade still found all three
-         panels clipping, because the fade ended on the colour the paper is
-         already: measured against the shipped screenshot it was a difference
-         of one count on one channel. See the note above the mark itself.
-
-    So the panel becomes a fixed-height *frame* and the scrolling moves to a
-    child. The frame does not scroll, which means ::after can be plain
-    position: absolute against it and is always exactly at the cut, and the
-    close button stays where the player left it.
-
-    .sm-panel-tall rather than applying this to every panel: the arrival
-    card, the terminal and the code entry are short, and turning them into
-    frames would only give them an overflow: hidden they have no scroll
-    region to compensate for. They keep the cap and their own scrollbar.
-  */
-  .sm-panel-tall { position: relative; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
-  .sm-panel-tall > .sm-panel-scroll {
-    flex: 0 1 auto;
-    /* Without this a flex item refuses to shrink below its content and the
-       cap silently stops applying — the failure this whole block is about. */
-    min-height: 0;
-    overflow-y: auto;
-    /* The campsite is behind this. Scrolling to the end of a settings panel
-       should not then start moving the world. */
-    overscroll-behavior: contain;
-    /* Reserved whether or not the bar is drawn, so the type does not reflow
-       the moment a panel becomes long enough to scroll. */
-    scrollbar-gutter: stable;
-    scrollbar-width: thin;
-    scrollbar-color: ${TOKENS.stamp} #e2d9c2;
-  }
-  /*
-    A scrollbar you can see.
-
-    The third overlay finding — three panels graded as clipping — was not a
-    structural one. The frame-plus-scroll-region rewrite that came before this
-    was correct and changed nothing a reader could see, because what was
-    missing was any evidence that the thing scrolled at all: an overlay
-    scrollbar that never paints on a hover-less capture, and a "fade" that
-    faded the paper to the colour the paper already was (see useScrollCut).
-    A player saw a hard ink border with a sliced slider above it.
-
-    So the bar is drawn, in the same letterpress as everything else: a scored
-    cream track with a hard ink edge and a square oxidised-red block on it.
-    This is the one place in the interface where a rectangle whose length
-    means something is correct — it is a position in a document, not a
-    quantity about the world, and §5.3 is about the latter.
-  */
-  .sm-panel-tall > .sm-panel-scroll::-webkit-scrollbar { width: 12px; }
-  .sm-panel-tall > .sm-panel-scroll::-webkit-scrollbar-track {
-    background: linear-gradient(90deg, #d8cfb8, #ece5d4);
-    border-left: 2px solid ${TOKENS.ink};
-  }
-  .sm-panel-tall > .sm-panel-scroll::-webkit-scrollbar-thumb {
-    background: linear-gradient(180deg, #b0553d 0%, ${TOKENS.stamp} 46%, #6b291c 100%);
-    border: 2px solid ${TOKENS.ink};
-    border-radius: 0;
-  }
-  /*
-    The cut, drawn as a cut.
-
-    Four hard steps of a 2px ink checker over the paper — the printed-screen
-    equivalent of the ordered dither in the world, at the pitch a booklet is
-    actually screened at — ending on a solid ink rule. The previous version of
-    this was a smooth gradient ending on ${TOKENS.paperEdge}, and both halves
-    of that were wrong: a smooth ramp bands on an 8-bit panel, and
-    ${TOKENS.paperEdge} is what the paper already is down there, so the mark
-    measured one count of difference against its own background in the shipped
-    screenshot.
-
-    Keyed on data-more="yes" rather than always drawn. A permanent "there is
-    more below" on a panel with nothing below it is the same lie the invisible
-    fade was, pointing the other way.
-  */
-  .sm-panel-tall[data-more="yes"]::after {
-    content: '';
-    position: absolute;
-    left: 0; right: 0; bottom: 0;
-    height: ${CUT_MARK_PX}px;
-    pointer-events: none;
-    background: repeating-conic-gradient(rgba(42,38,32,0.88) 0% 25%, rgba(0,0,0,0) 0% 50%) 0 0 / 4px 4px;
-    -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0 20%, rgba(0,0,0,0.34) 20% 45%, rgba(0,0,0,0.67) 45% 72%, #000 72% 100%);
-    mask-image: linear-gradient(to bottom, rgba(0,0,0,0) 0 20%, rgba(0,0,0,0.34) 20% 45%, rgba(0,0,0,0.67) 45% 72%, #000 72% 100%);
-    border-bottom: 2px solid ${TOKENS.ink};
-  }
-  /* And the arrow, drawn out of two borders rather than set in a font — there
-     is no font file in this product and a ▼ from whatever the system happens
-     to have is exactly the "Material X" an art grade already caught once. */
-  .sm-panel-tall[data-more="yes"]::before {
-    content: '';
-    position: absolute;
-    bottom: 6px;
-    left: 50%;
-    margin-left: -7px;
-    width: 0; height: 0;
-    border-left: 7px solid transparent;
-    border-right: 7px solid transparent;
-    border-top: 7px solid ${TOKENS.stamp};
-    pointer-events: none;
-    z-index: 2;
-  }
-  /*
-    The sliders, drawn instead of defaulted.
-
-    A browser range input is a pill track with a round handle and a system
-    accent colour on it, which is the single most out-of-place object in a
-    game whose whole premise is nearest-neighbour upscaling of a 320x240
-    buffer — the same tell as a 3px border radius, at ten times the size.
-
-    Still a real <input type="range">, because the role, the value and the
-    arrow keys are the accessible control and nothing drawn out of divs gets
-    those for free (spec §12). Only the paint changes:
-
-      TRACK  cream stock with a 2px ink notch every eighth of its length. It
-             was a notch every 12px, which over a 600px track is fifty of
-             them, and an art grade read the result as "a comb" rather than as
-             a scale — correctly: fifty marks quantify nothing a reader can
-             count, and at 1px each they are the hairlines the same note was
-             about. Eight is a number you can see at a glance.
-      DITHER a 2px checker of paper-white over the whole track, so the stain
-             below reads as a printed 50% screen rather than a flat wash —
-             the booklet's version of the world's ordered dither.
-      FILL   a stain of oxidised red behind the handle rather than a
-             saturated fill, driven by --sm-fill because a repainted track has
-             no progress pseudo-element in WebKit.
-      HANDLE a square oxidised-red block with a 2px ink edge and a lit top —
-             the same letterpress the panel is made of, stood up.
-  */
-  input[type="range"].sm-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 100%;
-    height: 24px;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-  }
-  input[type="range"].sm-slider::-webkit-slider-runnable-track {
-    height: 12px;
-    border: 2px solid ${TOKENS.ink};
-    border-radius: 0;
-    background:
-      repeating-conic-gradient(rgba(253,251,244,0.55) 0% 25%, rgba(0,0,0,0) 0% 50%) 0 0 / 4px 4px,
-      repeating-linear-gradient(90deg, rgba(42,38,32,0.42) 0 2px, rgba(0,0,0,0) 2px 12.5%),
-      linear-gradient(90deg, rgba(143,59,42,0.80) 0 var(--sm-fill, 0%), rgba(0,0,0,0) var(--sm-fill, 0%)),
-      linear-gradient(180deg, #fdfbf4, #e2d9c2);
-    box-shadow: inset 0 2px 0 rgba(42,38,32,0.24);
-  }
-  input[type="range"].sm-slider::-moz-range-track {
-    height: 12px;
-    border: 2px solid ${TOKENS.ink};
-    border-radius: 0;
-    background:
-      repeating-conic-gradient(rgba(253,251,244,0.55) 0% 25%, rgba(0,0,0,0) 0% 50%) 0 0 / 4px 4px,
-      repeating-linear-gradient(90deg, rgba(42,38,32,0.42) 0 2px, rgba(0,0,0,0) 2px 12.5%),
-      linear-gradient(90deg, rgba(143,59,42,0.80) 0 var(--sm-fill, 0%), rgba(0,0,0,0) var(--sm-fill, 0%)),
-      linear-gradient(180deg, #fdfbf4, #e2d9c2);
-    box-shadow: inset 0 2px 0 rgba(42,38,32,0.24);
-  }
-  input[type="range"].sm-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 24px;
-    border-radius: 0;
-    border: 2px solid ${TOKENS.ink};
-    background: linear-gradient(180deg, #b0553d 0%, ${TOKENS.stamp} 46%, #6b291c 100%);
-    box-shadow: inset 0 2px 0 rgba(255,228,208,0.55), 2px 2px 0 rgba(6,8,11,0.45);
-    /* WebKit measures the thumb from the top of the *track*, not the input,
-       so it needs centring by hand: (12px track - 24px block) / 2. Both are
-       border-box by the reset at the top of this sheet, so the 2px edges are
-       already inside those numbers. */
-    margin-top: -6px;
-  }
-  input[type="range"].sm-slider::-moz-range-thumb {
-    width: 14px;
-    height: 24px;
-    border-radius: 0;
-    border: 2px solid ${TOKENS.ink};
-    background: linear-gradient(180deg, #b0553d 0%, ${TOKENS.stamp} 46%, #6b291c 100%);
-    box-shadow: inset 0 2px 0 rgba(255,228,208,0.55), 2px 2px 0 rgba(6,8,11,0.45);
-  }
-  /*
-    The stamp. Applied to a heading, it reads as ink hit at an angle — which
-    is the campground booklet's own voice and costs one rotated border.
-
-    Mottled, because a rubber stamp does not take evenly: the mark is masked
-    by a 2px checker at 0.74 alpha, which is the same printed screen the
-    panels and the sliders use and leaves the letters comfortably above the
-    legibility floor. Rotated further than it was, too — a degree and a half
-    reads as a rendering error rather than as a hand.
-  */
-  .sm-stamp {
-    display: inline-block;
-    font-family: ${FONT_STACK.mono};
-    text-transform: uppercase;
-    letter-spacing: 0.24em;
-    color: ${TOKENS.stamp};
-    border: 2px solid ${TOKENS.stamp};
-    padding: 3px 10px 2px;
-    transform: rotate(-2.5deg);
-    opacity: 0.86;
-    -webkit-mask-image: repeating-conic-gradient(#000 0% 25%, rgba(0,0,0,0.74) 0% 50%);
-    mask-image: repeating-conic-gradient(#000 0% 25%, rgba(0,0,0,0.74) 0% 50%);
-    -webkit-mask-size: 4px 4px;
-    mask-size: 4px 4px;
-  }
-  /*
-    The way out of a panel, drawn.
-
-    It was a "×" — U+00D7, set in whatever the system sans happens to be, at
-    22 points of antialiased modern web type in the corner of a page whose
-    every other mark is 2px ink. An art grade named it directly. Two 2px bars
-    crossed at 45 degrees is the same glyph, at the resolution of everything
-    around it, and needs no font.
-
-    The button keeps its aria-label: nothing here changes what it is called.
-  */
-  .sm-close { position: relative; background: transparent; border: 2px solid rgba(42,38,32,0.30); border-radius: 0; padding: 0; }
-  .sm-close::before, .sm-close::after {
-    content: '';
-    position: absolute;
-    left: 50%;
-    top: 22%;
-    width: 2px;
-    height: 56%;
-    margin-left: -1px;
-    background: ${TOKENS.inkSoft};
-  }
-  .sm-close::before { transform: rotate(45deg); }
-  .sm-close::after { transform: rotate(-45deg); }
   /*
     The bottom of the frame, in the two shapes a screen comes in.
 

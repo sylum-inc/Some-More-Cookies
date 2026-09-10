@@ -13,14 +13,44 @@
  * roster count, no ping graph, no "players online" — the numbers that do appear
  * (a round trip, a note about accuracy) are there because hiding them would be
  * dishonest, not because anyone wants a dashboard.
+ *
+ * ## Drawn now, and this is the one it matters most on
+ *
+ * The medium moved into the pixel buffer with the Passport and Settings
+ * (§6.2); see `ui/PixelPanel.tsx`. Of the panels in this product this is the
+ * one a player actually has open *during* the ritual, with the fire still
+ * burning behind it — so it is the one where the scrim, the bezel inset and
+ * the legibility floor are load-bearing rather than tidy. All three come from
+ * `PixelPanel` by construction: the scrim is an ordered screen that stops at
+ * the rail (you are still at the fire while you read), the page is inset by the
+ * bezel before its rectangle is chosen, and the paper is `paper` over `night`
+ * rather than a wash the compositor invents.
+ *
+ * ## The roster
+ *
+ * Everyone at the fire is a name, a line about what they are doing, and three
+ * controls — how loud they are for you, the stick, and blocking. The CSS panel
+ * laid that out as a flex row with a 64-pixel slider wedged into it; at this
+ * measure that row does not exist, and squeezing it in would have produced
+ * exactly the "control mirrored somewhere else" that `pixel/panel.ts` forbids.
+ * So a person is a small stack instead: name, what they are doing, then their
+ * controls underneath. It is longer and it is the shape a camp-office list
+ * actually has.
+ *
+ * The controls stay *present* when they cannot be used — the stick when you
+ * are not holding it, everything when nobody else is here — rather than
+ * appearing and disappearing. A panel whose buttons come and go as people walk
+ * up is a panel that moves under the reader's finger, which is the same defect
+ * the scroll-reveal bug in `PixelPanel` was.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Gesture } from '@somemore/protocol';
 import type { Campfire } from '../net/campfire.js';
 import { MARSHMALLOW_OBJECT_ID } from '../net/authority.js';
-import { FONT_STACK, TOKENS } from './styles.js';
-import { useDialog } from './useDialog.js';
+import { PixelPanel, type SliderMirror } from './PixelPanel.js';
+import { sliderPosition, sliderReadout, sliderSpoken } from './Settings.js';
+import type { PanelBlock, PanelControl } from './pixel/index.js';
 
 /** The gestures worth a button. The rest are reachable from the world itself. */
 const GESTURES: readonly { id: Gesture; label: string }[] = [
@@ -33,332 +63,297 @@ const GESTURES: readonly { id: Gesture; label: string }[] = [
   { id: 'toss_stick', label: 'Toss a stick' },
 ];
 
+const VOICE_MODES: readonly { id: 'open_mic' | 'push_to_talk' | 'off'; label: string }[] = [
+  { id: 'open_mic', label: 'Open mic' },
+  { id: 'push_to_talk', label: 'Push to talk' },
+  { id: 'off', label: 'Mic off' },
+];
+
 export interface CampfirePanelProps {
   fire: Campfire;
   textScale: number;
   highContrast: boolean;
+  /** The bezel's thickness, from `bezelInset`. */
+  frameInset?: number;
   onClose: () => void;
 }
 
-export function CampfirePanel({ fire, textScale, highContrast, onClose }: CampfirePanelProps): React.ReactElement {
-  // Focus into the panel, trapped inside it, and back where it came from.
-  const dialog = useDialog();
+export function CampfirePanel({
+  fire,
+  textScale,
+  highContrast,
+  frameInset,
+  onClose,
+}: CampfirePanelProps): React.ReactElement {
   const [draft, setDraft] = useState('');
-  const logRef = useRef<HTMLDivElement>(null);
+
+  /*
+   * Rebuilt when the fire has changed, and not when the flames have.
+   *
+   * `App` renders several times a second while this is open — the campsite is
+   * still running behind the scrim — and `Campfire` is a mutable object rather
+   * than a value, so there is nothing for a memo to compare. Everything this
+   * page reads off it, reduced to one string: the roster, what has been said,
+   * the connection, the voice, the notes. Rebuilding the blocks on every frame
+   * would relay out and repaint the whole panel as the fire flickered, and
+   * `Settings.tsx` has the same note for the same reason.
+   */
+  const stamp = [
+    fire.status,
+    fire.statusDetail ?? '',
+    String(fire.joined),
+    String(Math.round(fire.latencyMs)),
+    String(fire.catchingUp),
+    fire.notes.join('|'),
+    fire.voice.status,
+    fire.voice.mode,
+    String(fire.voice.muted),
+    fire.voice.reason ?? '',
+    String(fire.chat.length),
+    fire.roster.everyone
+      .map((p) => `${p.accountId}:${p.phase}:${p.activity}:${String(p.blocked)}:${p.volume}:${String(p.micMuted)}`)
+      .join(','),
+    fire.authority.holderOf(MARSHMALLOW_OBJECT_ID) ?? '',
+  ].join('·');
+  const page = useMemo(() => campfirePage(fire, draft), [fire, draft, stamp]);
+
+  const say = (): void => {
+    if (fire.say(draft)) setDraft('');
+  };
+
+  return (
+    <PixelPanel
+      label="At the fire"
+      closeLabel="Close"
+      blocks={page.blocks}
+      sliders={page.sliders}
+      textScale={textScale}
+      highContrast={highContrast}
+      {...(frameInset === undefined ? {} : { frameInset })}
+      onClose={onClose}
+      onText={(_id, value) => setDraft(value)}
+      onSubmit={say}
+      onSlider={(id, value) => page.knobs[id]?.(value)}
+      onButton={(id) => {
+        if (id === 'say') say();
+        else page.presses[id]?.();
+      }}
+    />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* The page                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The whole panel, as blocks, plus what each control does.
+ *
+ * Pure in everything that matters and exported for the same reason
+ * `settingsPage` is: what this panel *says* about a fire — who is here, what
+ * they are doing, whether voice exists, what leaving costs — is decidable from
+ * the array without a browser, and it is the half of this screen §12 is about.
+ */
+export function campfirePage(
+  fire: Campfire,
+  draft: string,
+): {
+  blocks: PanelBlock[];
+  sliders: Record<string, SliderMirror>;
+  knobs: Record<string, (value: number) => void>;
+  presses: Record<string, () => void>;
+} {
+  const blocks: PanelBlock[] = [];
+  const sliders: Record<string, SliderMirror> = {};
+  const knobs: Record<string, (value: number) => void> = {};
+  const presses: Record<string, () => void> = {};
+
   const people = fire.roster.everyone;
   const holder = fire.authority.holderOf(MARSHMALLOW_OBJECT_ID);
-  const notes = fire.notes;
+  const voiceReady = fire.voice.status === 'ready';
 
-  useEffect(() => {
-    const log = logRef.current;
-    if (log !== null) log.scrollTop = log.scrollHeight;
-  }, [fire.chat.length]);
+  blocks.push({ kind: 'heading', id: 'title', level: 1, text: 'At the fire' });
+  blocks.push({ kind: 'machine', id: 'status', text: statusLine(fire) });
 
-  const font = (size: number): number => size * textScale;
-  const ink = highContrast ? '#1a1712' : TOKENS.ink;
-  const soft = highContrast ? '#3a352c' : TOKENS.inkSoft;
+  /*
+   * Whatever the fire is trying to tell you — a handover, a moderation notice.
+   *
+   * A live region, because it arrives without anybody having moved focus, and
+   * `polite` rather than `assertive`: it is the fire volunteering something,
+   * not an answer somebody asked for.
+   */
+  if (fire.notes.length > 0) {
+    blocks.push({ kind: 'rule', id: 'notes-rule', style: 'solid' });
+    blocks.push({
+      kind: 'body',
+      id: 'notes',
+      text: fire.notes.join('\n'),
+      role: 'status',
+      live: 'polite',
+      label: 'What the fire is telling you',
+    });
+  }
 
-  return (
-    <div
-      className="sm-overlay"
-      role="dialog"
-      aria-label="At the fire"
-      onPointerDown={(event) => event.stopPropagation()}
-      {...dialog.props}
-    >
-      <div className="sm-panel" style={{ width: 'min(560px, 94vw)', padding: `${font(18)}px ${font(20)}px` }}>
-        <button
-          className="sm-focus"
-          onClick={onClose}
-          aria-label="Close"
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 10,
-            background: 'transparent',
-            border: 'none',
-            color: soft,
-            fontSize: font(18),
-          }}
-        >
-          ×
-        </button>
+  /* --- Who is here ------------------------------------------------------ */
+  blocks.push({ kind: 'heading', id: 'roster-label', level: 2, text: 'Around the fire' });
+  if (people.length === 0) {
+    blocks.push({ kind: 'body', id: 'roster-empty', tone: 'soft', text: 'Just you, for the moment.' });
+  }
+  for (const person of people) {
+    /*
+     * The name on its own line and in its own block.
+     *
+     * `campfire.spec.ts` asks for it by exact text — which is the right thing
+     * for it to ask, because "the panel says who is here in words" is the
+     * whole claim §12 makes about this list. A name concatenated into a
+     * sentence would still be drawn and would no longer be findable.
+     */
+    blocks.push({ kind: 'body', id: `who-${person.accountId}`, text: person.name });
+    blocks.push({
+      kind: 'body',
+      id: `doing-${person.accountId}`,
+      tone: 'soft',
+      text: describePerson(person.phase, person.activity, person.micMuted, holder === person.accountId),
+    });
 
-        <h2 className="sm-stamp" style={{ fontSize: font(14), margin: 0 }}>
-          At the fire
-        </h2>
-        <p style={{ fontFamily: FONT_STACK.mono, fontSize: font(10.5), color: soft, margin: `${font(4)}px 0 ${font(12)}px` }}>
-          {statusLine(fire)}
-        </p>
+    const volumeId = `volume-${person.accountId}`;
+    sliders[volumeId] = {
+      min: 0,
+      max: 1,
+      step: 0.05,
+      value: person.volume,
+      spoken: sliderSpoken(person.volume, 0, 1),
+    };
+    knobs[volumeId] = (value) =>
+      fire.requestVoice('set_volume', { accountId: person.accountId, volume: value });
 
-        {notes.length > 0 && (
-          <div
-            role="status"
-            style={{
-              border: `1px solid ${TOKENS.stamp}`,
-              padding: font(8),
-              marginBottom: font(12),
-              fontFamily: FONT_STACK.hand,
-              fontSize: font(12.5),
-              color: TOKENS.stamp,
-            }}
-          >
-            {notes.map((note) => (
-              <div key={note}>{note}</div>
-            ))}
-          </div>
-        )}
+    const offerId = `offer-${person.accountId}`;
+    presses[offerId] = () => fire.offer(MARSHMALLOW_OBJECT_ID, 'marshmallow', person.accountId);
+    const blockId = `block-${person.accountId}`;
+    presses[blockId] = () => fire.block(person.accountId, !person.blocked);
 
-        {/* --- Who is here ------------------------------------------------ */}
-        <Section label="Around the fire" font={font} ink={ink}>
-          {people.length === 0 && (
-            <p style={{ fontFamily: FONT_STACK.hand, fontSize: font(13), color: soft, margin: 0 }}>
-              Just you, for the moment.
-            </p>
-          )}
-          {people.map((person) => (
-            <div
-              key={person.accountId}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: font(8),
-                padding: `${font(5)}px 0`,
-                borderBottom: `1px solid ${TOKENS.paperEdge}`,
-                opacity: person.blocked ? 0.45 : 1,
-              }}
-            >
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: FONT_STACK.serif, fontSize: font(14), color: ink }}>{person.name}</div>
-                <div style={{ fontFamily: FONT_STACK.mono, fontSize: font(10), color: soft }}>
-                  {describePerson(person.phase, person.activity, person.micMuted, holder === person.accountId)}
-                </div>
-              </div>
+    blocks.push({
+      kind: 'controls',
+      id: `person-${person.accountId}`,
+      controls: [
+        {
+          kind: 'slider',
+          id: volumeId,
+          // Named per person rather than "Volume": a page with four sliders
+          // all called the same thing is four sliders a screen reader cannot
+          // tell apart.
+          label: `How loud ${person.name} is`,
+          readout: sliderReadout(person.volume, 0, 1),
+          fraction: sliderPosition(person.volume, 0, 1),
+          disabled: !voiceReady,
+        },
+        {
+          kind: 'button',
+          id: offerId,
+          label: `Hand the stick to ${person.name}`,
+          disabled: holder !== fire.accountId || person.phase !== 'here',
+        },
+        {
+          kind: 'button',
+          id: blockId,
+          label: person.blocked ? `Unblock ${person.name}` : `Block ${person.name}`,
+        },
+      ],
+    });
+  }
 
-              {/* Per-player volume. A slider, labelled, not a mystery icon. */}
-              <input
-                className="sm-focus"
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={person.volume}
-                aria-label={`Volume for ${person.name}`}
-                title={fire.voice.status === 'ready' ? `How loud ${person.name} is, for you` : 'No voice here'}
-                disabled={fire.voice.status !== 'ready'}
-                onChange={(event) =>
-                  fire.requestVoice('set_volume', { accountId: person.accountId, volume: Number(event.target.value) })
-                }
-                style={{ width: font(64) }}
-              />
+  /* --- Voice ------------------------------------------------------------ */
+  blocks.push({ kind: 'heading', id: 'voice-label', level: 2, text: 'Voice' });
+  blocks.push({
+    kind: 'body',
+    id: 'voice-note',
+    tone: 'soft',
+    text: voiceReady
+      ? `Spatial voice through ${fire.voice.provider ?? 'the room'}. Never recorded.`
+      : `No voice here — ${fire.voice.reason ?? 'nothing is configured'}. Text and gesture carry the fire, and always can.`,
+  });
+  const voiceControls: PanelControl[] = VOICE_MODES.map((mode) => {
+    presses[`voice-${mode.id}`] = () => fire.requestVoice('set_mode', { mode: mode.id });
+    return {
+      kind: 'button',
+      id: `voice-${mode.id}`,
+      label: mode.label,
+      // One of three, so `aria-pressed` rather than a checkbox: "open mic" is
+      // a choice among modes, not a thing that is on or off by itself.
+      pressed: fire.voice.mode === mode.id,
+      disabled: !voiceReady,
+    };
+  });
+  presses['voice-mute'] = () => fire.requestVoice('set_muted', { muted: !fire.voice.muted });
+  voiceControls.push({
+    kind: 'button',
+    id: 'voice-mute',
+    label: fire.voice.muted ? 'Unmute' : 'Mute',
+    disabled: !voiceReady,
+  });
+  blocks.push({ kind: 'controls', id: 'voice-controls', controls: voiceControls });
 
-              <SmallButton
-                font={font}
-                label="Hand it over"
-                title={`Hold the roasting stick out to ${person.name}`}
-                disabled={holder !== fire.accountId || person.phase !== 'here'}
-                onClick={() => fire.offer(MARSHMALLOW_OBJECT_ID, 'marshmallow', person.accountId)}
-              />
-              <SmallButton
-                font={font}
-                label={person.blocked ? 'Unblock' : 'Block'}
-                title={
-                  person.blocked
-                    ? `Hear ${person.name} again`
-                    : `Stop seeing and hearing ${person.name}. Nothing they do will reach your fire.`
-                }
-                onClick={() => fire.block(person.accountId, !person.blocked)}
-              />
-            </div>
-          ))}
-        </Section>
+  /* --- Saying something -------------------------------------------------- */
+  blocks.push({ kind: 'heading', id: 'say-label', level: 2, text: 'Say something' });
+  blocks.push({
+    kind: 'body',
+    id: 'log',
+    text:
+      fire.chat.length === 0
+        ? 'Nothing said yet.'
+        : fire.chat.map((line) => `${line.name}: ${line.text}`).join('\n'),
+    role: 'log',
+    live: 'polite',
+    label: 'What has been said at the fire',
+  });
+  blocks.push({
+    kind: 'controls',
+    id: 'say-controls',
+    controls: [
+      {
+        kind: 'text',
+        id: 'draft',
+        label: 'Say something at the fire',
+        value: draft,
+        placeholder: fire.joined ? 'say something' : 'nobody else is here',
+        maxLength: 280,
+        disabled: !fire.joined,
+      },
+      { kind: 'button', id: 'say', label: 'Say', disabled: !fire.joined },
+    ],
+  });
 
-        {/* --- Voice ------------------------------------------------------ */}
-        <Section label="Voice" font={font} ink={ink}>
-          <p style={{ fontFamily: FONT_STACK.mono, fontSize: font(10.5), color: soft, margin: `0 0 ${font(6)}px` }}>
-            {fire.voice.status === 'ready'
-              ? `Spatial voice through ${fire.voice.provider ?? 'the room'}. Never recorded.`
-              : `No voice here — ${fire.voice.reason ?? 'nothing is configured'}. Text and gesture carry the fire, and always can.`}
-          </p>
-          <div style={{ display: 'flex', gap: font(6), flexWrap: 'wrap' }}>
-            {(['open_mic', 'push_to_talk', 'off'] as const).map((mode) => (
-              <SmallButton
-                key={mode}
-                font={font}
-                label={mode === 'open_mic' ? 'Open mic' : mode === 'push_to_talk' ? 'Push to talk' : 'Mic off'}
-                pressed={fire.voice.mode === mode}
-                disabled={fire.voice.status !== 'ready'}
-                onClick={() => fire.requestVoice('set_mode', { mode })}
-              />
-            ))}
-            <SmallButton
-              font={font}
-              label={fire.voice.muted ? 'Unmute' : 'Mute'}
-              disabled={fire.voice.status !== 'ready'}
-              onClick={() => fire.requestVoice('set_muted', { muted: !fire.voice.muted })}
-            />
-          </div>
-        </Section>
+  /* --- Gestures ---------------------------------------------------------- */
+  blocks.push({ kind: 'heading', id: 'gesture-label', level: 2, text: 'Without saying anything' });
+  blocks.push({
+    kind: 'controls',
+    id: 'gesture-controls',
+    controls: GESTURES.map((gesture): PanelControl => {
+      presses[`gesture-${gesture.id}`] = () => fire.gesture(gesture.id);
+      return { kind: 'button', id: `gesture-${gesture.id}`, label: gesture.label, disabled: !fire.joined };
+    }),
+  });
 
-        {/* --- Saying something ------------------------------------------- */}
-        <Section label="Say something" font={font} ink={ink}>
-          <div
-            ref={logRef}
-            role="log"
-            aria-live="polite"
-            aria-label="What has been said at the fire"
-            style={{
-              maxHeight: font(120),
-              overflowY: 'auto',
-              border: `1px solid ${TOKENS.paperEdge}`,
-              padding: font(7),
-              marginBottom: font(7),
-              fontFamily: FONT_STACK.hand,
-              fontSize: font(13),
-              color: ink,
-              background: 'rgba(255,255,255,0.35)',
-            }}
-          >
-            {fire.chat.length === 0 && <span style={{ color: soft }}>Nothing said yet.</span>}
-            {fire.chat.map((line) => (
-              <div key={`${line.at}-${line.from}-${line.text}`}>
-                <span style={{ color: soft }}>{line.name}: </span>
-                {line.text}
-              </div>
-            ))}
-          </div>
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (fire.say(draft)) setDraft('');
-            }}
-            style={{ display: 'flex', gap: font(6) }}
-          >
-            <input
-              className="sm-focus"
-              value={draft}
-              maxLength={280}
-              aria-label="Say something at the fire"
-              placeholder={fire.joined ? 'say something' : 'nobody else is here'}
-              disabled={!fire.joined}
-              onChange={(event) => setDraft(event.target.value)}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontFamily: FONT_STACK.mono,
-                fontSize: font(12),
-                padding: font(6),
-                border: `1px solid ${TOKENS.paperEdge}`,
-                background: 'rgba(255,255,255,0.5)',
-                color: ink,
-              }}
-            />
-            <SmallButton font={font} label="Say" disabled={!fire.joined} type="submit" />
-          </form>
-        </Section>
+  /* --- Leaving ----------------------------------------------------------- */
+  blocks.push({ kind: 'heading', id: 'leave-label', level: 2, text: 'Leaving' });
+  blocks.push({
+    kind: 'body',
+    id: 'leave-note',
+    tone: 'soft',
+    text: 'Walking off keeps you on the trail for a few seconds, so the others see you go.',
+  });
+  presses['walk-off'] = () => fire.depart('walk_off');
+  presses['leave-now'] = () => fire.depart('immediate');
+  blocks.push({
+    kind: 'controls',
+    id: 'leave-controls',
+    controls: [
+      { kind: 'button', id: 'walk-off', label: 'Walk off down the trail', disabled: !fire.joined },
+      { kind: 'button', id: 'leave-now', label: 'Leave now', disabled: !fire.joined },
+    ],
+  });
 
-        {/* --- Gestures ---------------------------------------------------- */}
-        <Section label="Without saying anything" font={font} ink={ink}>
-          <div style={{ display: 'flex', gap: font(6), flexWrap: 'wrap' }}>
-            {GESTURES.map((gesture) => (
-              <SmallButton
-                key={gesture.id}
-                font={font}
-                label={gesture.label}
-                disabled={!fire.joined}
-                onClick={() => fire.gesture(gesture.id)}
-              />
-            ))}
-          </div>
-        </Section>
-
-        {/* --- Leaving ------------------------------------------------------ */}
-        <Section label="Leaving" font={font} ink={ink}>
-          <p style={{ fontFamily: FONT_STACK.mono, fontSize: font(10), color: soft, margin: `0 0 ${font(6)}px` }}>
-            Walking off keeps you on the trail for a few seconds, so the others see you go.
-          </p>
-          <div style={{ display: 'flex', gap: font(6) }}>
-            <SmallButton font={font} label="Walk off down the trail" disabled={!fire.joined} onClick={() => fire.depart('walk_off')} />
-            <SmallButton font={font} label="Leave now" disabled={!fire.joined} onClick={() => fire.depart('immediate')} />
-          </div>
-        </Section>
-      </div>
-    </div>
-  );
-}
-
-function Section({
-  label,
-  font,
-  ink,
-  children,
-}: {
-  label: string;
-  font: (size: number) => number;
-  ink: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <section style={{ marginBottom: font(14) }}>
-      <h3
-        style={{
-          fontFamily: FONT_STACK.mono,
-          fontSize: font(9.5),
-          letterSpacing: '0.2em',
-          textTransform: 'uppercase',
-          color: ink,
-          opacity: 0.6,
-          margin: `0 0 ${font(6)}px`,
-        }}
-      >
-        {label}
-      </h3>
-      {children}
-    </section>
-  );
-}
-
-function SmallButton({
-  font,
-  label,
-  title,
-  onClick,
-  disabled,
-  pressed,
-  type = 'button',
-}: {
-  font: (size: number) => number;
-  label: string;
-  title?: string;
-  onClick?: () => void;
-  disabled?: boolean;
-  pressed?: boolean;
-  type?: 'button' | 'submit';
-}): React.ReactElement {
-  return (
-    <button
-      className="sm-focus"
-      type={type}
-      title={title ?? label}
-      aria-pressed={pressed === undefined ? undefined : pressed}
-      disabled={disabled === true}
-      onClick={onClick}
-      style={{
-        background: pressed === true ? TOKENS.ink : 'transparent',
-        color: pressed === true ? TOKENS.paper : TOKENS.ink,
-        border: `1px solid ${TOKENS.paperEdge}`,
-        padding: `${font(5)}px ${font(9)}px`,
-        fontFamily: FONT_STACK.mono,
-        fontSize: font(10),
-        letterSpacing: '0.08em',
-        borderRadius: 2,
-        opacity: disabled === true ? 0.4 : 1,
-        cursor: disabled === true ? 'default' : 'pointer',
-      }}
-    >
-      {label}
-    </button>
-  );
+  return { blocks, sliders, knobs, presses };
 }
 
 function statusLine(fire: Campfire): string {

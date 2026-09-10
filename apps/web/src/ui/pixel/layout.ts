@@ -204,7 +204,19 @@ export function panelTextMetrics(
 /* Blocks                                                                     */
 /* -------------------------------------------------------------------------- */
 
-export type PanelTone = 'ink' | 'soft';
+/**
+ * What a run of type is *for*, rather than what colour it is.
+ *
+ * The first two are the page's own voice and move with the surface: on paper
+ * they are ink and soft ink, on the terminal's dark plate they are reversed
+ * out of it (`DrawPanelOptions.tones`). The second two never move, because
+ * they are not on the page — they are on a control's own face, and a button
+ * cap is cream stock whatever it has been screwed to. Without the split, a
+ * dark-plate panel drew its button labels in the plate's own light ink on a
+ * light button and the labels vanished; with it, the surface can be inverted
+ * without a single control having to know.
+ */
+export type PanelTone = 'ink' | 'soft' | 'chrome' | 'chromeSoft';
 
 export interface HeadingBlock {
   readonly kind: 'heading';
@@ -219,6 +231,21 @@ export interface BodyBlock {
   readonly id: string;
   readonly text: string;
   readonly tone?: PanelTone;
+  /**
+   * Announce this block when it changes, as well as drawing it.
+   *
+   * The fire's log and the code reader's verdict both arrive without anybody
+   * having moved focus, and §12's rule is that nothing may be delivered
+   * through one channel. `polite` for a conversation, `assertive` for an
+   * answer somebody just asked for.
+   */
+  readonly live?: 'polite' | 'assertive';
+  /** The mirrored element's role, when a paragraph is not what it is. */
+  readonly role?: 'log' | 'status' | 'alert';
+  /** Its accessible name, when the role wants one. */
+  readonly label?: string;
+  /** `data-*` the specs read off the mirrored element. */
+  readonly data?: Readonly<Record<string, string>>;
 }
 
 /** Small monospaced capitals: what the SM-01 or the sky is reporting. */
@@ -270,10 +297,51 @@ export interface PhotosBlock {
   readonly photos: readonly PhotoMark[];
 }
 
+/**
+ * A window in the page, for something the game did not draw.
+ *
+ * There is exactly one of these and it is the code reader's camera. Everything
+ * else on a drawn panel is drawn; a live camera preview is not, and pretending
+ * otherwise would be the one dishonest pixel in the kit. `developPhoto` is for
+ * a *print* — a capture that has stopped moving, box-filtered onto the paper
+ * ramp — and running it thirty times a second would be an animation on a panel
+ * whose whole rule is that nothing animates (§12), on a picture whose whole
+ * job is to be a lens rather than a page.
+ *
+ * So the kit draws the instrument and the lens shows what the lens sees: a
+ * sunken aperture with reticle corners, and the caller's own element sitting
+ * inside it through `PixelPanelProps.slot`. The layout owns the rectangle,
+ * which is what keeps the two lined up.
+ */
+export interface ApertureBlock {
+  readonly kind: 'aperture';
+  readonly id: string;
+  /** The accessible name of whatever the caller puts in it. */
+  readonly label: string;
+  /** Width over height. 4:3 is a camera; 16:9 is this game's own frame. */
+  readonly aspect?: number;
+}
+
 export interface ButtonControl {
   readonly kind: 'button';
   readonly id: string;
   readonly label: string;
+  /**
+   * A button that is also a state: the voice modes at the fire are three of
+   * these and exactly one is on. Mirrored as `aria-pressed`, drawn as a cap
+   * that has been pushed in, and deliberately not a checkbox — "open mic" is
+   * one of three choices, not a thing that is on or off by itself.
+   */
+  readonly pressed?: boolean;
+  /**
+   * Present, named, drawn, and not operable yet.
+   *
+   * `disabled` rather than absent because half the controls at the fire are
+   * unavailable until somebody else arrives, and a panel whose buttons appear
+   * and disappear as people walk up is a panel that moves under the reader.
+   * The drawing says so — a soft label on a flat cap — and so does the DOM.
+   */
+  readonly disabled?: boolean;
 }
 
 export interface CheckboxControl {
@@ -282,6 +350,38 @@ export interface CheckboxControl {
   readonly label: string;
   readonly hint?: string;
   readonly checked: boolean;
+  readonly disabled?: boolean;
+}
+
+/**
+ * Somewhere to type.
+ *
+ * The three panels this kit was written for had no field between them; the
+ * three it was written *toward* are a code reader, a checkout and a place to
+ * say something, and all three are mostly field. So a well: a sunken slip of
+ * cream stock with what has been typed drawn in it, a real `<input>` or
+ * `<textarea>` over the top of it, and a block caret at the end when the DOM
+ * says it has focus.
+ *
+ * The value is drawn from its *end*, not its beginning. A wrapped 86-character
+ * signature in a three-line well shows the first three lines if you take them
+ * in order, which is the one part of it a typist is not looking at — the same
+ * reason a real text field scrolls to the caret.
+ */
+export interface TextControl {
+  readonly kind: 'text';
+  readonly id: string;
+  readonly label: string;
+  readonly hint?: string;
+  readonly value: string;
+  /** Drawn in soft ink when there is nothing typed. */
+  readonly placeholder?: string;
+  /** Lines of type the well is tall. One unless it is a paragraph. */
+  readonly rows?: number;
+  readonly disabled?: boolean;
+  /** For the mirrored input, which is where an inputmode belongs. */
+  readonly inputMode?: 'text' | 'email' | 'tel' | 'numeric';
+  readonly maxLength?: number;
 }
 
 export interface SliderControl {
@@ -293,9 +393,10 @@ export interface SliderControl {
   readonly readout: string;
   /** The handle's position on its track, 0..1 — not the value. */
   readonly fraction: number;
+  readonly disabled?: boolean;
 }
 
-export type PanelControl = ButtonControl | CheckboxControl | SliderControl;
+export type PanelControl = ButtonControl | CheckboxControl | SliderControl | TextControl;
 
 export interface ControlsBlock {
   readonly kind: 'controls';
@@ -311,6 +412,7 @@ export type PanelBlock =
   | SpacerBlock
   | StampsBlock
   | PhotosBlock
+  | ApertureBlock
   | ControlsBlock;
 
 /* -------------------------------------------------------------------------- */
@@ -327,7 +429,7 @@ export interface LaidOutLine {
 export interface LaidOutControl {
   readonly id: string;
   readonly kind: PanelControl['kind'];
-  readonly role: 'button' | 'checkbox' | 'slider';
+  readonly role: 'button' | 'checkbox' | 'slider' | 'textbox';
   readonly label: string;
   readonly hint?: string;
   /**
@@ -343,6 +445,20 @@ export interface LaidOutControl {
   readonly checked?: boolean;
   readonly readout?: string;
   readonly fraction?: number;
+  readonly pressed?: boolean;
+  readonly disabled?: boolean;
+  /** What is typed, for a `text` control. The mirrored input's value. */
+  readonly value?: string;
+  readonly placeholder?: string;
+  readonly inputMode?: TextControl['inputMode'];
+  readonly maxLength?: number;
+  /** Lines of type the well holds, so the mirror knows input from textarea. */
+  readonly rows?: number;
+  /**
+   * Where the block caret goes when this control has focus: the end of what
+   * has been typed. Absent on everything that is not a well.
+   */
+  readonly caret?: Rect;
   /**
    * The control's own type — its label, its hint, its readout — already
    * wrapped and placed.
@@ -598,6 +714,8 @@ function flowControls(
         label: control.label,
         rect: box,
         control: box,
+        ...(control.pressed === undefined ? {} : { pressed: control.pressed }),
+        ...(control.disabled === undefined ? {} : { disabled: control.disabled }),
         lines: wrapped.map((text) => {
           const measured = measureText(text, style).width;
           const line: LaidOutLine = {
@@ -608,7 +726,9 @@ function flowControls(
               width: measured,
               height: inkHeight,
             },
-            tone: 'ink',
+            // `chrome`, not `ink`: this line is on the cap, not on the page,
+            // and the cap is cream stock on the dark plate too.
+            tone: control.disabled === true ? 'chromeSoft' : 'chrome',
             style,
           };
           lineY += lineHeightBase;
@@ -652,6 +772,93 @@ function flowControls(
         rect: row,
         control: { x: 0, y, width: metrics.checkboxSize, height: metrics.checkboxSize },
         checked: control.checked,
+        ...(control.disabled === undefined ? {} : { disabled: control.disabled }),
+        lines,
+      });
+      atoms.push({ top: y, bottom: y + height });
+      y += height + metrics.controlGap;
+      continue;
+    }
+
+    if (control.kind === 'text') {
+      /*
+       * A label, an optional hint, and a well under them.
+       *
+       * The label is above rather than beside, which is not the shape the CSS
+       * checkout had — it put an 88px caption in a flex row beside the field.
+       * At this measure that leaves about twelve characters of field on a
+       * phone, and a field you cannot see what you typed in is the one thing a
+       * postcode entry must not be. Above costs a line and buys the measure.
+       */
+      const lineHeight = lineHeightFor(style, metrics);
+      const ink = inkHeightFor(style, metrics);
+      const label = wrapText(control.label, Math.max(1, width), style);
+      const hint = control.hint === undefined ? [] : wrapText(control.hint, Math.max(1, width), style);
+      const lines: LaidOutLine[] = [];
+      let textY = y;
+      for (const text of label) {
+        lines.push({ text, rect: { x: 0, y: textY, width: measureText(text, style).width, height: ink }, tone: 'ink', style });
+        textY += lineHeight;
+      }
+      for (const text of hint) {
+        lines.push({ text, rect: { x: 0, y: textY, width: measureText(text, style).width, height: ink }, tone: 'soft', style });
+        textY += lineHeight;
+      }
+
+      // Border, bevel and a pixel of air. The same three the page itself has,
+      // one weight down, because a well is a page pressed into a page.
+      const pad = 1 + metrics.scale;
+      const rows = Math.max(1, Math.round(control.rows ?? 1));
+      const inner = Math.max(1, width - pad * 2);
+      const wellTop = textY + (label.length + hint.length === 0 ? 0 : Math.round(metrics.controlGap / 2));
+      const wellHeight = rows * lineHeight - (lineHeight - ink) + pad * 2;
+      const well: Rect = { x: 0, y: wellTop, width, height: wellHeight };
+
+      /*
+       * What is in the well, wrapped and then read from the end.
+       *
+       * `slice(-rows)` rather than `slice(0, rows)`: a redemption code is 86
+       * characters of base64 and a three-line well shows three of its six
+       * lines, and the three worth showing are the ones under the caret. This
+       * is what every real text field does and it is invisible until the day
+       * somebody pastes something long and cannot see what they pasted.
+       */
+      const typed = control.value !== '' ;
+      const source = typed ? control.value : (control.placeholder ?? '');
+      const wrappedValue = source === '' ? [] : wrapText(source, inner, style);
+      const shown = wrappedValue.slice(-rows);
+      let valueY = well.y + pad;
+      let caret: Rect = { x: well.x + pad, y: valueY, width: metrics.scale, height: ink };
+      for (const text of shown) {
+        const measured = measureText(text, style).width;
+        lines.push({
+          text,
+          rect: { x: well.x + pad, y: valueY, width: measured, height: ink },
+          // Always dark on cream: a well is a slip of stock, on the dark
+          // plate as much as on the page.
+          tone: typed ? 'chrome' : 'chromeSoft',
+          style,
+        });
+        if (typed) caret = { x: Math.min(well.x + well.width - pad - metrics.scale, well.x + pad + measured + 1), y: valueY, width: metrics.scale, height: ink };
+        valueY += lineHeight;
+      }
+
+      const height = wellTop + wellHeight - y;
+      controls.push({
+        id: control.id,
+        kind: 'text',
+        role: 'textbox',
+        label: control.label,
+        ...(control.hint === undefined ? {} : { hint: control.hint }),
+        rect: { x: 0, y, width, height },
+        control: well,
+        value: control.value,
+        ...(control.placeholder === undefined ? {} : { placeholder: control.placeholder }),
+        ...(control.inputMode === undefined ? {} : { inputMode: control.inputMode }),
+        ...(control.maxLength === undefined ? {} : { maxLength: control.maxLength }),
+        ...(control.disabled === undefined ? {} : { disabled: control.disabled }),
+        rows,
+        caret,
         lines,
       });
       atoms.push({ top: y, bottom: y + height });
@@ -719,6 +926,7 @@ function flowControls(
       control: { x: 0, y: trackTop, width, height: metrics.sliderHeight },
       readout: control.readout,
       fraction: control.fraction,
+      ...(control.disabled === undefined ? {} : { disabled: control.disabled }),
       lines,
     });
     atoms.push({ top: y, bottom: y + height });
@@ -916,6 +1124,9 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
     let marks: LaidOutMark[] = [];
     let photos: LaidOutPhoto[] = [];
     let height = 0;
+    // An aperture is narrower than the measure and centred in it; everything
+    // else takes the whole column.
+    let apertureWidth: number | null = null;
 
     switch (block.kind) {
       case 'heading': {
@@ -977,6 +1188,30 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
         height = laid.height;
         break;
       }
+      case 'aperture': {
+        /*
+         * As wide as the measure allows and no taller than a third of a
+         * 240-row buffer.
+         *
+         * Capped on the *height* rather than the width, because a 4:3 window
+         * across a 288-pixel measure is 216 pixels deep — taller than the page
+         * it is on — and the failure mode is a panel that is nothing but
+         * viewfinder with the field it exists to fill pushed off the bottom.
+         * The window is a viewfinder, not the picture.
+         */
+        const aspect = block.aspect === undefined || block.aspect <= 0 ? 4 / 3 : block.aspect;
+        // Fifty-six rows, which on a 240-row buffer leaves the field the panel
+        // exists for above the cut instead of below it. Eighty was the first
+        // number and the sheet showed what it cost: the code entry and the
+        // button that submits it both fell off the bottom the moment somebody
+        // opened the camera, on the panel where typing is the primary path.
+        const cap = 56 * metrics.scale;
+        const wide = Math.max(1, Math.min(content.width, Math.round(cap * aspect)));
+        height = Math.max(1, Math.round(wide / aspect));
+        apertureWidth = wide;
+        atoms.push({ top, bottom: top + height });
+        break;
+      }
       case 'controls': {
         const laid = flowControls(block, content.width, metrics, top, atoms);
         controls = laid.controls;
@@ -989,7 +1224,10 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
       id: block.id,
       kind: block.kind,
       block,
-      rect: { x: 0, y: top, width: content.width, height },
+      rect:
+        apertureWidth === null
+          ? { x: 0, y: top, width: content.width, height }
+          : { x: Math.floor((content.width - apertureWidth) / 2), y: top, width: apertureWidth, height },
       lines,
       controls,
       marks,
@@ -1076,6 +1314,12 @@ export function layoutPanel(spec: PanelSpec): PanelLayout {
           ...control,
           rect: controlRect,
           control: offset(control.control, content.x),
+          // The caret is a rectangle like every other one here and has to be
+          // moved with them. It was not, and the first proof sheet drew a
+          // block caret floating on the paper twelve pixels above the well it
+          // belonged in — which is exactly the class of defect this whole
+          // module exists to make visible, caught by looking at a picture.
+          ...(control.caret === undefined ? {} : { caret: offset(control.caret, content.x) }),
           lines: control.lines.map((line) => ({ ...line, rect: offset(line.rect, content.x) })),
           visible: bottom(controlRect) > content.y && bottom(controlRect) <= cutY,
         };
@@ -1138,7 +1382,7 @@ export function intrinsicHeight(spec: PanelSpec): number {
 
 export interface FocusTarget {
   readonly id: string;
-  readonly role: 'button' | 'checkbox' | 'slider';
+  readonly role: 'button' | 'checkbox' | 'slider' | 'textbox';
   readonly label: string;
   readonly hint?: string;
   /** The labelled row, in buffer pixels. What a `<label>` should cover. */
@@ -1148,6 +1392,9 @@ export interface FocusTarget {
   readonly checked?: boolean;
   readonly readout?: string;
   readonly fraction?: number;
+  readonly pressed?: boolean;
+  readonly disabled?: boolean;
+  readonly value?: string;
   /** False when the cut or the scroll offset has taken it off the page. */
   readonly visible: boolean;
 }
@@ -1180,6 +1427,9 @@ export function focusTargets(layout: PanelLayout): FocusTarget[] {
         ...(control.checked === undefined ? {} : { checked: control.checked }),
         ...(control.readout === undefined ? {} : { readout: control.readout }),
         ...(control.fraction === undefined ? {} : { fraction: control.fraction }),
+        ...(control.pressed === undefined ? {} : { pressed: control.pressed }),
+        ...(control.disabled === undefined ? {} : { disabled: control.disabled }),
+        ...(control.value === undefined ? {} : { value: control.value }),
         visible: control.visible,
       });
     }

@@ -48,9 +48,11 @@ import {
   parseHex,
   quantise,
   quantisePair,
+  controlById,
   drawOverlay,
   drawPlate,
   drawText,
+  PLATE_SURFACE,
   toScreen,
   type PanelBlock,
   type PanelInk,
@@ -100,10 +102,41 @@ function page(): PanelBlock[] {
           checked: true,
         },
         { kind: 'button', id: 'apple', label: 'Apple' },
-        { kind: 'button', id: 'google', label: 'Google' },
-        { kind: 'button', id: 'email', label: 'Email' },
+        // A cap that is also a state, and one that cannot be pressed yet.
+        // Both are drawn differently and both have to stay inside the
+        // rectangle the layout claimed for them.
+        { kind: 'button', id: 'google', label: 'Google', pressed: true },
+        { kind: 'button', id: 'email', label: 'Email', disabled: true },
       ],
     },
+    /*
+     * The three the last conversion added, on the same page as everything
+     * else, so every structural assertion in this file covers them too.
+     *
+     * A well is where the code reader, the checkout and the fireside panel
+     * spend most of their height; an aperture is the one rectangle on a drawn
+     * panel the game does not draw into. Neither existed when the assertions
+     * below were written, and both are exactly the shape of thing they catch
+     * — a caret drawn twelve pixels above its own well was found by looking at
+     * a picture, and `puts every pixel of every block inside the rectangle it
+     * reported` is the check that would have found it without one.
+     */
+    { kind: 'heading', id: 'entry-label', level: 2, text: 'Type it in' },
+    {
+      kind: 'controls',
+      id: 'entry',
+      controls: [
+        {
+          kind: 'text',
+          id: 'code',
+          label: 'Type it in',
+          value: 'SM1.eyJ2IjoxLCJiIjoiYmF0Y2hfMDEiLCJuIjoiN2ZhMyJ9.QmxhaEJsYWhTaWduYXR1cmU',
+          rows: 3,
+        },
+        { kind: 'text', id: 'city', label: 'City', value: '', placeholder: 'where you are' },
+      ],
+    },
+    { kind: 'aperture', id: 'viewfinder', label: 'The camera, looking for a QR code', aspect: 4 / 3 },
   ];
 }
 
@@ -121,6 +154,9 @@ function everyRect(layout: PanelLayout): Rect[] {
     ...(block.kind === 'rule' ? [block.rect] : []),
     ...block.lines.map((line) => line.rect),
     ...block.marks.map((mark) => mark.rect),
+    // An aperture is a window rather than a run of type: the block *is* the
+    // rectangle, the same way a rule is.
+    ...(block.kind === 'aperture' ? [block.rect] : []),
     ...block.controls.flatMap((control) => [control.rect, control.control, ...control.lines.map((l) => l.rect)]),
   ]);
 }
@@ -557,10 +593,18 @@ describe('what the DOM has to mirror', () => {
   it('gives every control an id, a role, a name and two rectangles', () => {
     const layout = layoutPanel({ rect: TALL, blocks: page() });
     const targets = focusTargets(layout);
-    expect(targets.map((t) => t.id)).toEqual(['text-size', 'simplified', 'apple', 'google', 'email']);
+    expect(targets.map((t) => t.id)).toEqual([
+      'text-size',
+      'simplified',
+      'apple',
+      'google',
+      'email',
+      'code',
+      'city',
+    ]);
     expect(new Set(targets.map((t) => t.id)).size).toBe(targets.length);
     for (const target of targets) {
-      expect(target.role).toMatch(/^(button|checkbox|slider)$/);
+      expect(target.role).toMatch(/^(button|checkbox|slider|textbox)$/);
       expect(target.label.length).toBeGreaterThan(0);
       expect(target.control.width).toBeGreaterThan(0);
       expect(target.control.height).toBeGreaterThan(0);
@@ -592,6 +636,38 @@ describe('what the DOM has to mirror', () => {
     expect(slider?.readout).toBe('100% of normal');
     expect(slider?.fraction).toBeCloseTo(0.16, 5);
     expect(focusTargets(layout).find((t) => t.id === 'simplified')?.checked).toBe(true);
+  });
+
+  /*
+   * And the value a field has to *contain*.
+   *
+   * A well is drawn from the layout's copy of what has been typed and the
+   * mirrored `<input>` is set from the same one. If those ever came from two
+   * places, a player would be looking at one string and editing another —
+   * which is the field version of a hit target that disagrees with its picture.
+   */
+  it('carries what a field has in it, and what it is called', () => {
+    const layout = layoutPanel({ rect: TALL, blocks: page() });
+    const field = focusTargets(layout).find((t) => t.id === 'code');
+    expect(field?.role).toBe('textbox');
+    expect(field?.label).toBe('Type it in');
+    expect(field?.value).toContain('SM1.');
+  });
+
+  /*
+   * A button that is also a state, and one that is not operable yet.
+   *
+   * Both reach the DOM as attributes — `aria-pressed` and `disabled` — and
+   * neither can be inferred from the drawing, which is the whole reason
+   * `focusTargets` is the seam it is. The voice modes at the fire are three
+   * pressed-or-not buttons and half of that panel is disabled until somebody
+   * else walks up.
+   */
+  it('carries pressed and disabled, which only the DOM can say', () => {
+    const targets = focusTargets(layoutPanel({ rect: TALL, blocks: page() }));
+    expect(targets.find((t) => t.id === 'google')?.pressed).toBe(true);
+    expect(targets.find((t) => t.id === 'email')?.disabled).toBe(true);
+    expect(targets.find((t) => t.id === 'apple')?.pressed).toBeUndefined();
   });
 
   it('maps a rectangle onto the upscaled canvas exactly', () => {
@@ -671,6 +747,150 @@ describe('the dark plate', () => {
     expect(used.has('night')).toBe(true);
     expect(used.has('amber')).toBe(true);
     for (const ink of used) expect(isPanelInk(ink)).toBe(true);
+  });
+});
+
+/*
+ * The two things a well has that nothing else on a page does.
+ *
+ * The caret is the only rectangle in the kit that is a *position inside* a
+ * control rather than the control itself, and it was the one the conversion
+ * got wrong: every other rectangle is moved by the scroll and the content
+ * origin on the way out of `layoutPanel`, and this one was not, so the first
+ * proof sheet drew a block caret floating on the paper twelve pixels above the
+ * field it belonged to. Nothing but a picture caught it. This is that picture,
+ * as a number.
+ */
+describe('a field, and the caret in it', () => {
+  const field = (value: string, rows = 1): PanelLayout =>
+    layoutPanel({
+      rect: TALL,
+      blocks: [
+        {
+          kind: 'controls',
+          id: 'entry',
+          controls: [{ kind: 'text', id: 'code', label: 'Type it in', value, rows }],
+        },
+      ],
+    });
+
+  it('keeps the caret inside the well it belongs to', () => {
+    for (const value of ['', 'SM1.', 'SM1.'.padEnd(400, 'x')]) {
+      const control = controlById(field(value, 3), 'code');
+      expect(control?.caret, 'a field with no caret has nowhere to type').toBeDefined();
+      const caret = control!.caret!;
+      const well = control!.control;
+      expect(caret.x, `at ${String(value.length)} characters`).toBeGreaterThanOrEqual(well.x);
+      expect(caret.y).toBeGreaterThanOrEqual(well.y);
+      expect(caret.x + caret.width).toBeLessThanOrEqual(well.x + well.width);
+      expect(caret.y + caret.height).toBeLessThanOrEqual(well.y + well.height);
+    }
+  });
+
+  /*
+   * A long value is shown from its end.
+   *
+   * A signed redemption code is 86 characters and wraps to five or six lines
+   * in a three-line well; the three worth showing are the ones under the
+   * caret, which is what every real text field does. Taking the first three
+   * instead would show a typist the part of what they pasted that they are
+   * least looking at.
+   */
+  it('shows the end of a long value rather than the start', () => {
+    const value = `START${'x'.repeat(300)}END`;
+    const control = controlById(field(value, 2), 'code');
+    const drawn = control!.lines.filter((line) => line.tone === 'chrome').map((line) => line.text);
+    expect(drawn.length).toBeLessThanOrEqual(2);
+    expect(drawn.join('')).toContain('END');
+    expect(drawn.join('')).not.toContain('START');
+  });
+
+  /*
+   * Nothing typed reads as a prompt, not as content.
+   *
+   * The placeholder is the quiet voice — `chromeSoft` — for the same reason a
+   * hint is: a reader has to be able to tell what a field contains from what
+   * it is asking for, and on a five-pixel face the only distinction available
+   * is weight.
+   */
+  it('sets a placeholder in the quiet voice and a value in the loud one', () => {
+    const empty = controlById(
+      layoutPanel({
+        rect: TALL,
+        blocks: [
+          {
+            kind: 'controls',
+            id: 'entry',
+            controls: [{ kind: 'text', id: 'city', label: 'City', value: '', placeholder: 'where you are' }],
+          },
+        ],
+      }),
+      'city',
+    );
+    expect(empty!.lines.some((line) => line.text === 'where you are' && line.tone === 'chromeSoft')).toBe(true);
+    expect(
+      controlById(field('Bend'), 'code')!.lines.some((line) => line.text === 'Bend' && line.tone === 'chrome'),
+    ).toBe(true);
+  });
+});
+
+/*
+ * The plate, as a whole panel rather than as one call.
+ *
+ * `drawPlate` above proves the surface exists. This proves the terminal can be
+ * *made of* it: that inverting the page's two voices does not invert the
+ * button caps or the text wells with them — a cream cap with cream type on it
+ * is a button with no label, and that is what a single pair of tones would
+ * have produced.
+ */
+describe('a panel on the dark plate', () => {
+  const plated = (): { buffer: PanelBuffer; layout: PanelLayout } => {
+    const buffer = new PanelBuffer(320, 240);
+    const layout = layoutPanel({ rect: TALL, blocks: page() });
+    drawPanel(buffer, layout, { ...PLATE_SURFACE, focusedId: 'code' });
+    return { buffer, layout };
+  };
+
+  it('stays on the palette, and puts nothing outside the panel', () => {
+    const { buffer } = plated();
+    for (const ink of buffer.inksUsed()) expect(isPanelInk(ink)).toBe(true);
+    for (let y = 0; y < 240; y++) {
+      for (let x = 0; x < 320; x++) {
+        const inside = x >= TALL.x && y >= TALL.y && x < TALL.x + TALL.width && y < TALL.y + TALL.height;
+        if (!inside) expect(buffer.get(x, y), `ink at ${String(x)},${String(y)}`).toBeNull();
+      }
+    }
+  });
+
+  it('reverses the page and leaves the caps alone', () => {
+    const { buffer } = plated();
+    const used = buffer.inksUsed();
+    // The case, the reversed type on it, and the amber rule down its edge.
+    expect(used.has('ink')).toBe(true);
+    expect(used.has('paper')).toBe(true);
+    expect(used.has('amber')).toBe(true);
+    // And a cap is still cream with a lit bevel, which is what `chrome` means:
+    // `paperLit` is the lit half of a bevel and appears nowhere else.
+    expect(used.has('paperLit')).toBe(true);
+  });
+
+  /*
+   * Every letter of a button label lands on the cap, not on the case.
+   *
+   * The tone split is invisible in a colour census — both surfaces use `ink`
+   * somewhere — so this checks the thing that actually matters: the label's
+   * pixels sit inside the button's own rectangle, and they are tagged with the
+   * tone that never follows the surface.
+   */
+  it('draws a cap label in dark type inside its own cap', () => {
+    const { layout } = plated();
+    const button = controlById(layout, 'apple');
+    expect(button).toBeDefined();
+    for (const line of button!.lines) {
+      expect(line.tone).toBe('chrome');
+      expect(line.rect.x).toBeGreaterThanOrEqual(button!.control.x);
+      expect(line.rect.x + line.rect.width).toBeLessThanOrEqual(button!.control.x + button!.control.width);
+    }
   });
 });
 

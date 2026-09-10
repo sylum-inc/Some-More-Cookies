@@ -1,6 +1,7 @@
-import { test } from '@playwright/test';
+import { test, type Page } from '@playwright/test';
 import { epochForWindow, type ActivityWindow, type WeatherKind } from '@somemore/sim';
 import { act, advanceSeconds, waitForWorld } from './helpers.js';
+import { captureStrip } from './strip.js';
 import { driveRitual, openWorld } from './stages.js';
 
 /**
@@ -44,6 +45,112 @@ const WEATHER_CHARACTER: Record<
   // wind frame captured as a slightly dimmer clear night.
   wind: { precipitation: 0, fog: 0.03, cloud: 0.3, wind: 4.2 },
 };
+
+/**
+ * Put the sky and the weather where a capture wants them.
+ *
+ * Hoisted out of the contact-sheet test so the motion sheets can reach it: a
+ * storm that does not reach the ground is a still-frame complaint, and a storm
+ * that does not *move* is one only a strip can show.
+ */
+async function setSky(page: Page, hour: ActivityWindow, weather: WeatherKind): Promise<void> {
+  const epoch = epochForWindow(Date.now(), 44, -73, hour);
+  const expected = WEATHER_CHARACTER[weather] ?? WEATHER_CHARACTER.clear!;
+  await page.evaluate(
+    ([epochMs, kind, expected]) => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as {
+        stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
+        weather: Record<string, unknown>;
+      };
+      ritual.stargazing.epochMs = epochMs as number;
+      ritual.stargazing.elapsed = 0;
+      /*
+       * And make it look again.
+       *
+       * The sky is recomputed every twenty *simulated* seconds, not every
+       * frame — it is real astronomy and there is no point running it at
+       * sixty hertz. Moving the epoch without clearing this counter is
+       * therefore a write that has no effect for the next twenty seconds,
+       * which is longer than any of these captures wait: the first version
+       * of this helper set seven different hours and produced seven
+       * identical night frames, and the measurement that found it was
+       * sampling the sky pixel of each one.
+       */
+      ritual.stargazing.secondsUntilSkyRefresh = 0;
+      /*
+       * The kind AND everything derived from it.
+       *
+       * `stepWeather` eases the scalars toward their target rather than
+       * assigning them — precipitation, fog and cloud all have time
+       * constants of several seconds, so setting only `kind` and waiting a
+       * second and a half changes the HUD's weather glyph and almost
+       * nothing else. The first version of this captured nine weather
+       * states that were pixel-for-pixel the same clear night with a
+       * different icon in the corner, and the grade of that set was a
+       * grade of this helper rather than of the game.
+       *
+       * The character table is the sim's own; it is duplicated here rather
+       * than imported because it is not exported, and a harness reaching
+       * into a module's privates to set nine numbers is worse than a
+       * harness that states which nine it means.
+       */
+      const character = expected;
+      ritual.weather.kind = kind;
+      ritual.weather.nextKind = kind;
+      ritual.weather.transition = 1;
+      ritual.weather.precipitation = character.precipitation;
+      ritual.weather.fog = character.fog;
+      ritual.weather.cloudCover = character.cloud;
+      ritual.weather.windSpeed = character.wind;
+      // Far enough out that nothing rolls a new sky mid-capture.
+      ritual.weather.secondsUntilTransition = 100_000;
+    },
+    [epoch, weather, expected] as const,
+  );
+  /*
+   * Wait for the WORLD to agree, not for a stopwatch.
+   *
+   * A fixed 1400 ms was not enough and the way that showed is worth
+   * recording: a grader reported that the snow frame contained no snow and
+   * carried the *storm* glyph, and the fog frame carried the *rain* glyph
+   * — each one exactly one state behind its own filename. The captures
+   * were of the previous weather with the next weather's name on them,
+   * which is the third time in this session that a harness has handed a
+   * reviewer a picture of something other than what it claimed.
+   *
+   * So it waits on the thing it actually set. The scalars ease at a rate
+   * of a few tenths per second, so agreement is checked against them
+   * rather than against the kind alone — the kind flips instantly and is
+   * exactly what made the old wait look sufficient.
+   */
+  await page.waitForFunction(
+    (want) => {
+      const weather = window.__someMore!.store.state.ritual.weather as unknown as {
+        kind: string;
+        precipitation: number;
+        cloudCover: number;
+        fog: number;
+      };
+      return (
+        weather.kind === want.kind &&
+        Math.abs(weather.precipitation - want.precipitation) < 0.05 &&
+        Math.abs(weather.cloudCover - want.cloud) < 0.05 &&
+        Math.abs(weather.fog - want.fog) < 0.05
+      );
+    },
+    {
+      kind: weather as string,
+      precipitation: expected.precipitation,
+      cloud: expected.cloud,
+      fog: expected.fog,
+    },
+    { timeout: 20_000 },
+  );
+  // And then a moment for the scene to draw what it now agrees about:
+  // snow accumulating on the ground eases in over a couple of seconds by
+  // design, so that the clearing whitens rather than snapping.
+  await page.waitForTimeout(2600);
+}
 
 test.describe('gallery', () => {
   test('captures every screen', async ({ page }) => {
@@ -128,104 +235,7 @@ test.describe('gallery', () => {
      */
     // `hour` rather than `window`, because inside `page.evaluate` below the
     // name `window` means the browser's.
-    const setSky = async (hour: ActivityWindow, weather: WeatherKind): Promise<void> => {
-      const epoch = epochForWindow(Date.now(), 44, -73, hour);
-      const expected = WEATHER_CHARACTER[weather] ?? WEATHER_CHARACTER.clear!;
-      await page.evaluate(
-        ([epochMs, kind, expected]) => {
-          const ritual = window.__someMore!.store.state.ritual as unknown as {
-            stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
-            weather: Record<string, unknown>;
-          };
-          ritual.stargazing.epochMs = epochMs as number;
-          ritual.stargazing.elapsed = 0;
-          /*
-           * And make it look again.
-           *
-           * The sky is recomputed every twenty *simulated* seconds, not every
-           * frame — it is real astronomy and there is no point running it at
-           * sixty hertz. Moving the epoch without clearing this counter is
-           * therefore a write that has no effect for the next twenty seconds,
-           * which is longer than any of these captures wait: the first version
-           * of this helper set seven different hours and produced seven
-           * identical night frames, and the measurement that found it was
-           * sampling the sky pixel of each one.
-           */
-          ritual.stargazing.secondsUntilSkyRefresh = 0;
-          /*
-           * The kind AND everything derived from it.
-           *
-           * `stepWeather` eases the scalars toward their target rather than
-           * assigning them — precipitation, fog and cloud all have time
-           * constants of several seconds, so setting only `kind` and waiting a
-           * second and a half changes the HUD's weather glyph and almost
-           * nothing else. The first version of this captured nine weather
-           * states that were pixel-for-pixel the same clear night with a
-           * different icon in the corner, and the grade of that set was a
-           * grade of this helper rather than of the game.
-           *
-           * The character table is the sim's own; it is duplicated here rather
-           * than imported because it is not exported, and a harness reaching
-           * into a module's privates to set nine numbers is worse than a
-           * harness that states which nine it means.
-           */
-          const character = expected;
-          ritual.weather.kind = kind;
-          ritual.weather.nextKind = kind;
-          ritual.weather.transition = 1;
-          ritual.weather.precipitation = character.precipitation;
-          ritual.weather.fog = character.fog;
-          ritual.weather.cloudCover = character.cloud;
-          ritual.weather.windSpeed = character.wind;
-          // Far enough out that nothing rolls a new sky mid-capture.
-          ritual.weather.secondsUntilTransition = 100_000;
-        },
-        [epoch, weather, expected] as const,
-      );
-      /*
-       * Wait for the WORLD to agree, not for a stopwatch.
-       *
-       * A fixed 1400 ms was not enough and the way that showed is worth
-       * recording: a grader reported that the snow frame contained no snow and
-       * carried the *storm* glyph, and the fog frame carried the *rain* glyph
-       * — each one exactly one state behind its own filename. The captures
-       * were of the previous weather with the next weather's name on them,
-       * which is the third time in this session that a harness has handed a
-       * reviewer a picture of something other than what it claimed.
-       *
-       * So it waits on the thing it actually set. The scalars ease at a rate
-       * of a few tenths per second, so agreement is checked against them
-       * rather than against the kind alone — the kind flips instantly and is
-       * exactly what made the old wait look sufficient.
-       */
-      await page.waitForFunction(
-        (want) => {
-          const weather = window.__someMore!.store.state.ritual.weather as unknown as {
-            kind: string;
-            precipitation: number;
-            cloudCover: number;
-            fog: number;
-          };
-          return (
-            weather.kind === want.kind &&
-            Math.abs(weather.precipitation - want.precipitation) < 0.05 &&
-            Math.abs(weather.cloudCover - want.cloud) < 0.05 &&
-            Math.abs(weather.fog - want.fog) < 0.05
-          );
-        },
-        {
-          kind: weather as string,
-          precipitation: expected.precipitation,
-          cloud: expected.cloud,
-          fog: expected.fog,
-        },
-        { timeout: 20_000 },
-      );
-      // And then a moment for the scene to draw what it now agrees about:
-      // snow accumulating on the ground eases in over a couple of seconds by
-      // design, so that the clearing whitens rather than snapping.
-      await page.waitForTimeout(2600);
-    };
+    const set = (hour: ActivityWindow, weather: WeatherKind): Promise<void> => setSky(page, hour, weather);
 
     /*
      * Lying back, which is the one thing the sky was built for.
@@ -265,7 +275,7 @@ test.describe('gallery', () => {
     // set below, at one fixed hour, so a grade can tell a change of sky from a
     // change of time.
     for (const hour of ['pre-dawn', 'dawn', 'morning', 'midday', 'afternoon', 'dusk', 'early-night'] as const) {
-      await setSky(hour, 'clear');
+      await set(hour, 'clear');
       await shot(`hour-${hour}`);
     }
 
@@ -273,7 +283,7 @@ test.describe('gallery', () => {
     // And then the weather, at one fixed hour, so a grade can tell a change of
     // sky from a change of time.
     for (const kind of ['clear', 'high-cloud', 'overcast', 'light-rain', 'rain', 'fog', 'storm', 'snow', 'wind'] as const) {
-      await setSky('dusk', kind);
+      await set('dusk', kind);
       await shot(`weather-${kind}`);
     }
 
@@ -285,5 +295,83 @@ test.describe('gallery', () => {
     await page.setViewportSize({ width: 852, height: 393 });
     await page.waitForTimeout(900);
     await shot('phone-landscape');
+  });
+  /**
+   * The half of this build a still frame cannot show.
+   *
+   * Everything the camera learned this session happens between frames: the
+   * head trailing a fast turn on a spring and coming back past where it
+   * stopped, the thing in the player's hands lagging half a second behind
+   * their eyes, the stride's figure-eight, a flame bending into a gale. A
+   * contact sheet of one frame each grades none of it, and an ungraded thing
+   * looks exactly like a thing that was never built — which this codebase has
+   * now proved ten times over.
+   *
+   * So: strips. Eight frames, read left to right and then down, at the moment
+   * where the input has just stopped and the body is still catching up, which
+   * is the only part of a spring worth looking at.
+   */
+  test('captures motion as contact strips', async ({ page }) => {
+    await openWorld(page, 'gallery-motion');
+    await act(page, 'arrive');
+    await waitForWorld(page, "r.stage === 'at-fire'", 'at fire', 40_000);
+    await page.waitForTimeout(1200);
+
+    const strip = (name: string, drive: () => Promise<void>, every = 90): Promise<void> =>
+      captureStrip(page, `artifacts/gallery/motion-${name}.png`, drive, { every });
+
+    /*
+     * A whip-pan, sampled after the input stops.
+     *
+     * The look lag is an underdamped spring: it trails about three degrees at
+     * a hard turn and then overshoots and returns, which is the term that
+     * makes a fast look feel like a head rather than a mouse. Held for a fifth
+     * of a second and then released — the release is the picture.
+     */
+    await strip('whip-pan', async () => {
+      await page.keyboard.down('ArrowRight');
+      await page.waitForTimeout(220);
+      await page.keyboard.up('ArrowRight');
+    }, 70);
+
+    // Walking: the stride's bob, the dip as weight lands, the lens widening.
+    await strip('walk', async () => {
+      await page.keyboard.down('w');
+      await page.waitForTimeout(900);
+    }, 80);
+    await page.keyboard.up('w');
+    await page.waitForTimeout(600);
+
+    // The fire at conversational distance, over most of a second.
+    await strip('fire', async () => {
+      await page.waitForTimeout(200);
+    }, 110);
+
+    /*
+     * A gale, which is the weather state whose entire signature is motion:
+     * the flame's lean, sparks going sideways, the canopy moving. A still of
+     * this is a slightly dimmer clear night, which is exactly the mistake an
+     * earlier version of the weather harness made.
+     */
+    await setSky(page, 'dusk', 'storm');
+    await strip('storm', async () => {
+      await page.waitForTimeout(400);
+    }, 110);
+    await setSky(page, 'early-night', 'clear');
+
+    /*
+     * And the arm, which is the largest motion term in the build and the one
+     * with nowhere else to be seen. The hand is only in the frame while
+     * something is in it, so this has to come after the whole ritual.
+     */
+    await driveRitual(page, async () => {});
+    await act(page, 'takeSandwich');
+    await waitForWorld(page, "r.stage === 'eating'", 'eating', 40_000);
+    await page.waitForTimeout(4000);
+    await strip('held-swing', async () => {
+      await page.keyboard.down('ArrowLeft');
+      await page.waitForTimeout(240);
+      await page.keyboard.up('ArrowLeft');
+    }, 70);
   });
 });

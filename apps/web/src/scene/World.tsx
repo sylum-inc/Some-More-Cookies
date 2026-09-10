@@ -678,6 +678,17 @@ export interface WorldProps {
   walkable: WalkableWorld;
   /** Reports what the player can act on, so the interface can offer it. */
   onReachChange?: (interactable: Interactable | null) => void;
+  /**
+   * A bite, taken on the sandwich itself.
+   *
+   * `Sandwich` has always known how to work out which of its eight sides a ray
+   * hit; nothing had ever handed it somewhere to send the answer while the
+   * thing was in the player's hands, so the only way to bite was the ring of
+   * buttons in the HUD — which two art reviews then read as debris lying in
+   * the middle of the payoff shot. The handler existed and the wire did not,
+   * which is this codebase's favourite shape of bug.
+   */
+  onBite?: (position: number) => void;
   /** Acting on a thing by touching it, when it is within reach. Same path as the reach button. */
   onUse?: (id: string) => void;
   /**
@@ -715,6 +726,7 @@ export function World({
   inspectingRef,
   walkable,
   onReachChange,
+  onBite,
   onUse,
   grabbedFuelRef,
 }: WorldProps): React.ReactElement {
@@ -1892,6 +1904,7 @@ export function World({
             bite={ritual.bite}
             settings={settings}
             spin={settings.reducedMotion ? 0 : 0.18}
+            {...(onBite === undefined ? {} : { onBite })}
           />
         </group>
       )}

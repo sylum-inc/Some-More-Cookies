@@ -2237,6 +2237,7 @@ export function App({ store }: AppProps): React.ReactElement {
           onUse={useReach}
           roastControl={roastControl}
           onLiftSandwich={handleTakeSandwich}
+          onBite={handleBite}
           quality={quality}
           inspectingRef={inspectingRef}
           onFrame={onFrame}
@@ -2711,6 +2712,13 @@ function BiteRing({
   textScale: number;
   finished: boolean;
 }): React.ReactElement {
+  /*
+   * Whether a keyboard is in the ring. Local, because nothing else needs it
+   * and because the alternative — a global "is this a keyboard session" flag —
+   * would be wrong: a player using both a mouse and a keyboard should get the
+   * ring while they are tabbing and the clean shot the moment they are not.
+   */
+  const [keyboard, setKeyboard] = useState(false);
   if (finished) {
     return (
       <div
@@ -2773,11 +2781,41 @@ function BiteRing({
   const box = radius * 2 + target;
   return (
     <div
+      /*
+       * Painted out, and painted back in the moment a keyboard arrives.
+       *
+       * The bite is done on the s'more itself now — `Sandwich` has always
+       * carried a click handler that works out which side was touched from
+       * where the ray hit, so the ring was a second way to say the same thing
+       * and it was saying it badly. Two art reviews read these eight sprites
+       * as scenery: "eight identical 8x8 flat brown squares with a notch,
+       * evenly distributed, no scale variation, no motion", floating in the
+       * middle of the payoff shot, at the emotional climax of the game.
+       *
+       * They are not scenery and they are not decoration either — they are the
+       * only path to a bite for somebody who cannot use a pointer (§12), and
+       * they are what a screen reader reads. So the elements stay exactly
+       * where they were, at full size, in the document, in the right order,
+       * and only their paint is taken away: `opacity: 0`, never `display:
+       * none`, `visibility: hidden` or `aria-hidden`, which is the same rule
+       * the drawn panels follow.
+       *
+       * And the ring comes back the instant one of them takes focus, because
+       * a control that cannot be seen cannot be aimed at. A player tabbing
+       * into the ring sees it appear under their focus ring; a player with a
+       * thumb or a mouse touches the sandwich and never learns it was there.
+       */
+      onFocus={() => setKeyboard(true)}
+      onBlur={() => setKeyboard(false)}
       style={{
         position: 'relative',
         width: box,
         height: box,
         flex: '0 0 auto',
+        opacity: keyboard ? 1 : 0,
+        // No transition: reduced motion is a setting and a control appearing
+        // is not the place to spend it (§12).
+        pointerEvents: keyboard ? 'auto' : 'none',
       }}
     >
       {Array.from({ length: 8 }, (_, i) => {

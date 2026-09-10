@@ -206,7 +206,63 @@ test.describe('the ritual', () => {
     await page.waitForTimeout(6000);
     await capture(page, '16-sandwich-in-hand');
 
-    await act(page, 'bite', 0);
+    /*
+     * The first bite is taken by touching the sandwich, not by pressing a
+     * button — because that is now the only way a thumb or a mouse can take
+     * one, and until this session nothing had ever wired it.
+     *
+     * `Sandwich` had always carried a handler that works out which of its
+     * eight sides a ray hit. Nothing passed it anywhere to send the answer
+     * while the thing was in the player's hands, so the sole pointer path was
+     * the HUD's ring of eight buttons — which two art reviews then read as
+     * debris lying in the middle of the payoff shot. The ring is painted out
+     * now and comes back only under keyboard focus, which makes this click the
+     * load-bearing path and worth a test of its own rather than a mention.
+     *
+     * Aimed by projecting the sandwich's own world position rather than by
+     * guessing at the middle of the screen: it is held off to one side, and a
+     * test that clicks the centre would pass on an empty frame.
+     */
+    const aim = await page.evaluate(() => {
+      const three = window.__someMore!.three!;
+      const cam = three.camera as unknown as {
+        matrixWorldInverse: { elements: number[] };
+        projectionMatrix: { elements: number[] };
+        updateMatrixWorld(force?: boolean): void;
+      };
+      cam.updateMatrixWorld(true);
+      const scene = three.scene as unknown as { traverse(fn: (o: Record<string, unknown>) => void): void };
+      let found: number[] | null = null;
+      scene.traverse((o) => {
+        if (found !== null || o['name'] !== 'sandwich' || o['visible'] !== true) return;
+        const e = (o['matrixWorld'] as { elements: number[] }).elements;
+        found = [e[12]!, e[13]!, e[14]!];
+      });
+      if (found === null) return null;
+      const mul = (m: number[], v: number[]): number[] => [
+        m[0]! * v[0]! + m[4]! * v[1]! + m[8]! * v[2]! + m[12]! * v[3]!,
+        m[1]! * v[0]! + m[5]! * v[1]! + m[9]! * v[2]! + m[13]! * v[3]!,
+        m[2]! * v[0]! + m[6]! * v[1]! + m[10]! * v[2]! + m[14]! * v[3]!,
+        m[3]! * v[0]! + m[7]! * v[1]! + m[11]! * v[2]! + m[15]! * v[3]!,
+      ];
+      const p = found as number[];
+      const clip = mul(cam.projectionMatrix.elements, mul(cam.matrixWorldInverse.elements, [p[0]!, p[1]!, p[2]!, 1]));
+      const w = clip[3]! === 0 ? 1e-6 : clip[3]!;
+      const canvas = document.querySelector('canvas')!.getBoundingClientRect();
+      return {
+        x: canvas.left + ((clip[0]! / w) * 0.5 + 0.5) * canvas.width,
+        y: canvas.top + (0.5 - (clip[1]! / w) * 0.5) * canvas.height,
+      };
+    });
+    expect(aim, 'the sandwich should be on screen while it is being eaten').not.toBeNull();
+    const before = (await readWorld(page)).eaten;
+    await page.mouse.click(aim!.x, aim!.y);
+    await page.waitForTimeout(400);
+    expect(
+      (await readWorld(page)).eaten,
+      'touching the sandwich should take a bite out of it',
+    ).toBeGreaterThan(before);
+
     await act(page, 'bite', 1);
     await act(page, 'bite', 2);
     await page.waitForTimeout(800);

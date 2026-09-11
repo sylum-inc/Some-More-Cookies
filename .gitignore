@@ -42,3 +42,9 @@ artifacts/audio/*.png
 
 # Agent worktrees, created by isolation runs.
 .claude/worktrees/
+
+# Grading sets: captures, not sources.
+artifacts/grade/
+artifacts/sunset/
+artifacts/audio/
+artifacts/bite/

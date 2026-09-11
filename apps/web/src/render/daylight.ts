@@ -717,6 +717,19 @@ export interface WeatherLook {
   readonly puddles: number;
   /** How hard anything falling leans, 0..1. Storm and squall are the tops. */
   readonly shear: number;
+  /**
+   * How hard the *kind* blows, 0..1 — `shear` without the gust floor.
+   *
+   * `shear` deliberately takes the greater of the kind's lean and the wind's,
+   * so a lull in a storm still lays the rain over. That is right for how a
+   * thing that is already falling is drawn, and wrong for deciding *whether*
+   * anything is in the air at all: the gust term swings up to roughly one and
+   * a half of the base at all times, so a clear night's momentary gust was
+   * pushing a 0.08 kind past a 0.45 threshold and putting windblown litter in
+   * a calm sky. Anything keyed on "is this a gale" reads this; anything
+   * drawing the lean of what is already there reads `shear`.
+   */
+  readonly gale: number;
   /** Whether this state flashes. Honoured only when motion is allowed. */
   readonly lightning: boolean;
 }
@@ -853,6 +866,7 @@ export function weatherLook(weather: {
     topColor: blendColor(from.topColor, to.topColor),
     puddles: clamp01(lerp(from.puddles, to.puddles, t) * (0.35 + fall * 0.65)),
     shear: clamp01(Math.max(lerp(from.shear, to.shear, t), gust * 0.85)),
+    gale: clamp01(lerp(from.shear, to.shear, t)),
     lightning: t < 0.5 ? from.lightning : to.lightning,
   };
 }

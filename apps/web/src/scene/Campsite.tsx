@@ -2442,7 +2442,27 @@ export function Campsite({
      * so a state that had nothing now has motes streaking across the clearing
      * and costs the frame nothing it was not already paying.
      */
-    const blowing = falling < 0.02 ? clamp01((surfaces.shear - 0.45) / 0.5) : 0;
+    /*
+     * Keyed on `gale` and not on `shear`, and the difference is a bug.
+     *
+     * `shear` takes the greater of the kind's lean and the live wind, so that a
+     * lull in a storm still lays the rain over. Asked "is this a gale", it
+     * answers for the gust: the simulation's wind swings to roughly one and a
+     * half of the base at all times, so a clear night whose authored shear is
+     * 0.08 was crossing a 0.45 threshold several times a minute and drawing
+     * windblown litter in still air. It showed up in the gallery as thin pale
+     * diagonals across the stars and through the crowns and took a while to
+     * recognise, because every other bug of the year has been a thing that was
+     * computed and never reached the screen; this is the one that reached it
+     * and should not have.
+     *
+     * `gale` is the kind's own lean with no gust in it. The threshold sits
+     * above `rain`'s 0.52 as well, so a rain state captured without its
+     * scalars — which is exactly what the harness does when it sets a kind and
+     * no precipitation — stays empty rather than quietly filling with leaves.
+     * Only `wind` (0.95) and `storm` (1) are above it, and the storm is raining.
+     */
+    const blowing = falling < 0.02 ? clamp01((surfaces.gale - 0.6) / 0.35) : 0;
     if (rainRef.current) {
       const strength = isSnow ? 0 : Math.max(falling, blowing * 0.55);
       rainMaterial.opacity = strength * 0.62;
@@ -2467,12 +2487,27 @@ export function Campsite({
         const lean = blowing > 0 ? 2.6 + blowing * 3.4 : 0.06 + surfaces.shear * 0.62;
         const length = 0.26 + strength * 0.34 + surfaces.shear * 0.3;
         const fall = blowing > 0 ? 1.1 : 9 + strength * 7;
+        /*
+         * Litter blows through the clearing. It does not cross the sky.
+         *
+         * The emitter's column is twelve metres because rain falls from above
+         * the treeline, and borrowing that column for litter put warm streaks
+         * over the stars and through the crowns — which reads as a scratch on
+         * the lens, not as weather. Needles and last year's leaves come off
+         * the duff and out of the low branches, so the band is the height of
+         * the trodden ring rather than the height of the wood. Anything
+         * already above it is recycled on the next frame instead of taking
+         * ten seconds to sink at the litter's 1.1 m/s.
+         */
+        const ceiling = blowing > 0 ? 2.6 : 12;
         for (let i = 0; i < rainCount; i++) {
           const head = i * 2;
           let y = positions.getY(head) - fall * delta;
           let x = positions.getX(head) + (0.4 + surfaces.shear * 5.2) * delta;
-          if (y < 0) {
-            y = 12;
+          if (y < 0 || y > ceiling) {
+            // Rain re-enters at the top of its column; litter is not falling
+            // from anywhere, so it re-enters anywhere in the band.
+            y = blowing > 0 ? 0.2 + Math.random() * (ceiling - 0.2) : ceiling;
             // A drop that lands is a new drop somewhere else. Presentation
             // only, so `Math.random` is allowed here (ADR-0001 is about
             // `packages/sim`); making rain deterministic would make it
@@ -2816,8 +2851,20 @@ export function Campsite({
       ))}
 
       {/* Precipitation */}
-      <lineSegments ref={rainRef} geometry={rainGeometry} material={rainMaterial} frustumCulled={false} />
-      <points ref={snowRef} geometry={snowGeometry} material={snowMaterial} frustumCulled={false} />
+      <lineSegments
+        name="precipitation-rain"
+        ref={rainRef}
+        geometry={rainGeometry}
+        material={rainMaterial}
+        frustumCulled={false}
+      />
+      <points
+        name="precipitation-snow"
+        ref={snowRef}
+        geometry={snowGeometry}
+        material={snowMaterial}
+        frustumCulled={false}
+      />
 
       {/*
         Night light.

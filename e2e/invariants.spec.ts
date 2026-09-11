@@ -293,4 +293,127 @@ test.describe('what the renderer is actually being told', () => {
       'a declaration whose precondition is not met, and which is not in the recorded baseline',
     ).toEqual([]);
   });
+
+  /*
+   * The mirror of every other rule in this file.
+   *
+   * Ten bugs above are a feature computed and never drawn. This is the one
+   * that was drawn and should not have been: thin pale diagonals crossing the
+   * stars and the crowns on a still, clear night, which sat in the gallery
+   * sheet through several rounds of art direction before anybody named them.
+   *
+   * They were the windblown-litter emitter. `Campsite` asked "is it a gale"
+   * of `shear`, and `shear` is deliberately the greater of the kind's lean and
+   * the live wind so that a lull in a storm still lays the rain over — so a
+   * clear night whose authored lean is 0.08 was answering yes every time the
+   * gust term peaked. Measured: `clear` reaches 0.425 at 3 m/s and 0.85 at 6,
+   * against a 0.45 threshold. The emitter also borrowed the rain's twelve
+   * metre column, so the litter crossed the sky instead of blowing through the
+   * clearing.
+   *
+   * Both halves are checked here rather than in a unit test because both are
+   * properties of what is *on screen*, and the unit test for the first half
+   * (`never lets a gust turn a calm kind into a gale`) cannot see the mesh.
+   */
+  test('nothing is in the air on a clear night, however hard it gusts', async ({ page }) => {
+    await openWorld(page, 'invariants', 'pine_hollow', 'mid');
+    await act(page, 'arrive');
+    await waitForWorld(page, "r.stage === 'at-fire'", 'at fire', 40_000);
+
+    /*
+     * Set the character, not just the kind.
+     *
+     * The sim eases precipitation, fog and cloud toward the kind's targets
+     * over seconds, so writing `kind` alone changes the HUD glyph and almost
+     * nothing else for the next second and a half. `gallery.spec.ts` learned
+     * this by capturing nine weather states that were the same clear night
+     * with different icons in the corner.
+     */
+    const setWeather = async (kind: string, character: Record<string, number>): Promise<void> => {
+      await page.evaluate(
+        ([k, c]) => {
+          const weather = window.__someMore!.store.state.ritual.weather as unknown as Record<
+            string,
+            unknown
+          >;
+          weather['kind'] = k;
+          weather['nextKind'] = k;
+          weather['transition'] = 1;
+          weather['precipitation'] = c['precipitation'];
+          weather['fog'] = c['fog'];
+          weather['cloudCover'] = c['cloud'];
+          weather['windSpeed'] = c['wind'];
+          // Far enough out that nothing rolls a new sky mid-assertion.
+          weather['secondsUntilTransition'] = 100_000;
+        },
+        [kind, character] as const,
+      );
+    };
+
+    const emitter = async (): Promise<{ visible: boolean; topY: number }> =>
+      page.evaluate(() => {
+        let visible = false;
+        let topY = 0;
+        window.__someMore!.three!.scene.traverse((object) => {
+          if (object.name !== 'precipitation-rain') return;
+          visible = object.visible;
+          if (!object.visible) return;
+          const position = (
+            object as unknown as {
+              geometry: { attributes: { position: { count: number; getY(i: number): number } } };
+            }
+          ).geometry.attributes.position;
+          for (let i = 0; i < position.count; i++) topY = Math.max(topY, position.getY(i));
+        });
+        return { visible, topY };
+      });
+
+    /*
+     * The gale first, and deliberately so.
+     *
+     * `surfaces` is computed at React render time and closed over by the frame
+     * loop, so a direct write to the store reaches the renderer only on the
+     * next re-render. Asserting the clear case first would therefore pass on a
+     * scene that had never seen the write at all — which is exactly what the
+     * first version of this test did, and is the same "passed for the wrong
+     * reason" that the finger-gap test managed after the hand was posed.
+     * Proving the gale draws first proves the pathway, and only then does the
+     * clear case mean anything.
+     */
+    await setWeather('wind', { precipitation: 0, fog: 0.03, cloud: 0.3, wind: 4.2 });
+    await expect
+      .poll(async () => (await emitter()).visible, {
+        message: 'a gale with nothing in the air is the signature `wind` was given',
+        timeout: 15_000,
+      })
+      .toBe(true);
+
+    /*
+     * And it blows through the clearing rather than across the sky. The
+     * emitter's column is twelve metres because rain falls from above the
+     * treeline; litter borrowing it put warm diagonals over the stars.
+     */
+    expect((await emitter()).topY, 'blowing litter is above the clearing').toBeLessThan(3);
+
+    /*
+     * Now the bug. `clear` is authored at a lean of 0.08, and the gust term
+     * reaches roughly one and a half of the base at all times — measured, it
+     * put `shear` at 0.425 by 3 m/s and 0.85 by 6 against a 0.45 threshold, so
+     * litter blew on a still night several times a minute. Keyed on the kind's
+     * own lean instead, no wind speed can do it.
+     */
+    await setWeather('clear', { precipitation: 0, fog: 0.04, cloud: 0.05, wind: 9 });
+    await expect
+      .poll(async () => (await emitter()).visible, {
+        message: 'litter blowing through a clear night at 9 m/s',
+        timeout: 15_000,
+      })
+      .toBe(false);
+
+    // And it stays empty, rather than being empty on the one frame sampled.
+    for (let i = 0; i < 12; i++) {
+      await page.waitForTimeout(250);
+      expect((await emitter()).visible, `still clear after ${(i + 1) * 250} ms`).toBe(false);
+    }
+  });
 });

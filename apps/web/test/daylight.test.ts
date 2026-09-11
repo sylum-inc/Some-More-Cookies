@@ -444,6 +444,47 @@ describe('the nine weather states, on the ground and the props', () => {
     expect(settled('fog').shear).toBeLessThan(0.1);
   });
 
+  it('never lets a gust turn a calm kind into a gale', () => {
+    /*
+     * The other half of the same idea, and the bug it was written for.
+     *
+     * `shear` deliberately takes the greater of the kind's lean and the live
+     * wind, because a lull in a storm should still lay the rain over. That is
+     * right for drawing the lean of something already falling, and wrong for
+     * deciding whether anything is in the air at all: `Campsite` was keying
+     * windblown litter on `shear`, and the gust term reaches up to roughly one
+     * and a half of the base, so a clear night with an authored shear of 0.08
+     * crossed the threshold several times a minute and drew warm diagonal
+     * streaks across the stars. `gale` is the same blend with the gust floor
+     * removed, and is what anything asking "is this a gale" must read.
+     *
+     * The law: no wind speed, however absurd, may lift a calm kind's `gale`.
+     */
+    for (const kind of KINDS) {
+      const calm = weatherLook({ kind, nextKind: kind, transition: 1, ...CHARACTER[kind]!, windSpeed: 0 });
+      for (const windSpeed of [3, 6, 12, 40]) {
+        const gusting = weatherLook({
+          kind, nextKind: kind, transition: 1, ...CHARACTER[kind]!, windSpeed,
+        });
+        expect(gusting.gale, `${kind} at ${windSpeed} m/s`).toBeCloseTo(calm.gale, 6);
+        // The lean itself is still allowed to answer the wind.
+        expect(gusting.shear).toBeGreaterThanOrEqual(gusting.gale - 1e-9);
+      }
+    }
+
+    /*
+     * And the separation the threshold depends on: the two states that are
+     * meant to blow are clear of it, and everything a player would call calm
+     * is well under. If a kind is ever re-authored across 0.6, this fails and
+     * whoever moved it has to decide on purpose whether litter now flies in it.
+     */
+    expect(settled('wind').gale).toBeGreaterThan(0.6);
+    expect(settled('storm').gale).toBeGreaterThan(0.6);
+    for (const kind of ['clear', 'high-cloud', 'overcast', 'light-rain', 'rain', 'fog', 'snow']) {
+      expect(settled(kind).gale, kind).toBeLessThan(0.6);
+    }
+  });
+
   it('only the storm flashes, and the flash is a shape rather than a roll', () => {
     for (const kind of KINDS) {
       expect(settled(kind).lightning, kind).toBe(kind === 'storm');

@@ -538,8 +538,41 @@ test.describe('gallery', () => {
     await page.keyboard.up('w');
     await page.waitForTimeout(600);
 
-    // The fire at conversational distance, over most of a second.
+    /*
+     * The fire, actually pointed at the fire.
+     *
+     * This strip used to capture wherever the camera happened to be left by
+     * the walk above — which is nine hundred milliseconds of `w`, so it was a
+     * dark treeline and one rock, eight times. All three critics on the panel
+     * reported independently that the strip named `motion-fire` contained no
+     * fire, which means the flame's motion — the one thing in the build with
+     * the most work in it — had never been graded at all in five rounds.
+     *
+     * A harness that hands a reviewer a picture of something other than what
+     * it claims is now the fourth instance in this file. So this one places
+     * the camera itself rather than inheriting it: the pit is at the origin,
+     * so standing at a radius and facing the origin is the whole of it.
+     */
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      const radius = 2.1;
+      const bearing = 0.9;
+      player.position.x = Math.cos(bearing) * radius;
+      player.position.z = Math.sin(bearing) * radius;
+      // Facing the origin from out here, and tipped down so the flame and the
+      // ember bed are both in frame rather than the flame and the sky.
+      player.facing = Math.atan2(-player.position.z, -player.position.x);
+      player.pitch = -0.16;
+    });
+    await page.waitForTimeout(700);
+
+    /*
+     * And a log going on, so the strip has a shape to read instead of a loop.
+     * A fire at rest over one second is a flicker; a fire taking a log is a
+     * burst and a decay, which is what the eight frames are for.
+     */
     await strip('fire', async () => {
+      await page.evaluate(() => window.__someMore!.actions['addLog']?.());
       await page.waitForTimeout(200);
     }, 110);
 

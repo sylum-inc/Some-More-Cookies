@@ -10,6 +10,22 @@ export default defineConfig({
       // Seam tests: they boot the real service and drive it with the real
       // client, so they belong to neither half and live at the root.
       'test/integration/**/*.test.ts',
+      /*
+       * And the guards on the build itself, which were enforced by nobody.
+       *
+       * `tools/ci/coverage.test.js` exists because the comment above the
+       * suites matrix in `ci.yml` -- "a suite nothing enforces is a suite that
+       * is already broken and has not been told yet" -- turned out to be true
+       * about that very matrix, which listed nine Playwright projects against
+       * a config defining fifteen. The guard was then written, and added to no
+       * glob and to no workflow step: it matched none of the four patterns
+       * above, being a `.js` outside `packages`, `services`, `apps/web` and
+       * `test/integration`, so `vitest run` never collected it and CI never
+       * called it by name. The check against unrun suites was an unrun suite.
+       * Third instance of the same mistake in this repo, and the first one
+       * inside the thing built to find it.
+       */
+      'tools/**/*.test.{js,mjs,ts}',
     ],
     /*
      * Measured for the first time in this project's life, and the `include`

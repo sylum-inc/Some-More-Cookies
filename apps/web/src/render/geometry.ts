@@ -1383,9 +1383,23 @@ function groundTint(position: THREE.BufferAttribute, seed: number): THREE.Buffer
      * once is exactly the pattern this project keeps being bitten by.
      */
     const lift = Math.max(-1, Math.min(1, y * 1.4));
-    colors[i * 3] = tone * (1 + lift * 0.05);
-    colors[i * 3 + 1] = tone * (1 + lift * 0.015);
-    colors[i * 3 + 2] = tone * (1 - lift * 0.045);
+
+    /*
+     * And the fourth thing, which used to be somewhere it could not work.
+     *
+     * `Campsite` multiplied this whole mesh's material by a flat 0.88 to put
+     * it "under the canopy edge rather than under the sky". A material colour
+     * is one colour, so what that actually produced was a step at the mat's
+     * rim and then nothing: six metres of clearing floor at one value, which
+     * is most of the bottom half of most frames and is exactly the "one brown
+     * wash" three art directors reported independently. See `clearingShade`.
+     */
+    const canopy = clearingShade(Math.hypot(x, z));
+    const shaded = 1 - (canopy - 1) / CLEARING_LIFT;
+    const shadedTone = tone * canopy;
+    colors[i * 3] = shadedTone * (1 + lift * 0.05 - shaded * 0.045);
+    colors[i * 3 + 1] = shadedTone * (1 + lift * 0.015);
+    colors[i * 3 + 2] = shadedTone * (1 - lift * 0.045 + shaded * 0.06);
   }
   return new THREE.BufferAttribute(colors, 3);
 }
@@ -1887,6 +1901,86 @@ export interface GroundCover {
   readonly triangles: number;
 }
 
+/**
+ * How far the burnt ground reaches past the ring stones, in metres.
+ *
+ * Wide enough to be an apron rather than a rim — a fire that has been lit in
+ * the same spot for years sterilises a good stride of ground around itself —
+ * and narrow enough that the trodden ring still surrounds it, because the
+ * ring only reads as used because of the dark centre it encloses.
+ */
+const SCORCH_REACH = 1.45;
+
+/**
+ * The walk from the middle of the clearing to under the trees, as one number.
+ *
+ * The middle of a clearing has the sky over it. The ground at the canopy edge
+ * is in shade for most of the day and has a deeper, wetter litter on it. That
+ * is a property of *where the ground is*, and this is the only place it is
+ * written down — which is the point, because the last version of it was a
+ * property of *which mesh was drawing it* and that turned out to mean
+ * something entirely different.
+ *
+ * `Campsite` used to paint the terrain material at a flat 0.88 and the duff
+ * mat at 1.0, and argue for a three-step ladder from the fire to the treeline.
+ * Measured, the ladder was two steps with six flat metres between them, and
+ * the reason is geometric: the duff mat's triangles reach about two and a half
+ * metres across at its rim against a terrain grid of 0.63, and a mat lifted
+ * fifteen millimetres cannot stay above a grid that coarse relative to it. So
+ * from roughly five and a half metres outward the mat is buried and the
+ * terrain is what you are looking at — flat, because a material colour is the
+ * same everywhere.
+ *
+ * Proven by hiding the mat and re-measuring: the value profile did not move at
+ * any radius, and only the grain collapsed, from about 14 to 6, and only
+ * between 3.5 and 5 m. The mat draws a band, not a floor.
+ *
+ * Applied per vertex against world radius, both meshes read the same function,
+ * so the seam between them cannot drift. Smoothstepped rather than linear
+ * because a kink in a gradient across the largest surface in the game reads as
+ * a ring on the ground.
+ */
+const CLEARING_LIFT = 0.38;
+
+/** Inside this radius the clearing is fully open to the sky. */
+const CLEARING_OPEN = 2.6;
+
+/** By this radius the canopy has closed over. Past it the shade holds. */
+const CLEARING_EDGE = 13;
+
+/**
+ * How much light the clearing's floor gets at a given world radius.
+ *
+ * `1 + CLEARING_LIFT` in the open middle, falling to exactly 1 under the
+ * trees. Multiply it into a vertex tone; do not put it in a material colour,
+ * because a material colour cannot vary across the surface it paints and that
+ * is the entire bug this replaced.
+ *
+ * **A lift, never a cut, and that is deliberate.** The obvious way to write
+ * this ladder is to darken the ground toward the canopy, and the first version
+ * did. But `groundTint` paints the terrain for the whole world, not just the
+ * campsite, so a term that falls below 1 past the treeline darkens every metre
+ * of the explorable half as well — and the explorable half is already the part
+ * a critic measured at 93.6 per cent of pixels below luminance 32 and called
+ * crushed rather than dark. Lifting the clearing instead puts the same ladder
+ * on screen and leaves the wood exactly where it was. It also happens to be
+ * the fix another critic asked for outright: lift the night ground's floor so
+ * the firelight has something to fall off *into* instead of off a cliff.
+ *
+ * **The size of it is set in linear light and read in sRGB, which is not the
+ * same number.** The renderer's working space is linear; the value an art
+ * director sees, and every measurement in `e2e/ground.spec.ts`, is sRGB. Near
+ * the levels this ground sits at — about 0.065 linear, 75 of 255 displayed —
+ * the encode curve compresses a change by roughly four to one, so the flat
+ * 0.88 this replaced was worth about two display units and read as nothing at
+ * all. 0.38 is worth about ten, which is a bit over half the worn ring's step
+ * and therefore reads as a gradient rather than as a second material.
+ */
+export function clearingShade(radius: number): number {
+  const t = clamp01((radius - CLEARING_OPEN) / (CLEARING_EDGE - CLEARING_OPEN));
+  return 1 + CLEARING_LIFT * (1 - t * t * (3 - 2 * t));
+}
+
 export function createGroundCoverGeometry(options: {
   seed: number;
   /**
@@ -2028,27 +2122,63 @@ export function createGroundCoverGeometry(options: {
    * disappear into the terrain around it. Anything else and the mat has a
    * visible rim, which is the decal failure again.
    */
-  const wornSteps = 5;
+  const wornSteps = 6;
   const duffSteps = 4;
 
   const worn = build(
     () => innerRadius,
     (s) => boundary[s] as number,
     wornSteps,
-    // Biased inward: the rings crowd toward the pit, which is where the camera
-    // is and where the scorch has to resolve.
-    0.78,
+    /*
+     * Biased inward, which this genuinely is now.
+     *
+     * The exponent is applied as `(i / count) ** bias`, so a value BELOW one
+     * lifts every intermediate t and pushes the rings *outward* — the old 0.78
+     * crowded them at the rim under a comment claiming it crowded them at the
+     * pit. It put exactly one vertex inside a metre and a third, which is the
+     * whole width of the burnt ground, so the scorch had nowhere to resolve
+     * however hard it was authored. Above one is inward: 1.6 places four of
+     * the six rings inside 1.7 m.
+     */
+    1.6,
     wornTile,
-    (x, z, radial) => {
+    (x, z) => {
       const grain = valueNoise2D(x / 1.7, z / 1.7, seed ^ 0x51ab) - 0.5;
       const broad = valueNoise2D(x / 5.5, z / 5.5, seed) - 0.5;
       /*
-       * Scorch. Right at the pit the ground is ash and burnt soil, not bare
-       * earth, and the ring reads as *used* rather than as merely swept
-       * because of the dark centre it surrounds.
+       * Scorch, in metres rather than in mesh parameter.
+       *
+       * It used to be a fraction of the way along the worn piece, which makes
+       * the burnt ground's width depend on how far out the trodden boundary
+       * happens to lobe on that spoke — a metre and a half on one side of the
+       * pit and half that on the other, for no reason a player could see. The
+       * ash bed does not know where people walk. It is a disc, broken at its
+       * edge, measured from the stones.
        */
-      const scorch = clamp01(1 - radial / 0.4);
-      const value = 1 + grain * 0.16 + broad * 0.14 - scorch * 0.34;
+      const r = Math.hypot(x, z);
+      const ragged = valueNoise2D(x * 1.9, z * 1.9, seed ^ 0x2c7f) - 0.5;
+      const scorch = clamp01(1 - (r - innerRadius) / SCORCH_REACH + ragged * 0.24);
+      /*
+       * And deep enough to actually be dark, which is the part that was
+       * silently false.
+       *
+       * The trodden tile is normalised to `TRODDEN_LIFT` — 1.7x the reference
+       * ground mean — so the worn piece starts 70 per cent brighter than the
+       * duff around it before any of this runs. A scorch that took 34 per cent
+       * off left the burnt ground at 1.12 of the untrodden floor: still the
+       * brightest ground in the clearing. Measured on the shipped build, the
+       * value at the stones was 89 against the duff's 74, which is the exact
+       * opposite of what a fire does to earth, and is why three art directors
+       * asked for "a dark scorched apron immediately around the stones" while
+       * looking at one that was already being drawn.
+       *
+       * 0.6 puts the centre at 0.4 of the tile, which after the lift is about
+       * 0.72 of the duff — properly darker. It is safe against the D7
+       * legibility floor precisely because it is the ground the fire is
+       * standing on: the darkest albedo in the clearing sits under the
+       * brightest light in it.
+       */
+      const value = 1 + grain * 0.16 + broad * 0.14 - scorch * 0.62;
       // Bare soil is greyer than duff, and scorched soil greyer still: the red
       // in a forest floor is the needles, and there are none here.
       return [
@@ -2072,8 +2202,40 @@ export function createGroundCoverGeometry(options: {
       // the worn ring where the sweeping piled it up.
       const fade = 1 - radial * radial;
       const bank = clamp01(1 - radial / 0.3) * 0.05;
-      const value = 1 + (grain * 0.2 + broad * 0.16 - bank) * fade;
-      return [value * (1 + 0.04 * fade), value, value * (1 - 0.05 * fade)];
+      /*
+       * The walk out to the trees, which the floor never had.
+       *
+       * `Campsite` paints three ground materials at three shades — the worn
+       * ring at 1.06, the duff at 1.00, the terrain at `CANOPY_SHADE` 0.88 —
+       * and argues at length for the resulting three-step ladder from the fire
+       * to the treeline. Two of those steps are real. The third is not on
+       * screen: the terrain only begins where the mats end, nine and a half
+       * metres out, and by then it is behind the trees and most of the way
+       * into distance fog. So the duff carried one flat value across the six
+       * metres that are the bottom half of most frames, and measured that way
+       * — 75.6, 72.7, 75.9, 73.3, 75.2, 75.2, 75.3 out of 255 at a metre's
+       * spacing, which is a wash with noise on it.
+       *
+       * The ladder belongs inside the mat, as a function of where the ground
+       * actually is rather than of which mesh happens to be drawing it. This
+       * lands the mat's rim on `CANOPY_SHADE` exactly, so the terrain picks
+       * the gradient up where the mat drops it and there is no seam to find.
+       *
+       * The middle of a clearing has the sky over it; the ground at the canopy
+       * edge is in shade most of the day and has a deeper, wetter litter on
+       * it. So most of the step is temperature rather than value, for the same
+       * reason it is on the terrain: a value step big enough to read as a step
+       * reads as two materials with a join, which is the decal failure the
+       * worn ring has already had to be rescued from once.
+       */
+      const canopy = clearingShade(Math.hypot(x, z));
+      const shaded = 1 - (canopy - 1) / CLEARING_LIFT;
+      const value = (1 + (grain * 0.2 + broad * 0.16 - bank) * fade) * canopy;
+      return [
+        value * (1 + 0.04 * fade - shaded * 0.035),
+        value,
+        value * (1 - 0.05 * fade + shaded * 0.045),
+      ];
     },
   );
 

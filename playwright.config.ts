@@ -179,6 +179,15 @@ export default defineConfig({
      */
     { name: 'invariants', testMatch: /invariants\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*
+     * The clearing floor, measured rather than looked at.
+     *
+     * Its own project because it fails on a thing no other suite can see: not
+     * that the ground is missing, but that everything drawn on it has
+     * collapsed into one value. Three art directors reported that
+     * independently and no test in the build could have.
+     */
+    { name: 'ground', testMatch: /ground\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
      * Two browser contexts at one campfire, against a real service.
      *
      * Its own project because it fails on a different thing again: not "the

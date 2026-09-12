@@ -765,31 +765,26 @@ export function Campsite({
   }, [palette.ground]);
 
   /**
-   * How much darker the ground gets on the way out to the trees.
+   * How much darker the ground gets on the way out to the trees — moved.
    *
-   * The other half of the same note: "there is almost no value step from the
-   * fire ring out to the treeline." There was not, and there could not be —
-   * the terrain and the two cover mats were being handed the same colour every
-   * frame, so the only thing separating the near ground from the far ground was
-   * the tile scale and about four per cent of distance fog.
+   * This was 0.88, multiplied into the terrain material's colour, under an
+   * argument for a three-step ladder from the fire ring to the treeline. The
+   * argument was right and the mechanism could not carry it: a material colour
+   * is one colour across everything it paints, so what the frame actually got
+   * was a step at the cover mat's rim and then six metres of clearing floor at
+   * a single value. Measured at a metre's spacing under a midday sun: 75.6,
+   * 72.7, 75.9, 73.3, 75.2, 75.2, 75.3 out of 255. That flat stretch is most
+   * of the bottom half of most frames, and it is what a panel of three art
+   * directors each described, independently, as one brown wash.
    *
-   * That is not how a clearing looks. The middle of a clearing is the part with
-   * the sky over it; the ground under the canopy edge is in shade for most of
-   * the day and has a deeper, wetter litter on it. So the terrain — everything
-   * outside the mats, which starts where the canopy starts — is taken down and
-   * cooled, and the worn ring at the centre is left brightest. Three steps from
-   * the fire to the trees, where there was one.
-   *
-   * Small numbers on purpose, and most of the step is *temperature* rather than
-   * value. This is a gradient across the largest surface in the game; a step
-   * big enough to see as a step is a step big enough to read as two different
-   * materials, which is the decal failure the worn ring already had to be
-   * rescued from once. And `e2e/night.spec.ts` measures the band between half
-   * and four fifths of the frame height, which at this camera is almost exactly
-   * this surface — so twelve per cent off its value is about as far as it can
-   * go without eating into a floor that cannot be re-measured from here.
+   * The shade is now a function of world radius applied per vertex, shared by
+   * the terrain and the duff mat so the two cannot drift apart — see
+   * `clearingShade` in `render/geometry.ts`. It is left at 1 here rather than
+   * deleted because `paint` still takes the parameter for the worn ring's 1.06
+   * lift, and because a reader arriving at this call site needs to be told the
+   * shade exists somewhere else rather than left to conclude it was dropped.
    */
-  const CANOPY_SHADE = 0.88;
+  const CANOPY_SHADE = 1;
 
   /**
    * The near ground, in two grains.
@@ -2589,7 +2584,7 @@ export function Campsite({
       </mesh>
 
       {/* Ground */}
-      <mesh geometry={terrain} material={groundMaterial} receiveShadow />
+      <mesh name="ground-terrain" geometry={terrain} material={groundMaterial} receiveShadow />
 
       {/*
         And the ground you are standing on, over the top of it.
@@ -2600,8 +2595,8 @@ export function Campsite({
         the distance the mat ends and is what keeps it winning the depth test
         against a grid that only agrees with it at its own vertices.
       */}
-      <mesh geometry={groundCover.duff} material={duffMaterial} receiveShadow />
-      <mesh geometry={groundCover.worn} material={wornMaterial} receiveShadow />
+      <mesh name="ground-duff" geometry={groundCover.duff} material={duffMaterial} receiveShadow />
+      <mesh name="ground-worn" geometry={groundCover.worn} material={wornMaterial} receiveShadow />
 
       {/*
         What is lying on it. Two more calls; nothing here is a mesh per pebble.

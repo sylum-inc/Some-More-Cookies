@@ -155,6 +155,86 @@ test.describe('the clearing floor', () => {
     );
 
     /*
+     * And the other axis, which the profile above is blind to.
+     *
+     * A radial profile cannot see a path, because a path is a difference
+     * between bearings at the same radius. The worn ground used to be a ring
+     * -- lobed by two harmonics, but a ring -- and a camp does not wear
+     * evenly: people go to the machine, to the woodpile, and out the way they
+     * came in. `LAYOUT` puts the machine at a bearing of 2.58 and the log at
+     * 2.60, which is one run; the woodpile is at about -0.49, which is the
+     * other.
+     */
+    const sweep: { bearing: number; mean: number }[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      const bearing = (i / 12) * Math.PI * 2 - Math.PI;
+      await page.evaluate(
+        ([b, ahead]) => {
+          const player = window.__someMore!.player!;
+          const stand = Math.max(0.1, 4.2 - (ahead as number));
+          player.position.x = Math.cos(b as number) * stand;
+          player.position.z = Math.sin(b as number) * stand;
+          player.facing = b as number;
+          player.pitch = -0.85;
+        },
+        [bearing, LOOK_AHEAD] as const,
+      );
+      await page.waitForTimeout(420);
+      const image = decodePng(await page.screenshot({ clip: box }));
+      let total = 0;
+      for (let px = 0; px < image.width * image.height; px += 1) {
+        total +=
+          0.299 * image.data[px * 3]! + 0.587 * image.data[px * 3 + 1]! + 0.114 * image.data[px * 3 + 2]!;
+      }
+      sweep.push({ bearing, mean: total / (image.width * image.height) });
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      '\n  ground value around the fire at 4.2 m\n' +
+        sweep
+          .map((p) => `    bearing ${p.bearing.toFixed(2).padStart(5)}   value ${p.mean.toFixed(1).padStart(5)}`)
+          .join('\n') +
+        '\n',
+    );
+
+    const around = sweep.map((p) => p.mean);
+    const anisotropy = Math.max(...around) - Math.min(...around);
+
+    /*
+     * The law: the floor is not the same in every direction.
+     *
+     * A camp whose ground is radially symmetric is a diagram of a camp. This
+     * is deliberately a floor with no ceiling — the lanes are allowed to get
+     * as strong as an art director wants, and what must never come back is
+     * the ring.
+     */
+    expect(
+      anisotropy,
+      `the clearing wears evenly in every direction, which no camp does: ${around.map((m) => m.toFixed(0)).join(', ')}`,
+    ).toBeGreaterThan(6);
+
+    /*
+     * And it runs where the camp's things are, rather than anywhere. The
+     * machine's bearing must be better trodden than the ground at right
+     * angles to it, or the lane is pointing at nothing.
+     */
+    const at = (bearing: number): number => {
+      let best = sweep[0]!;
+      for (const point of sweep) {
+        const d = Math.abs(Math.atan2(Math.sin(point.bearing - bearing), Math.cos(point.bearing - bearing)));
+        const bd = Math.abs(Math.atan2(Math.sin(best.bearing - bearing), Math.cos(best.bearing - bearing)));
+        if (d < bd) best = point;
+      }
+      return best.mean;
+    };
+    const machineBearing = Math.atan2(1.75, -2.75);
+    expect(
+      at(machineBearing),
+      'the path to the machine is no more worn than the litter beside it',
+    ).toBeGreaterThan(at(machineBearing + Math.PI / 2));
+
+    /*
      * And a picture of the thing the numbers are about.
      *
      * A profile is the right instrument for "is there a ladder" and a useless

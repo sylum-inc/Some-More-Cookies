@@ -1981,6 +1981,68 @@ export function clearingShade(radius: number): number {
   return 1 + CLEARING_LIFT * (1 - t * t * (3 - 2 * t));
 }
 
+/**
+ * A path worn out of the clearing toward something worth walking to.
+ *
+ * `bearing` is the world angle from the fire, `reach` how much further out the
+ * trodden ground goes along it in metres, and `width` the half-angle it
+ * subtends.
+ */
+export interface WornLane {
+  readonly bearing: number;
+  readonly reach: number;
+  readonly width: number;
+}
+
+/**
+ * How trodden the ground is at a given bearing, 0..1.
+ *
+ * The worn ground was a ring — lobed by two harmonics, but a ring. A camp
+ * does not wear evenly: people go to the machine, to the woodpile, and out
+ * the way they came in, and the ground between those runs keeps its litter.
+ * A panel of three art directors each asked for this in their own words, the
+ * clearest being "a paler compacted lane running from fire to log to machine
+ * and off toward the creek, deep rust needle-duff banked up where nobody
+ * steps".
+ *
+ * The falloff is Gaussian rather than a cone because a path has no edge — it
+ * fades into the litter either side of it, and a hard-edged one would be the
+ * decal failure this ground has already had to be rescued from twice.
+ */
+export function laneInfluence(angle: number, lanes: readonly WornLane[]): number {
+  let most = 0;
+  for (const lane of lanes) {
+    most = Math.max(most, laneFalloff(angle, lane));
+  }
+  return most;
+}
+
+/**
+ * How much further out the trodden ground goes at this bearing, in metres.
+ *
+ * Separate from `laneInfluence` because the two are different questions: how
+ * *worn* the ground is here, which is a ratio, and how far the wear *reaches*,
+ * which is a distance. Folding them into one number and multiplying by the
+ * first lane's reach — as the first version of this did — gives every lane the
+ * first one's length and throws outright when there are none.
+ */
+export function laneReach(angle: number, lanes: readonly WornLane[]): number {
+  let most = 0;
+  for (const lane of lanes) {
+    most = Math.max(most, lane.reach * laneFalloff(angle, lane));
+  }
+  return most;
+}
+
+function laneFalloff(angle: number, lane: WornLane): number {
+  // Shortest way round the circle, so a lane at 3.1 rad still reaches a
+  // spoke at -3.1.
+  let delta = angle - lane.bearing;
+  delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+  const t = delta / lane.width;
+  return Math.exp(-t * t);
+}
+
 export function createGroundCoverGeometry(options: {
   seed: number;
   /**
@@ -2002,6 +2064,8 @@ export function createGroundCoverGeometry(options: {
   /** Metres per texture tile, per piece. */
   wornTile?: number;
   duffTile?: number;
+  /** Paths worn out of the clearing. See `laneInfluence`. */
+  lanes?: readonly WornLane[];
 }): GroundCover {
   const seed = options.seed;
   const innerRadius = options.innerRadius ?? 0.58;
@@ -2026,6 +2090,7 @@ export function createGroundCoverGeometry(options: {
    * to be visible.
    */
   const duffTile = options.duffTile ?? 2;
+  const lanes = options.lanes ?? [];
   const height = options.height;
 
   /*
@@ -2041,7 +2106,10 @@ export function createGroundCoverGeometry(options: {
     const angle = (s / spokes) * Math.PI * 2;
     const lobe = Math.sin(angle * 2 + phaseA) * 0.42 + Math.sin(angle * 3 + phaseB) * 0.26;
     const grain = valueNoise2D(Math.cos(angle) * 4, Math.sin(angle) * 4, seed ^ 0x77a3) - 0.5;
-    boundary[s] = wornRadius * (1 + lobe * 0.22) + grain * 0.5;
+    // And the paths, which is what turns a ring into a camp. The lobes above
+    // are still there: a lane is where people go *most*, not the only place
+    // the ground is bare.
+    boundary[s] = wornRadius * (1 + lobe * 0.22) + grain * 0.5 + laneReach(angle, lanes);
   }
 
   /** Radii for one piece, packed toward the inside so the near ground is finer. */
@@ -2201,7 +2269,16 @@ export function createGroundCoverGeometry(options: {
       // Faded out at the rim so the mat has no edge, and thickest just outside
       // the worn ring where the sweeping piled it up.
       const fade = 1 - radial * radial;
-      const bank = clamp01(1 - radial / 0.3) * 0.05;
+      /*
+       * Litter banked where nobody steps.
+       *
+       * The complement of the lanes, and the other half of what makes a path
+       * read as a path: the ground between the runs is not merely un-swept,
+       * it is where the needles that were swept off the runs ended up. Deeper
+       * litter is darker and redder, so this both darkens and warms.
+       */
+      const between = 1 - laneInfluence(Math.atan2(z, x), lanes);
+      const bank = clamp01(1 - radial / 0.3) * 0.05 + between * 0.07;
       /*
        * The walk out to the trees, which the floor never had.
        *

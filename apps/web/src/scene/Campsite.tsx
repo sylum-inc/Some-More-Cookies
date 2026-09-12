@@ -31,6 +31,7 @@ import {
   type SkyLook,
 } from '../render/daylight.js';
 import { TIER_TINT, starTier } from './NightSky.js';
+import { LAYOUT } from './layout.js';
 
 /** Ground below this is under water, so nothing is planted in it. */
 const WATERLINE = -0.14;
@@ -795,6 +796,32 @@ export function Campsite({
    * in this scene that should shrink, since it is what the player is standing
    * on.
    */
+  /**
+   * Where the camp has worn paths, taken from where the camp's things are.
+   *
+   * Not seeded, and not decorative. `LAYOUT` puts the machine at (-2.75, 1.75)
+   * and the log people sit on at (-1.5, 0.9) — bearings of 2.575 and 2.601,
+   * which is one run, not two — and the woodpile at about (1.7, -0.9), which
+   * is the other. So the two lanes are literally "fire to log to machine" and
+   * "fire to woodpile and out to the wood", which is what a panel of three
+   * critics asked for and is also just where a person at this campsite
+   * actually walks.
+   *
+   * The machine lane reaches furthest because the machine stands at 3.3 m,
+   * outside the trodden ring, so the path has to get there and then past it.
+   */
+  const wornLanes = useMemo(
+    () => [
+      {
+        bearing: Math.atan2(LAYOUT.machine[2], LAYOUT.machine[0]),
+        reach: 2.6,
+        width: 0.5,
+      },
+      { bearing: Math.atan2(-0.9, 1.7), reach: 1.8, width: 0.42 },
+    ],
+    [],
+  );
+
   const groundCover = useMemo(
     () =>
       createGroundCoverGeometry({
@@ -802,8 +829,9 @@ export function Campsite({
         spokes: drawDistance < 26 ? 14 : drawDistance < 36 ? 20 : 26,
         outerRadius: 9.4,
         height: groundAt,
+        lanes: wornLanes,
       }),
-    [seed, groundAt, drawDistance],
+    [seed, groundAt, drawDistance, wornLanes],
   );
   useEffect(
     () => () => {

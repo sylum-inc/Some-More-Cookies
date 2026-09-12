@@ -43,6 +43,43 @@ export const STAGE_IDS = [
 
 export type StageId = (typeof STAGE_IDS)[number];
 
+/**
+ * The simulation stage each captured frame must be standing in.
+ *
+ * The capture labels are finer than the ritual's own stages on purpose --
+ * `fire-tended`, `ember-bed` and `at-fire` are three different pictures of one
+ * `at-fire`, which is the whole reason the sheet is worth having. That makes
+ * "the frame is named X so the stage should be X" wrong for most of them, and
+ * the gallery's first attempt at proving its claims duly reported that
+ * `ritual-arrival.png` was captured at `arriving`, which is correct and not a
+ * defect.
+ *
+ * So the mapping is written down rather than inferred. Its value is in the
+ * many-to-one entries: it says that `machine-armed` and `freezing` are both
+ * `machine`, and it will fail loudly on the day a capture is taken at a stage
+ * that has moved on without it -- which is the failure that put a snow frame
+ * under a storm glyph and a "heavy rain" frame with no rain in it.
+ */
+export const STAGE_SIM: Readonly<Record<StageId, string>> = {
+  arrival: 'arriving',
+  'at-fire': 'at-fire',
+  'fire-tended': 'at-fire',
+  'ember-bed': 'at-fire',
+  roasting: 'roasting',
+  roasted: 'roasting',
+  assembling: 'assembling',
+  // The sandwich is built and you have carried it to the SM-01.
+  assembled: 'machine',
+  'machine-idle': 'machine',
+  'machine-armed': 'machine',
+  processing: 'machine',
+  freezing: 'machine',
+  complete: 'machine',
+  reveal: 'reveal',
+  eating: 'eating',
+  bitten: 'eating',
+};
+
 /** Called once the world has settled into each stage. */
 export type StageVisitor = (stage: StageId, page: Page) => Promise<void>;
 

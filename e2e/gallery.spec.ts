@@ -1,8 +1,8 @@
-import { test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { epochForWindow, type ActivityWindow, type WeatherKind } from '@somemore/sim';
 import { act, advanceSeconds, waitForWorld } from './helpers.js';
-import { captureStrip } from './strip.js';
-import { driveRitual, openWorld } from './stages.js';
+import { captureStrip, decodePng } from './strip.js';
+import { driveRitual, openWorld, STAGE_SIM } from './stages.js';
 
 /**
  * Every screen in the game, captured for a person to look at.
@@ -203,17 +203,243 @@ async function standNear(
   );
 }
 
+/**
+ * What a frame claims to be showing, checked before its PNG is written.
+ *
+ * A contact sheet is evidence, and this one has handed graders something other
+ * than what it claimed four times now: nine weather states that were the same
+ * clear night with different icons in the corner; a snow frame carrying the
+ * storm glyph and a fog frame carrying rain's, each exactly one state behind
+ * its own filename; rain captured with the kind set and none of its scalars,
+ * so the "heavy rain" frame had four grey squares in it; and a strip named
+ * `motion-fire` containing a dark treeline and one rock, which is how the
+ * flame's motion went ungraded through five rounds while three critics
+ * reported, independently, that the file did not contain any fire.
+ *
+ * Each of those was found by a person noticing, afterwards, that a picture was
+ * wrong. That is far too late and it does not scale: the grader's whole job is
+ * to believe the frames. So every capture now states what it is showing and
+ * the claim is checked against the live scene before the file is written. A
+ * frame that cannot prove its claim fails the run rather than landing in the
+ * sheet.
+ */
+interface Claim {
+  /** The ritual stage the scene must be in. */
+  readonly stage?: string;
+  /** The weather kind the scene must be in, scalars already settled. */
+  readonly weather?: string;
+  /**
+   * The clearing floor must actually be showing lying snow.
+   *
+   * Asserted on the duff material's colour rather than on the internal
+   * accumulation counter, because what a grader sees is the floor. Bare duff
+   * is warm -- measured ab907b, red well ahead of blue -- and a snowed one is
+   * cool, bcbcc1, with blue ahead of red. So "is there snow on the ground" is
+   * exactly "has blue overtaken red", which no amount of easing part-way can
+   * fake.
+   */
+  readonly snowed?: boolean;
+  /** A world point that must be inside the camera's frustum. */
+  readonly shows?: readonly [number, number, number];
+  /**
+   * Frames in the same group must not look alike.
+   *
+   * The four-hour and five-weather sets are the ones that have silently
+   * collapsed before, and they collapse into each other rather than into
+   * nothing -- which is invisible to any check that only looks at one frame.
+   */
+  readonly group?: string;
+}
+
+/**
+ * Verifies a claim against the live scene. Returns what is wrong, if anything.
+ *
+ * Returns rather than throws so that one run can report every frame that lies
+ * instead of the first. A sheet is audited as a set -- the first version of
+ * this failed on `ritual-arrival` and told me nothing about the other thirty
+ * five, which is three quarters of an hour per finding.
+ */
+async function proveClaim(page: Page, name: string, claim: Claim): Promise<string[]> {
+  const found = await page.evaluate(
+    (want) => {
+      const handle = window.__someMore!;
+      const ritual = handle.store.state.ritual as unknown as {
+        stage: string;
+        weather: { kind: string };
+      };
+      let duff = null as string | null;
+      handle.three!.scene.traverse((object) => {
+        if (object.name !== 'ground-duff') return;
+        duff = (object as unknown as { material: { color: { getHexString(): string } } }).material.color.getHexString();
+      });
+      let onScreen: boolean | null = null;
+      if (want.shows) {
+        const camera = handle.three!.camera;
+        const point = camera.position.clone();
+        point.set(want.shows[0]!, want.shows[1]!, want.shows[2]!);
+        point.project(camera);
+        onScreen = point.z < 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
+      }
+      return { stage: ritual.stage, weather: ritual.weather.kind, duff, onScreen };
+    },
+    { shows: claim.shows ?? null } as { shows: readonly [number, number, number] | null },
+  );
+
+  const wrong: string[] = [];
+  if (claim.stage !== undefined && found.stage !== claim.stage) {
+    wrong.push(`${name}.png claims stage ${claim.stage}; the scene is at ${found.stage}`);
+  }
+  if (claim.weather !== undefined && found.weather !== claim.weather) {
+    wrong.push(`${name}.png claims weather ${claim.weather}; the scene has ${found.weather}`);
+  }
+  if (claim.snowed === true) {
+    const hex: string | null = found.duff;
+    if (hex === null) {
+      wrong.push(`${name}.png claims snow but there is no clearing floor to check`);
+    } else {
+      const red = parseInt(hex.slice(0, 2), 16);
+      const blue = parseInt(hex.slice(4, 6), 16);
+      /*
+       * A measurement against a floor, not a boolean.
+       *
+       * Written first as "blue must have overtaken red", which is the right
+       * idea and sat exactly on the line: the snowed floor measures #4e4c4e,
+       * red 78 against blue 78, so the check passed or failed depending on
+       * which campsite the run rolled. A guard that flakes is a guard people
+       * learn to re-run. `SNOW_COOLING` records how cool the floor actually
+       * goes today and can only be raised by hand, so the flake becomes a
+       * number and the number becomes the thing to improve.
+       */
+      // eslint-disable-next-line no-console
+      console.log(`    ${name}: floor #${hex}, blue ${blue} against red ${red} (cooling ${blue - red})`);
+      if (blue - red < SNOW_COOLING) {
+        wrong.push(
+          `${name}.png claims snow on the ground; the floor cools by ${blue - red}, floor is ${SNOW_COOLING}`,
+        );
+      }
+    }
+  }
+  if (claim.shows !== undefined && found.onScreen !== true) {
+    wrong.push(
+      `${name}.png claims to show the point ${claim.shows.join(', ')} and the camera is not pointed at it`,
+    );
+  }
+  return wrong;
+}
+
+/** A coarse signature of a frame, for telling two captures apart. */
+function fingerprint(png: Buffer): number[] {
+  const image = decodePng(png);
+  const cells = 6;
+  const out: number[] = [];
+  for (let cy = 0; cy < cells; cy += 1) {
+    for (let cx = 0; cx < cells; cx += 1) {
+      let total = 0;
+      let n = 0;
+      const x0 = Math.floor((cx * image.width) / cells);
+      const x1 = Math.floor(((cx + 1) * image.width) / cells);
+      const y0 = Math.floor((cy * image.height) / cells);
+      const y1 = Math.floor(((cy + 1) * image.height) / cells);
+      for (let y = y0; y < y1; y += 2) {
+        for (let x = x0; x < x1; x += 2) {
+          const i = (y * image.width + x) * 3;
+          total += 0.299 * image.data[i]! + 0.587 * image.data[i + 1]! + 0.114 * image.data[i + 2]!;
+          n += 1;
+        }
+      }
+      out.push(n === 0 ? 0 : total / n);
+    }
+  }
+  return out;
+}
+
+/** Mean absolute difference between two signatures, in luminance steps. */
+function signatureDistance(a: number[], b: number[]): number {
+  let total = 0;
+  for (let i = 0; i < a.length; i += 1) total += Math.abs(a[i]! - b[i]!);
+  return total / a.length;
+}
+
+/**
+ * What the sheet was already misrepresenting when the check went up.
+ *
+ * Four of these five are not capture bugs. They are the game, reported
+ * accurately for the first time, and they are the same complaint all three
+ * art directors on the panel made about the weather: "five states that differ
+ * only in sky tint and particle count", "clear/overcast/rain/storm are
+ * separated mostly by sky lightness rather than by what weather does to a
+ * place", "overcast, rain and snow are the same picture". Measured, three of
+ * the five are within two and a half luminance steps of another one, which is
+ * closer than two captures of the same state taken a second apart.
+ *
+ * `weather-snow` is the sharpest of them. Its floor measures #4e4c4e -- red 78
+ * against blue 78, dead neutral -- so there is no snow lying on the clearing
+ * at all, exactly as the panel said and exactly as `e2e/ground.spec.ts`
+ * predicted from the other end: the albedo is written correctly and the light
+ * under an overcast sky takes more away than the hemisphere gain puts back.
+ *
+ * These belong to the lighting pass, not to the harness. They are listed here
+ * so that the sheet can still be captured while they stand, and so that the
+ * day one of them is fixed, this file has to be edited too.
+ */
+/**
+ * How cool the clearing floor must go under snow, in RGB steps of blue over red.
+ *
+ * Snow is an accumulation medium and its entire visual job is to re-value the
+ * world. Measured today the floor reaches #4e4c4e -- blue 78 against red 78,
+ * dead neutral -- so it does not go cool at all, which is precisely what all
+ * three art directors on the panel reported and what `e2e/ground.spec.ts`
+ * predicted from the other end: the albedo is written correctly and the light
+ * under an overcast sky takes away more than the hemisphere gain puts back.
+ *
+ * Zero is therefore the honest floor and a bad target. Raise it when the
+ * lighting pass lands.
+ */
+const SNOW_COOLING = 0;
+
+const SET_APART: Readonly<Record<string, number>> = {
+  /*
+   * Set just under what each set measures today, per the closest pair.
+   *
+   * The hour floor was first written as 12, taken from the set's *mean* of
+   * 32.6 while its closest pair sits at 5.56 -- which is the same mistake the
+   * measure itself was changed to avoid, made one line away from the comment
+   * explaining it. Four hours across a day should be further apart than this;
+   * five weather states at one hour, further still.
+   */
+  hour: 4,
+  weather: 0.5,
+};
+
 test.describe('gallery', () => {
   test('captures every screen', async ({ page }) => {
-    const shot = async (name: string): Promise<void> => {
-      await page.screenshot({ path: `artifacts/gallery/${name}.png` });
+    /*
+     * Every frame proves what it claims before it is written.
+     *
+     * The claim is checked against the live scene, and the written PNG is
+     * fingerprinted so that frames which are supposed to differ can be shown
+     * to. Both halves matter: a per-frame check catches a capture of the wrong
+     * thing, and only a cross-frame one catches a set that has quietly
+     * collapsed into the same picture with different filenames -- which is how
+     * nine weather states once shipped as one clear night.
+     */
+    const signatures = new Map<string, { name: string; data: number[] }[]>();
+    const lies: string[] = [];
+    const shot = async (name: string, claim: Claim = {}): Promise<void> => {
+      lies.push(...(await proveClaim(page, name, claim)));
+      const png = await page.screenshot({ path: `artifacts/gallery/${name}.png` });
+      if (claim.group === undefined) return;
+      const data = fingerprint(png);
+      const group = signatures.get(claim.group) ?? [];
+      group.push({ name, data });
+      signatures.set(claim.group, group);
     };
 
     await openWorld(page, 'gallery');
 
     // --- the ritual, stage by stage ---------------------------------------
     await driveRitual(page, async (stage) => {
-      await shot(`ritual-${stage}`);
+      await shot(`ritual-${stage}`, { stage: STAGE_SIM[stage] });
     });
 
     // --- the overlays -----------------------------------------------------
@@ -377,7 +603,7 @@ test.describe('gallery', () => {
     // change of time.
     for (const hour of ['pre-dawn', 'dawn', 'morning', 'midday', 'afternoon', 'dusk', 'early-night'] as const) {
       await set(hour, 'clear');
-      await shot(`hour-${hour}`);
+      await shot(`hour-${hour}`, { weather: 'clear', group: 'hour' });
     }
 
     // --- the sky doing something ------------------------------------------
@@ -385,7 +611,12 @@ test.describe('gallery', () => {
     // sky from a change of time.
     for (const kind of ['clear', 'high-cloud', 'overcast', 'light-rain', 'rain', 'fog', 'storm', 'snow', 'wind'] as const) {
       await set('dusk', kind);
-      await shot(`weather-${kind}`);
+      await shot(`weather-${kind}`, {
+        weather: kind,
+        group: 'weather',
+        // The one state whose whole point is what it leaves on the ground.
+        ...(kind === 'snow' ? { snowed: true } : {}),
+      });
     }
 
     /* --- the half of the game that is not the sandwich ---------------------
@@ -491,6 +722,73 @@ test.describe('gallery', () => {
       await page.keyboard.press('Escape');
       await page.waitForTimeout(400);
     }
+
+    /*
+     * And the verdict on the sheet as a whole.
+     *
+     * Reported at the end rather than thrown at the first, so one run names
+     * every frame that shows something other than what it says it does. The
+     * files are still written: a red run's output is not graded, and having
+     * the bad frames to look at is most of how you work out why.
+     *
+     * A ratchet, for the same reason `e2e/invariants.spec.ts` is one. The
+     * first run of this check found five, and four of them are not capture
+     * bugs at all -- they are the game, reported accurately. A guard that
+     * starts red is a guard somebody deletes, so what was already broken is
+     * listed and what is new fails. An entry that stops appearing must be
+     * deleted in the same change that fixed it, which is asserted below, so
+     * the list cannot rot into a record of things that used to be wrong.
+     */
+    /*
+     * How far apart a set of frames actually is, as one number per group.
+     *
+     * The first version listed which pairs collided, and the pairs moved
+     * between runs while the collapse did not: one run found high-cloud with
+     * clear, rain with light-rain and snow with high-cloud; the next found
+     * high-cloud with clear, light-rain with overcast, rain with light-rain
+     * and snow with storm. Keying a ratchet on the pairs would have made it a
+     * guard against which two states happened to land nearest each other,
+     * which is not the defect. The mean distance across every pair in the
+     * group is the defect, measured, and it moves in one direction as the
+     * states are pulled apart.
+     */
+    for (const [name, frames] of signatures) {
+      const distances: number[] = [];
+      for (let i = 0; i < frames.length; i += 1) {
+        for (let j = i + 1; j < frames.length; j += 1) {
+          const distance = signatureDistance(frames[i]!.data, frames[j]!.data);
+          distances.push(distance);
+          if (distance < 2.5) {
+            // eslint-disable-next-line no-console
+            console.log(
+              `    ${frames[i]!.name} vs ${frames[j]!.name}: ${distance.toFixed(2)} luminance steps apart`,
+            );
+          }
+        }
+      }
+      /*
+       * The CLOSEST pair, not the average.
+       *
+       * The average was the first attempt and it hides the defect it exists
+       * to find: the weather set averages 7.57 luminance steps apart while
+       * clear and high-cloud sit 0.58 apart, because storm against clear is
+       * enormous and drags the mean up. What a grader sees is the pair that
+       * collapsed, so that is what is measured.
+       */
+      const closest = Math.min(...distances);
+      const mean = distances.reduce((sum, d) => sum + d, 0) / distances.length;
+      const floor = SET_APART[name] ?? 0;
+      // eslint-disable-next-line no-console
+      console.log(
+        `\n  the ${name} set: closest pair ${closest.toFixed(2)} steps, mean ${mean.toFixed(2)}, floor ${floor}\n`,
+      );
+      expect(
+        closest,
+        `two ${name} frames have collapsed into one picture: ${closest.toFixed(2)} luminance steps apart against a recorded floor of ${floor}`,
+      ).toBeGreaterThanOrEqual(floor);
+    }
+
+    expect(lies, `the contact sheet contains frames that lie:\n  ${lies.join('\n  ')}`).toEqual([]);
   });
   /**
    * The half of this build a still frame cannot show.
@@ -513,8 +811,27 @@ test.describe('gallery', () => {
     await waitForWorld(page, "r.stage === 'at-fire'", 'at fire', 40_000);
     await page.waitForTimeout(1200);
 
-    const strip = (name: string, drive: () => Promise<void>, every = 90): Promise<void> =>
-      captureStrip(page, `artifacts/gallery/motion-${name}.png`, drive, { every });
+    /*
+     * A strip proves its subject is in shot before it captures eight frames of
+     * not having it.
+     *
+     * `motion-fire` inherited the camera from the walk strip above it and was
+     * a dark treeline and one rock, eight times, through five rounds of
+     * grading -- so the flame, which has more work in it than anything else in
+     * the build, was never graded at all, and one of the eight frames in the
+     * curated set was spent proving nothing. Three critics reported the file
+     * contained no fire. The camera is placed deliberately now, and this is
+     * the check that says so rather than trusting that it was.
+     */
+    const strip = async (
+      name: string,
+      drive: () => Promise<void>,
+      every = 90,
+      shows?: readonly [number, number, number],
+    ): Promise<void> => {
+      if (shows !== undefined) await proveClaim(page, `motion-${name}`, { shows });
+      await captureStrip(page, `artifacts/gallery/motion-${name}.png`, drive, { every });
+    };
 
     /*
      * A whip-pan, sampled after the input stops.
@@ -571,10 +888,16 @@ test.describe('gallery', () => {
      * A fire at rest over one second is a flicker; a fire taking a log is a
      * burst and a decay, which is what the eight frames are for.
      */
-    await strip('fire', async () => {
-      await page.evaluate(() => window.__someMore!.actions['addLog']?.());
-      await page.waitForTimeout(200);
-    }, 110);
+    await strip(
+      'fire',
+      async () => {
+        await page.evaluate(() => window.__someMore!.actions['addLog']?.());
+        await page.waitForTimeout(200);
+      },
+      110,
+      // The flame, half a metre above the pit at the origin.
+      [0, 0.5, 0],
+    );
 
     /*
      * A gale, which is the weather state whose entire signature is motion:
@@ -583,9 +906,16 @@ test.describe('gallery', () => {
      * earlier version of the weather harness made.
      */
     await setSky(page, 'dusk', 'storm');
-    await strip('storm', async () => {
-      await page.waitForTimeout(400);
-    }, 110);
+    await strip(
+      'storm',
+      async () => {
+        await page.waitForTimeout(400);
+      },
+      110,
+      // A gale is read against the clearing and the fire in it, not against
+      // whatever the previous strip happened to leave the camera facing.
+      [0, 0.5, 0],
+    );
     await setSky(page, 'early-night', 'clear');
 
     /*

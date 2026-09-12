@@ -279,4 +279,302 @@ test.describe('the clearing floor', () => {
       expect(point.grain, `no grain in the floor at ${point.radius} m`).toBeGreaterThan(3);
     }
   });
+
+  /*
+   * Whether the floor answers the sky.
+   *
+   * All three critics on the panel reported that the weather states are one
+   * composition with a sky swap, and all three singled out snow: "the ground
+   * is the same rust-brown dirt as `weather-clear.png`, with a handful of
+   * white dots in the air", measured by one of them at RGB (39,23,16) against
+   * overcast's (36,19,10). Snow is an accumulation medium. Its entire visual
+   * job is to re-value the world -- the ground becomes the LIGHTEST thing in
+   * frame and the silhouettes invert -- and a snow that only falls is
+   * overcast with dandruff.
+   *
+   * `Campsite.paint` does write settling, wetness and chill into all three
+   * ground materials, so this is the question this project has to ask of
+   * every feature: by how much, once it reaches a pixel.
+   */
+  test('the floor answers the sky', async ({ page }) => {
+    await openWorld(page, 'ground', 'pine_hollow', 'mid');
+    await act(page, 'arrive');
+    await waitForWorld(page, "r.stage === 'at-fire'", 'at fire', 40_000);
+
+    await page.evaluate(() => {
+      const ritual = window.__someMore!.store.state.ritual as unknown as {
+        stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
+      };
+      const now = new Date(ritual.stargazing.epochMs);
+      now.setUTCHours(17, 0, 0, 0);
+      ritual.stargazing.epochMs = now.getTime();
+      ritual.stargazing.elapsed = 0;
+      ritual.stargazing.secondsUntilSkyRefresh = 0;
+    });
+    await page.waitForTimeout(2000);
+
+    // Stood on the duff, off the worn ring and off the lanes, looking down.
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      const bearing = 0.8;
+      player.position.x = Math.cos(bearing) * 3.2;
+      player.position.z = Math.sin(bearing) * 3.2;
+      player.facing = bearing;
+      player.pitch = -0.85;
+    });
+
+    const size = page.viewportSize() ?? { width: 1280, height: 720 };
+    const box = {
+      x: Math.round(size.width / 2 - 60),
+      y: Math.round(size.height / 2 - 40),
+      width: 120,
+      height: 80,
+    };
+
+    const CHARACTER: Record<string, Record<string, number>> = {
+      clear: { precipitation: 0, fog: 0.04, cloud: 0.05, wind: 0.6 },
+      rain: { precipitation: 0.7, fog: 0.3, cloud: 1, wind: 2.2 },
+      snow: { precipitation: 0.5, fog: 0.45, cloud: 0.95, wind: 1.3 },
+    };
+
+    const floorUnder = async (kind: string): Promise<{ r: number; g: number; b: number; lum: number }> => {
+      // Dry it out and melt it off first, so each sky is measured on its own.
+      await page.evaluate(() => {
+        const weather = window.__someMore!.store.state.ritual.weather as unknown as Record<string, unknown>;
+        weather['kind'] = 'clear';
+        weather['nextKind'] = 'clear';
+        weather['transition'] = 1;
+        weather['precipitation'] = 0;
+        weather['fog'] = 0.04;
+        weather['cloudCover'] = 0.05;
+        weather['windSpeed'] = 0.6;
+        weather['secondsUntilTransition'] = 100_000;
+      });
+      await page.waitForTimeout(14_000);
+      await page.evaluate(
+        ([k, c]) => {
+          /*
+           * Re-pin the hour for every sample, not once for the test.
+           *
+           * The simulation's clock keeps running, and the sky is recomputed
+           * every twenty simulated seconds. Three samples that each wait nine
+           * seconds for snow to lie are spread across half a minute, so the
+           * first version of this measured a clear floor early in the
+           * afternoon against a snowy one appreciably later in it -- and
+           * reported that snow makes the ground darker, which is what a critic
+           * had reported too, from a capture with the same flaw in it. The
+           * material colour was going from ab907b to bcbcc1 the whole time.
+           */
+          const ritual = window.__someMore!.store.state.ritual as unknown as {
+            stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
+          };
+          const noon = new Date(ritual.stargazing.epochMs);
+          noon.setUTCHours(17, 0, 0, 0);
+          ritual.stargazing.epochMs = noon.getTime();
+          ritual.stargazing.elapsed = 0;
+          ritual.stargazing.secondsUntilSkyRefresh = 0;
+          const weather = window.__someMore!.store.state.ritual.weather as unknown as Record<string, unknown>;
+          weather['kind'] = k;
+          weather['nextKind'] = k;
+          weather['transition'] = 1;
+          weather['precipitation'] = c!['precipitation'];
+          weather['fog'] = c!['fog'];
+          weather['cloudCover'] = c!['cloud'];
+          weather['windSpeed'] = c!['wind'];
+          weather['secondsUntilTransition'] = 100_000;
+        },
+        [kind, CHARACTER[kind]!] as const,
+      );
+      /*
+       * Long enough for snow to actually lie.
+       *
+       * `Campsite` eases lying snow toward its target rather than assigning it
+       * -- deliberately, because snow arriving in one frame reads as a cut --
+       * so a capture taken a second after setting the kind is a capture of the
+       * weather before it. That mistake has been made twice in this repo's
+       * harnesses already.
+       */
+      await page.waitForTimeout(12_000);
+      // The wait is itself most of a simulated minute, so the hour is pinned
+      // again on the way out and given a moment to take.
+      await page.evaluate(() => {
+        const ritual = window.__someMore!.store.state.ritual as unknown as {
+          stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
+        };
+        const noon = new Date(ritual.stargazing.epochMs);
+        noon.setUTCHours(17, 0, 0, 0);
+        ritual.stargazing.epochMs = noon.getTime();
+        ritual.stargazing.elapsed = 0;
+        ritual.stargazing.secondsUntilSkyRefresh = 0;
+      });
+      await page.waitForTimeout(700);
+      const image = decodePng(await page.screenshot({ clip: box }));
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      const n = image.width * image.height;
+      for (let i = 0; i < n; i += 1) {
+        r += image.data[i * 3]!;
+        g += image.data[i * 3 + 1]!;
+        b += image.data[i * 3 + 2]!;
+      }
+      r /= n;
+      g /= n;
+      b /= n;
+      return { r, g, b, lum: 0.299 * r + 0.587 * g + 0.114 * b };
+    };
+
+    /*
+     * Each sky measured from a dry, unsnowed floor, which the first version of
+     * this did not do and was wrong because of it.
+     *
+     * Wetness is deliberately a floor rather than a scale -- an hour into a
+     * drizzle the ground is wet whether or not it is raining at this instant
+     * -- and lying snow eases away at 0.12 a second, slower than it arrives.
+     * So three samples taken back to back measure the third weather on top of
+     * the first two, and this test's first run duly reported that snow makes
+     * the ground darker: it was reading a snowed floor that was still soaked
+     * from the rain sample before it. A critic reported the same thing from a
+     * capture with a related flaw, and the defect is in the harness both
+     * times, not in the game.
+     */
+    const clear = await floorUnder('clear');
+    const rain = await floorUnder('rain');
+    const snow = await floorUnder('snow');
+
+    const show = (name: string, v: { r: number; g: number; b: number; lum: number }): string =>
+      `    ${name.padEnd(6)} rgb(${v.r.toFixed(0).padStart(3)},${v.g.toFixed(0).padStart(3)},${v.b.toFixed(0).padStart(3)})  value ${v.lum.toFixed(1).padStart(5)}  warmth ${(v.r - v.b).toFixed(1).padStart(5)}`;
+    // eslint-disable-next-line no-console
+    console.log(
+      '\n  the clearing floor at 3.2 m, under three skies\n' +
+        [show('clear', clear), show('rain', rain), show('snow', snow)].join('\n') +
+        '\n',
+    );
+
+    /*
+     * Rain darkens rather than brightens: wet duff goes near-black and the
+     * light that comes back off it is the sky's, not the ground's. This one
+     * holds.
+     */
+    expect(rain.lum, 'rain does not wet the ground').toBeLessThan(clear.lum);
+
+    /*
+     * And every weather cools the floor, which also holds: measured, warmth
+     * -- how far red runs ahead of blue -- falls from 28.0 under a clear sky
+     * to 11.4 in rain and 10.9 in snow. The chill reaches the screen.
+     */
+    expect(rain.r - rain.b, 'rain leaves the ground as warm as a clear day').toBeLessThan(
+      (clear.r - clear.b) * 0.75,
+    );
+    expect(snow.r - snow.b, 'the snow on the ground is brown').toBeLessThan(
+      (clear.r - clear.b) * 0.75,
+    );
+
+    /*
+     * Snow's lift is the one thing here that does not hold, and it is asserted
+     * in its own test below rather than folded in here, so that this one can
+     * guard what does.
+     */
+    expect(snow.lum, 'recorded so a change in either direction shows up').toBeLessThan(clear.lum);
+  });
+
+  test('snow lies on the ground and lifts it', async ({ page }) => {
+    /*
+     * Known broken, and kept red on purpose.
+     *
+     * `test.fail()` inside the body means "this is expected to fail": the run
+     * stays green while it does, and it fails the build the day it starts
+     * passing. That is the only form of a recorded gap that cannot quietly
+     * become a recorded lie -- it is not a skipped test, and it is not an
+     * assertion weakened until it matched the bug.
+     *
+     * All three critics on the panel reported that snow does not accumulate --
+     * "overcast with dandruff", "snow is a ground event before it is a
+     * particle event", one of them measuring the ground at RGB (39,23,16)
+     * against overcast's (36,19,10). They are right, and the cause is NOT the
+     * failure this codebase usually finds. The albedo works: `Campsite.paint`
+     * takes the duff material from ab907b to bcbcc1, 26 per cent brighter and
+     * properly cool, and `lying` eases 0.56 of the way to `SNOW_LYING` exactly
+     * as written. Measured here, the floor's warmth does collapse, from 28.1
+     * to 17.9.
+     *
+     * The light is what fails. A snow sky in this renderer is a sky with its
+     * sun switched off: cloud cover of 0.95 kills the direct term, and the
+     * hemisphere gain meant to compensate (`topLight` 2.1) does not come
+     * close. The floor lands at 54.0 against a clear day's 64.6, so a surface
+     * 26 per cent brighter renders 16 per cent darker. An overcast snow sky in
+     * the world is not a dark one -- it is an enormous bright diffuser, and
+     * that is the whole reason a snowfield is dazzling under cloud.
+     *
+     * Fixing it is a change to the lighting model rather than to the ground,
+     * and it needs the night and visual suites re-measured against the D7
+     * floor afterwards. Picking a multiplier and raising it until this
+     * assertion goes green is exactly the mistake already made once this
+     * session, on the haze, where a number tuned against a failing test simply
+     * broke somewhere else instead.
+     */
+    test.fail();
+
+    await openWorld(page, 'ground', 'pine_hollow', 'mid');
+    await act(page, 'arrive');
+    await waitForWorld(page, "r.stage === 'at-fire'", 'at fire', 40_000);
+
+    const size = page.viewportSize() ?? { width: 1280, height: 720 };
+    const box = {
+      x: Math.round(size.width / 2 - 60),
+      y: Math.round(size.height / 2 - 40),
+      width: 120,
+      height: 80,
+    };
+    await page.evaluate(() => {
+      const player = window.__someMore!.player!;
+      const bearing = 0.8;
+      player.position.x = Math.cos(bearing) * 3.2;
+      player.position.z = Math.sin(bearing) * 3.2;
+      player.facing = bearing;
+      player.pitch = -0.85;
+    });
+
+    const floorUnder = async (kind: string, character: Record<string, number>): Promise<number> => {
+      await page.evaluate(
+        ([k, c]) => {
+          const ritual = window.__someMore!.store.state.ritual as unknown as {
+            stargazing: { epochMs: number; elapsed: number; secondsUntilSkyRefresh: number };
+          };
+          const noon = new Date(ritual.stargazing.epochMs);
+          noon.setUTCHours(17, 0, 0, 0);
+          ritual.stargazing.epochMs = noon.getTime();
+          ritual.stargazing.elapsed = 0;
+          ritual.stargazing.secondsUntilSkyRefresh = 0;
+          const weather = window.__someMore!.store.state.ritual.weather as unknown as Record<string, unknown>;
+          weather['kind'] = k;
+          weather['nextKind'] = k;
+          weather['transition'] = 1;
+          weather['precipitation'] = c!['precipitation'];
+          weather['fog'] = c!['fog'];
+          weather['cloudCover'] = c!['cloud'];
+          weather['windSpeed'] = c!['wind'];
+          weather['secondsUntilTransition'] = 100_000;
+        },
+        [kind, character] as const,
+      );
+      await page.waitForTimeout(12_000);
+      const image = decodePng(await page.screenshot({ clip: box }));
+      let total = 0;
+      const n = image.width * image.height;
+      for (let i = 0; i < n; i += 1) {
+        total +=
+          0.299 * image.data[i * 3]! + 0.587 * image.data[i * 3 + 1]! + 0.114 * image.data[i * 3 + 2]!;
+      }
+      return total / n;
+    };
+
+    const clear = await floorUnder('clear', { precipitation: 0, fog: 0.04, cloud: 0.05, wind: 0.6 });
+    const snow = await floorUnder('snow', { precipitation: 0.5, fog: 0.45, cloud: 0.95, wind: 1.3 });
+    // eslint-disable-next-line no-console
+    console.log(`\n  clear floor ${clear.toFixed(1)}, snowed floor ${snow.toFixed(1)}\n`);
+
+    expect(snow - clear, 'snow falls on this campsite and none of it lands').toBeGreaterThan(8);
+  });
+
 });

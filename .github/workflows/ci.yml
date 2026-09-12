@@ -445,6 +445,7 @@ jobs:
           - fire         # the fire stopped being a thing you tend
           - place        # the campsite stopped being anywhere in particular
           - invariants   # the renderer is quietly drawing something else
+          - ground       # the clearing floor is one wash with no zones in it
           - daylight     # the sun stopped reaching the ground
     steps:
       - uses: actions/checkout@v4

@@ -38,6 +38,7 @@ export type TextureKey =
   | 'steam'
   | 'stone'
   | 'canvas'
+  | 'contact'
   | 'noise';
 
 export interface TextureOptions {
@@ -688,6 +689,74 @@ const GENERATORS: Record<TextureKey, (ctx: Ctx2D, size: number, rng: Rng, colors
       ctx.fillRect(0, i, size, 1);
     }
     speckle(ctx, size, rng, ['#7a7059', '#5d5546'], 0.2);
+  },
+
+  /**
+   * The dark pool where a thing meets the ground.
+   *
+   * Three art directors, grading independently, each reported the same
+   * failure in these frames: the rocks "sit *on* the ground rather than *in*
+   * it", "read as decals pasted on a plane", have "no contact shadow so it
+   * sits on the ground instead of in it". They are right, and at midday they
+   * are most right — the sun is overhead, cast shadows collapse to nothing,
+   * and there is then no cue at all that an object and a floor are touching.
+   *
+   * A shadow map does not solve this and would be the wrong tool anyway: at
+   * 512 texels over a forty-metre camera the thing a rock needs — a tight
+   * dark core exactly at the contact line — is below the resolution, and the
+   * pass costs a re-render of everything that casts. The hardware this is
+   * imitating drew a blob and the blob was right. It is directionless, which
+   * is correct: contact occlusion is not a shadow of a light, it is the sky
+   * being blocked, and that is the same from every side.
+   *
+   * Drawn white at the rim and dark at the core so it can be multiplied into
+   * whatever is underneath rather than painted over it — the floor keeps its
+   * own grain and its own hue and simply gets darker, which is the difference
+   * between a shadow and a sticker.
+   *
+   * **Dithered on purpose.** A smooth radial ramp at sixty-four pixels under
+   * nearest sampling is a set of concentric rings, and rings around every rock
+   * is a worse artefact than no shadow at all. An ordered threshold turns the
+   * ramp into the same stipple the rest of the frame is made of, so the pool
+   * dissolves into the ground instead of terracing into it.
+   */
+  contact: (ctx, size, rng) => {
+    fill(ctx, size, '#ffffff');
+    const image = ctx.getImageData(0, 0, size, size);
+    const half = size / 2;
+    // The 4x4 ordered matrix the renderer already dithers with, so the two
+    // patterns are in step rather than beating against each other.
+    const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const dx = (x + 0.5 - half) / half;
+        const dy = (y + 0.5 - half) / half;
+        // A slightly lumpy disc: nothing in a wood is round, and an exact
+        // circle under every prop reads as a decal, which is the complaint.
+        const wobble = 1 + rng.range(-0.05, 0.05);
+        const d = Math.sqrt(dx * dx + dy * dy) * wobble;
+        // Darkest at the core and gone well before the rim, so the pool is
+        // "smallest and darkest at the contact line" rather than a wide grey
+        // halo. Squared falloff, then eased, is what gives it the tight centre.
+        const core = Math.max(0, 1 - d);
+        // Gentler than a square, so the pool is a pool rather than a dot with
+        // a wide neutral margin: the first version put all of its darkness
+        // inside the middle fifth and read, correctly, as a smudge.
+        const strength = Math.pow(core, 1.25) * 0.82;
+        const threshold = (BAYER[(y % 4) * 4 + (x % 4)] as number) / 16;
+        // Quantised to sixteen steps against the ordered matrix: the value
+        // that survives is the stipple, not a ramp.
+        const level = Math.max(0, Math.min(1, strength));
+        const stepped = Math.floor(level * 16 + threshold) / 16;
+        const v = Math.round(255 * (1 - stepped));
+        const i = (y * size + x) * 4;
+        image.data[i] = v;
+        image.data[i + 1] = v;
+        image.data[i + 2] = v;
+        image.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
   },
 
   noise: (ctx, size, rng) => {

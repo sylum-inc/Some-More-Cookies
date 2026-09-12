@@ -845,6 +845,14 @@ export function Campsite({
     [coverTextures],
   );
 
+  /**
+   * The tile every contact pool shares. See `ContactPools`.
+   *
+   * Not tiled and not repeated — one disc, stretched to each prop's footprint.
+   */
+  const contactTexture = useMemo(() => getTexture('contact', { size: 64, seed: seed ^ 0x4d1e }), [seed]);
+  useEffect(() => () => contactTexture?.dispose(), [contactTexture]);
+
   const duffMaterial = useMemo(
     () =>
       createPs1Material({
@@ -1404,6 +1412,46 @@ export function Campsite({
     }
     return buckets;
   }, [seed]);
+
+  /**
+   * Which props get a pool, and how wide.
+   *
+   * The radii are footprints rather than heights: what a contact pool is
+   * *for* is the join, so a tall thin thing gets a small one. They are a
+   * little wider than the object because the darkest part of real contact
+   * occlusion sits just outside the silhouette, where the ground can still
+   * see some sky but not much.
+   *
+   * Trees are deliberately left out. Two hundred and forty of them meet the
+   * ground at the treeline, where the floor is already the darkest part of the
+   * frame and a pool buys nothing — the same argument that keeps them out of
+   * the sun's shadow pass. This is for the things standing on the open floor a
+   * player walks across, which is where three critics said the failure reads.
+   */
+  const contactItems = useMemo(() => {
+    const out: { x: number; z: number; radius: number }[] = [];
+    const add = (items: readonly ScatterItem[], factor: number): void => {
+      for (const item of items) {
+        // Clamped, because `scale` is a multiplier on shapes of very different
+        // base sizes and an unbounded one puts a two-metre pool under a stone
+        // the size of a fist.
+        const radius = Math.min(0.85, Math.max(0.14, item.scale * factor));
+        out.push({ x: item.x, z: item.z, radius });
+      }
+    };
+    for (const bucket of rocks) add(bucket, 0.62);
+    add(deadfall, 0.46);
+    /*
+     * Pebbles are left out, having been in for exactly one render.
+     *
+     * They are eighty-five millimetres across and there are dozens of them, so
+     * what the frame got was dozens of pools a metre wide tiling most of the
+     * clearing — the floor went from having no contact cue to being paved with
+     * them. A contact pool is worth drawing for something a player can walk
+     * around; below that it is just a smudge under a speck.
+     */
+    return out;
+  }, [rocks, deadfall]);
 
   /** The trees, grouped by which of the six shapes they use. */
   const treeBuckets = useMemo(() => {
@@ -2599,6 +2647,13 @@ export function Campsite({
       <mesh name="ground-worn" geometry={groundCover.worn} material={wornMaterial} receiveShadow />
 
       {/*
+        And the dark where things touch it. Drawn after the floor and before
+        anything standing on it, so it multiplies into the ground and not into
+        the props. See `ContactPools`.
+      */}
+      <ContactPools items={contactItems} texture={contactTexture} height={groundAt} />
+
+      {/*
         What is lying on it. Two more calls; nothing here is a mesh per pebble.
 
         These do not cast: a stone eight centimetres across contributes nothing
@@ -3040,6 +3095,113 @@ function hashPatchId(id: string): number {
 }
 
 /** One placed instance: where it stands, which way it faces, how big it is. */
+/**
+ * One dark pool per prop, and one draw call for all of them.
+ *
+ * Every critic on the panel reported the same thing in different words: the
+ * rocks sit *on* the clearing floor rather than *in* it, "read as decals
+ * pasted on a plane", have no occlusion where they meet the ground. It is
+ * worst at midday, when the sun is overhead and cast shadows collapse, and
+ * there is then no cue whatever that an object and a floor are touching.
+ *
+ * Deliberately NOT a shadow map. The sun's pass is already declined for the
+ * two hundred and forty trees because it took the worst-case sweep past its
+ * draw-call budget for four texels of mush, and the thing a rock needs here —
+ * a tight dark core exactly at the contact line — is below a 512 map's
+ * resolution over a forty-metre camera anyway. Contact occlusion is not the
+ * shadow of a light, it is the sky being blocked, so it has no direction and a
+ * blob is not an approximation of it: a blob is what it is.
+ *
+ * Every prop's pool is one instance of one quad in one mesh, so the whole
+ * campsite costs a single draw call and two triangles a prop.
+ */
+function ContactPools({
+  items,
+  texture,
+  height,
+}: {
+  items: readonly { x: number; z: number; radius: number }[];
+  texture: THREE.Texture | null;
+  height: (x: number, z: number) => number;
+}): React.ReactElement | null {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const geometry = useMemo(() => {
+    const plane = new THREE.PlaneGeometry(1, 1);
+    // Laid flat, face up, once — rather than rotating every instance.
+    plane.rotateX(-Math.PI / 2);
+    return plane;
+  }, []);
+  const material = useMemo(
+    () =>
+      new THREE.MeshBasicMaterial({
+        map: texture,
+        /*
+         * Multiplied into the ground rather than drawn over it, so the floor
+         * keeps its own grain, its own hue and its own weather and simply gets
+         * darker. A black quad with an alpha mask would paint a grey sticker
+         * and would have to be re-tinted every time the hour moved.
+         */
+        /*
+         * Spelled out as factors rather than named as `MultiplyBlending`.
+         *
+         * The named constant was set, and `material.blending` read back as 4
+         * at runtime, and the pools still painted as opaque white squares with
+         * a dark dot in the middle of each — which is what NormalBlending does
+         * to this tile. Rather than keep arguing with it, the factors are
+         * written out: destination times source, add nothing. dst = dst * src,
+         * so white is the identity and the dark core is the only thing that
+         * does anything.
+         */
+        blending: THREE.CustomBlending,
+        blendSrc: THREE.ZeroFactor,
+        blendDst: THREE.SrcColorFactor,
+        blendEquation: THREE.AddEquation,
+        transparent: true,
+        depthWrite: false,
+        /*
+         * Fog OFF, and this is load-bearing rather than an optimisation.
+         *
+         * `three`'s `fog_fragment` mixes the fragment toward the fog colour,
+         * which is a bright sky value in daylight — under a multiply blend
+         * that turns a distant shadow into something that *lightens* the
+         * ground it lands on. It is the same defect as the stars and the rain
+         * painting the fog colour, which is rule one of `e2e/invariants.spec.ts`
+         * and which would have caught this had it been left on.
+         */
+        fog: false,
+      }),
+    [texture],
+  );
+  useEffect(() => () => { geometry.dispose(); material.dispose(); }, [geometry, material]);
+
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      dummy.position.set(item.x, height(item.x, item.z) + 0.022, item.z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(item.radius * 2, 1, item.radius * 2);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.computeBoundingSphere();
+  }, [items, dummy, height]);
+
+  if (items.length === 0 || texture === null) return null;
+  return (
+    <instancedMesh
+      name="contact-pools"
+      ref={meshRef}
+      args={[geometry, material, items.length]}
+      renderOrder={1}
+      frustumCulled={false}
+    />
+  );
+}
+
 export interface ScatterItem {
   x: number;
   y: number;

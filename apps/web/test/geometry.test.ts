@@ -801,11 +801,22 @@ describe('the ground', () => {
   });
 
   it('stays inside its share of the budget', () => {
-    // Four draw calls and about a thousand triangles for the eight metres that
-    // are half of every frame, against ARCHITECTURE §10's 120 and 60k.
+    /*
+     * Two draw calls and about five hundred triangles for the eight metres
+     * that are half of every frame, against ARCHITECTURE §10's 120 and 75k.
+     *
+     * Raised from 480 on purpose, for one more ring on the worn piece. The
+     * scorch is a disc a metre and a half wide measured from the ring stones,
+     * and the mesh it is painted on had one vertex inside that whole width,
+     * so however deeply it was authored it had nowhere to resolve — measured
+     * on the shipped build, the burnt ground came out brighter than the
+     * untrodden floor. Forty triangles at the coarsest tier against a
+     * measured scene peak of 60,520 is the cheapest fix available to any
+     * complaint on the panel's list.
+     */
     for (const spokes of [14, 20, 26]) {
       const cover = createGroundCoverGeometry({ seed: 1, spokes, height: flat });
-      expect(cover.triangles).toBeLessThanOrEqual(480);
+      expect(cover.triangles).toBeLessThanOrEqual(520);
       expect(triangles(cover.worn) + triangles(cover.duff)).toBe(cover.triangles);
     }
     expect(triangles(createLitterGeometry('pebble', 1))).toBeLessThanOrEqual(8);

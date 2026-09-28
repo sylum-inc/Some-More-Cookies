@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import type { RitualStage, RitualState } from '@somemore/sim';
 import { Sprite, type SpriteName } from './Sprite.js';
+import { hudKey } from './hudKey.js';
 import { REACH_SPRITES, fireSprite, roastSprite, timeSprite, weatherSprite } from './iconography.js';
 import { PixelNote } from './PixelPanel.js';
 import {
@@ -453,6 +454,48 @@ export interface ThrowGrip {
   spin: number;
 }
 
+/**
+ * The reach plate's border: `cream2` from the sprite ramp, `#a89272`.
+ *
+ * HSV saturation 0.32 against the flame's measured 0.66-0.82, and a hue a
+ * few degrees yellower than the fire's, so it frames without competing.
+ */
+const REACH_BORDER = '#a89272';
+
+/** `cream3`, `#ddc9a3`: lighter than the border, so the brackets read by value. */
+const REACH_NOTCH = '#ddc9a3';
+
+/**
+ * Four corner brackets: the cursor every handheld of the period drew.
+ *
+ * Three pixels thick and ten long, sitting on the border rather than
+ * inside it, so they read as a mark placed around the target rather than as
+ * part of the plate. Decorative — the button's label carries the meaning.
+ */
+function ReachNotches(): React.ReactElement {
+  const arm = 10;
+  const bar = 3;
+  const at = -2 - bar + 1;
+  const corner = (vertical: 'top' | 'bottom', horizontal: 'left' | 'right'): React.CSSProperties => ({
+    position: 'absolute',
+    [vertical]: at,
+    [horizontal]: at,
+    width: arm,
+    height: arm,
+    [`border${vertical === 'top' ? 'Top' : 'Bottom'}`]: `${bar}px solid ${REACH_NOTCH}`,
+    [`border${horizontal === 'left' ? 'Left' : 'Right'}`]: `${bar}px solid ${REACH_NOTCH}`,
+    pointerEvents: 'none',
+  });
+  return (
+    <span aria-hidden="true">
+      <span style={corner('top', 'left')} />
+      <span style={corner('top', 'right')} />
+      <span style={corner('bottom', 'left')} />
+      <span style={corner('bottom', 'right')} />
+    </span>
+  );
+}
+
 export function Hud(props: HudProps): React.ReactElement {
   const { ritual, stage, textScale, highContrast } = props;
   // Whole pixels. A HUD drawn over a nearest-neighbour buffer cannot afford
@@ -586,9 +629,19 @@ export function Hud(props: HudProps): React.ReactElement {
    * unambiguous, where an icon of "take" needs a caption to say what is being
    * taken. The one exception is the fire, whose verb is the interesting part.
    *
-   * The amber ring is the only place that colour appears in the HUD. It is
-   * what the world wants you to look at, and an accent that shows up anywhere
-   * else points at nothing.
+   * It used to be ringed in amber, on the argument that the ring is what the
+   * world wants you to look at. Measured, it was worse than that: the most
+   * saturated orange on the screen, hotter than the flame it sat beside, on
+   * the plate that also carried the brightest pixel in the frame. An art
+   * director asked for exactly the fix — "make the selected state read as a
+   * value or a notch rather than a saturation spike" — and that is what it is
+   * now: a quiet border in the sprite ramp's own muted cream, and four corner
+   * brackets that say "this" the way a handheld's cursor always did, by being
+   * lighter than what they frame rather than by being orange. Orange belongs
+   * to the fire.
+   *
+   * High contrast keeps the amber. That mode is for a player who needs the
+   * target to shout, and it should.
    */
   const reachButton =
     props.exploring && reach !== null ? (
@@ -601,11 +654,12 @@ export function Hud(props: HudProps): React.ReactElement {
           display: 'flex',
           alignItems: 'center',
           gap: scale(9),
+          position: 'relative',
           background: 'linear-gradient(180deg, rgba(46,32,14,0.88), rgba(16,11,6,0.9))',
           color: 'rgba(248,238,218,0.98)',
-          border: `2px solid ${TOKENS.amber}`,
+          border: `2px solid ${highContrast ? TOKENS.amber : REACH_BORDER}`,
           boxShadow:
-            'inset 2px 2px 0 rgba(255,210,74,0.22), inset -2px -2px 0 rgba(0,0,0,0.6), 0 2px 12px rgba(0,0,0,0.55)',
+            'inset 2px 2px 0 rgba(221,201,163,0.16), inset -2px -2px 0 rgba(0,0,0,0.6), 0 2px 12px rgba(0,0,0,0.55)',
           padding: `${uiPx(9, textScale)} ${uiPx(12, textScale)}`,
           fontSize: scale(12),
           letterSpacing: '0.08em',
@@ -615,6 +669,7 @@ export function Hud(props: HudProps): React.ReactElement {
           pointerEvents: 'auto',
         }}
       >
+        {highContrast ? null : <ReachNotches />}
         <Sprite name={REACH_SPRITES[reach.id] ?? 'verb-take'} scale={2} />
         {highContrast ? (
           <span>{reachLabel(reach.id, ritual, props.seated ?? false, props.inspecting ?? null)}</span>
@@ -720,6 +775,12 @@ export function Hud(props: HudProps): React.ReactElement {
   return (
     <div
       style={{
+        // See `hudKey`. Read by `.sm-hud-chrome` in `styles.ts`; carried on the
+        // root as a variable rather than applied here as a filter, because a
+        // filter on this element would re-anchor every `position: fixed`
+        // descendant to it instead of to the viewport, and the pixel note
+        // under the corner controls is exactly such a descendant.
+        ['--hud-key' as string]: hudKey(ritual.window, highContrast).toFixed(3),
         position: 'fixed',
         /*
          * Inside the bezel, not under it.
@@ -772,6 +833,7 @@ export function Hud(props: HudProps): React.ReactElement {
       >
         <div
           data-testid="corner-controls"
+          className="sm-hud-chrome"
           style={{
             display: 'flex',
             gap: 8,
@@ -869,7 +931,7 @@ export function Hud(props: HudProps): React.ReactElement {
         on which of them happens to be rendering today.
       */}
       <div
-        className="sm-hud-bottom"
+        className="sm-hud-bottom sm-hud-chrome"
         style={{
           position: 'absolute',
           left: 'env(safe-area-inset-left, 0px)',

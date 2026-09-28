@@ -446,6 +446,7 @@ jobs:
           - place        # the campsite stopped being anywhere in particular
           - invariants   # the renderer is quietly drawing something else
           - ground       # the clearing floor is one wash with no zones in it
+          - hud          # the interface is brighter than the fire
           - daylight     # the sun stopped reaching the ground
     steps:
       - uses: actions/checkout@v4

@@ -303,6 +303,24 @@ export const GLOBAL_CSS = `
       grid-template-areas: "bite bite" "words acts" "stick acts";
     }
   }
+  /*
+    The HUD sits under the picture's light. See \`ui/hudKey.ts\`.
+
+    Dimmed by default to a ceiling below the fire, and brought to full
+    brightness only while the player is actually using it: a control with
+    keyboard focus, or one being pressed. "Recessive by default, brightening
+    only on touch" is how an art director on the panel described it, and it is
+    also the right answer for a keyboard player, who should never have to find
+    a focused control in a dimmed panel.
+
+    \`:focus-visible\` rather than \`:focus-within\`, and that is the whole
+    difference: a mouse click focuses a button too, and focus stays on it after
+    the overlay it opened is closed, so \`:focus-within\` would leave the HUD at
+    full brightness for the rest of the session after one click. Chrome only
+    matches \`:focus-visible\` for keyboard focus.
+  */
+  .sm-hud-chrome { filter: brightness(var(--hud-key, 1)); }
+  .sm-hud-chrome:has(:focus-visible), .sm-hud-chrome:has(:active) { filter: none; }
   .sm-focus:focus-visible { outline: 3px solid ${TOKENS.amber}; outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 `;

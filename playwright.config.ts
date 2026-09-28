@@ -188,6 +188,14 @@ export default defineConfig({
      */
     { name: 'ground', testMatch: /ground\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
     /*
+     * The heads-up display against the fire, measured on the screen.
+     *
+     * Its own project because the failure is its own: not a broken control
+     * but a HUD brighter than the thing the game is about, which no
+     * interaction test can see. See \`ui/hudKey.ts\`.
+     */
+    { name: 'hud', testMatch: /hud\.spec\.ts/, use: { ...devices['Desktop Chrome'] } },
+    /*
      * Two browser contexts at one campfire, against a real service.
      *
      * Its own project because it fails on a different thing again: not "the

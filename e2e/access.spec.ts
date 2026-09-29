@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { act, advanceUntil, capture, hudBoxes, hudCollisions, readWorld, waitForWorld } from './helpers.js';
+import { waitForCameraStill } from './stages.js';
 
 /**
  * §12, driven rather than read.
@@ -184,6 +185,29 @@ test.describe('turning your head without a pointer', () => {
     await boot(page);
     await page.keyboard.press('Enter');
     await waitForWorld(page, "r.stage === 'at-fire'", 'arrival', 40_000);
+    /*
+     * And then wait for the picture to be moving again.
+     *
+     * This test used to hold each key for a fixed number of milliseconds and
+     * failed intermittently for most of the branch's life -- once in a
+     * 46-minute full run, once in a project run, one in twelve in isolation --
+     * with the heading frozen to four decimal places. The event trail was
+     * clean every time: no blur, no focus change, every keydown landing on the
+     * body unprevented and reaching the handler. What was missing was frames.
+     * Counted during the 700 ms hold, the page drew between none and five of
+     * them, with single gaps of up to 2.5 seconds, in the seconds after the
+     * arrival: under SwiftShader that is when the materials the at-fire scene
+     * shows for the first time are being compiled. A look key is a *rate*
+     * that the frame loop integrates, so a key held across zero frames turns
+     * nobody. Every run that drew one frame or fewer froze; every run that
+     * drew two or more moved.
+     *
+     * So the hold is measured in frames the page actually drew, not in wall
+     * time, and the test waits for the camera to be still -- which it can
+     * only report once frames are flowing -- before it starts. What it asserts
+     * is unchanged: a held key turns the player, and letting go stops it.
+     */
+    await waitForCameraStill(page);
 
     const pose = () =>
       page.evaluate(() => {
@@ -191,29 +215,46 @@ test.describe('turning your head without a pointer', () => {
         return { facing: Number(p.facing.toFixed(4)), pitch: Number(p.pitch.toFixed(4)) };
       });
 
+    /** Wait for the page to draw this many frames, however long that takes. */
+    const frames = (count: number): Promise<void> =>
+      page.evaluate(
+        (n) =>
+          new Promise<void>((resolve) => {
+            let left = n;
+            const tick = (): void => {
+              left -= 1;
+              if (left <= 0) resolve();
+              else requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }),
+        count,
+      );
+
+    /** Hold a key across a number of drawn frames. */
+    const hold = async (key: string, count: number): Promise<void> => {
+      await page.keyboard.down(key);
+      await frames(count);
+      await page.keyboard.up(key);
+    };
+
     const before = await pose();
 
-    await page.keyboard.down('ArrowRight');
-    await page.waitForTimeout(700);
-    await page.keyboard.up('ArrowRight');
+    await hold('ArrowRight', 12);
     const turned = await pose();
     expect(turned.facing, 'holding a look key did not turn the player').not.toBeCloseTo(before.facing, 2);
 
     // And it stops when the key does, rather than turning forever.
-    await page.waitForTimeout(600);
+    await frames(12);
     expect((await pose()).facing).toBeCloseTo(turned.facing, 4);
 
-    await page.keyboard.down('ArrowUp');
-    await page.waitForTimeout(500);
-    await page.keyboard.up('ArrowUp');
+    await hold('ArrowUp', 10);
     const raised = await pose();
     expect(raised.pitch, 'holding a look key did not raise the view').toBeGreaterThan(turned.pitch);
 
     // Walking is still walking: WASD moves without steering.
     const walkFrom = await pose();
-    await page.keyboard.down('w');
-    await page.waitForTimeout(500);
-    await page.keyboard.up('w');
+    await hold('w', 10);
     expect((await pose()).facing).toBeCloseTo(walkFrom.facing, 4);
   });
 });

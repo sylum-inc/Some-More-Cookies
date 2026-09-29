@@ -26,11 +26,16 @@ import { defineConfig, devices } from '@playwright/test';
  * silently becomes another branch's build, or a half-written one, part way
  * through a suite.
  *
- * That is not theoretical. It is the best explanation for a keyboard-look test
- * that reported the player's heading frozen mid-ease to four decimal places
- * across 1.8 seconds: no key binding, focus steal or handler guard can stop the
- * frame loop, but swapping the served bundle underneath a running page can. The
- * test passed ten times out of ten once it had the machine to itself.
+ * This was once offered as the best explanation for a keyboard-look test that
+ * reported the player's heading frozen to four decimal places across 1.8
+ * seconds. It was not the explanation, or not the only one: the same freeze
+ * was later reproduced one run in twelve with the machine entirely to itself,
+ * and counting frames during the held key showed why -- right after the
+ * arrival, SwiftShader draws between none and five frames in 700 ms while it
+ * compiles the materials the at-fire scene shows for the first time, and a
+ * look key is a rate the frame loop integrates. The test now holds keys for
+ * drawn frames rather than milliseconds (see `e2e/access.spec.ts`). The hazard
+ * below is still real; it just was not that bug.
  *
  * So: separate ports make concurrent runs *possible*, not *safe*. Until the
  * build output is per-run too, treat a surprising failure during concurrent
